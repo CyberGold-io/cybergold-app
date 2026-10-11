@@ -1,0 +1,528 @@
+{
+  "schemaVersion": "1.0.0",
+  "generatedAt": "2026-02-17",
+  "locales": ["en", "fr", "ru"],
+  "description": {
+    "en": "Off-chain enrichment dataset for basket tokens. Each statement is traceable to sourceIds.",
+    "fr": "Jeu de donnees d'enrichissement off-chain pour les tokens du panier. Chaque affirmation reference des sourceIds.",
+    "ru": "Набор off-chain обогащения для токенов корзины. Каждое утверждение связано с sourceIds."
+  },
+  "sourceCatalog": {
+    "etherscan_paxg_token_page": {
+      "publisher": "Etherscan",
+      "title": "Paxos Gold (PAXG) token page",
+      "url": "https://etherscan.io/token/0x45804880De22913dAFE09f4980848ECE6EcbAf78",
+      "retrievedAt": "2026-02-17",
+      "evidence": "Token contract address and decimals displayed on token page."
+    },
+    "etherscan_xaut_token_page": {
+      "publisher": "Etherscan",
+      "title": "Tether Gold (XAUt) token page",
+      "url": "https://etherscan.io/token/0x68749665FF8D2d112Fa859AA293F07A622782F38",
+      "retrievedAt": "2026-02-17",
+      "evidence": "Token contract address and decimals displayed on token page."
+    },
+    "paxos_paxg_page": {
+      "publisher": "Paxos",
+      "title": "Pax Gold (PAXG)",
+      "url": "https://www.paxos.com/pax-gold",
+      "retrievedAt": "2026-02-17",
+      "evidence": "Describes 1 PAXG backing, London vault custody, redemption options, and monthly audits."
+    },
+    "paxos_paxg_terms_2025_12_12": {
+      "publisher": "Paxos",
+      "title": "PAX Gold Terms and Conditions",
+      "url": "https://www.paxos.com/terms-and-conditions/pax-gold-terms-conditions",
+      "retrievedAt": "2026-02-17",
+      "evidence": "Defines issuer role, ERC-20 standard, KYC access, OCC approval, and physical redemption minimum."
+    },
+    "paxos_paxg_transparency": {
+      "publisher": "Paxos",
+      "title": "PAX Gold Transparency Reports",
+      "url": "https://www.paxos.com/paxg-transparency",
+      "retrievedAt": "2026-02-17",
+      "evidence": "States monthly attestation cadence and attestation firms."
+    },
+    "paxos_paxg_fees": {
+      "publisher": "Paxos Help Center",
+      "title": "PAX Gold Fees",
+      "url": "https://help.paxos.com/hc/en-us/articles/360041903832-PAX-Gold-Fees",
+      "retrievedAt": "2026-02-17",
+      "evidence": "Shows fee table and minimum purchase amount for direct platform access."
+    },
+    "xaut_rid_2025_01_27": {
+      "publisher": "Tether Gold / TG Commodities, S.A. de C.V.",
+      "title": "Relevant Information Document",
+      "url": "https://gold.tether.to/Relevant%20Information%20Document%20-%20TG%20Commodities%2C%20S.A.%20de%20C.V.%20%28ENG%29.pdf",
+      "retrievedAt": "2026-02-17",
+      "evidence": "Defines issuer, jurisdiction, token model, primary-market access, minimum purchase, redemption constraints, and ERC-20 standard."
+    },
+    "xaut_attestation_2025_q4": {
+      "publisher": "TG Commodities, S.A. de C.V. / BDO Advisory Services",
+      "title": "ISAE 3000R assurance report and reserves report as of 31 Dec 2025",
+      "url": "https://gold.tether.to/docs/reports/attestations/ISAE_3000R_-_Opinion_TGRR_31.12.2025_RC187322025DV0137.pdf",
+      "retrievedAt": "2026-02-17",
+      "evidence": "Confirms backing relation, Swiss vaulting, daily transparency updates, quarterly sample testing, and CNAD authorization context."
+    },
+    "coingecko_coins_markets_docs": {
+      "publisher": "CoinGecko",
+      "title": "Coins List with Market Data API docs",
+      "url": "https://docs.coingecko.com/reference/coins-markets",
+      "retrievedAt": "2026-02-17",
+      "evidence": "Endpoint for market price, market cap, volume and related metrics."
+    },
+    "coingecko_token_data_by_address_docs": {
+      "publisher": "CoinGecko",
+      "title": "Token Data by Token Address API docs",
+      "url": "https://docs.coingecko.com/reference/token-data-contract-address",
+      "retrievedAt": "2026-02-17",
+      "evidence": "Endpoint for token-level market data by network and contract address."
+    },
+    "coingecko_token_info_by_address_docs": {
+      "publisher": "CoinGecko",
+      "title": "Token Info by Token Address API docs",
+      "url": "https://docs.coingecko.com/reference/token-info-contract-address",
+      "retrievedAt": "2026-02-17",
+      "evidence": "Endpoint for token metadata by network and contract address."
+    },
+    "kaiko_market_depth_snapshot_docs": {
+      "publisher": "Kaiko",
+      "title": "Market depth (snapshot) API docs",
+      "url": "https://docs.kaiko.com/rest-api/data-feeds/level-1-and-level-2-data/level-2-aggregations/market-depth-snapshot",
+      "retrievedAt": "2026-02-17",
+      "evidence": "Endpoint for order-book depth snapshots and liquidity metrics."
+    }
+  },
+  "tokens": {
+    "0x45804880de22913dafe09f4980848ece6ecbaf78": {
+      "symbol": "PAXG",
+      "name": {
+        "en": "Pax Gold",
+        "fr": "Pax Gold",
+        "ru": "Pax Gold"
+      },
+      "network": {
+        "chainId": 1,
+        "name": "Ethereum",
+        "tokenStandard": "ERC-20",
+        "decimals": 18,
+        "sourceIds": ["etherscan_paxg_token_page", "paxos_paxg_terms_2025_12_12"]
+      },
+      "facts": [
+        {
+          "id": "issuer",
+          "group": "issuer",
+          "label": {
+            "en": "Issuer",
+            "fr": "Emetteur",
+            "ru": "Эмитент"
+          },
+          "value": {
+            "en": "Paxos Trust Company, N.A.",
+            "fr": "Paxos Trust Company, N.A.",
+            "ru": "Paxos Trust Company, N.A."
+          },
+          "asOf": "2025-12-12",
+          "sourceIds": ["paxos_paxg_terms_2025_12_12"]
+        },
+        {
+          "id": "backing_ratio",
+          "group": "reserves",
+          "label": {
+            "en": "Backing ratio",
+            "fr": "Ratio de collaterisation",
+            "ru": "Коэффициент обеспечения"
+          },
+          "value": {
+            "en": "1 PAXG represents 1 fine troy ounce of London Good Delivery gold.",
+            "fr": "1 PAXG represente 1 once troy fine d'or London Good Delivery.",
+            "ru": "1 PAXG представляет 1 тройскую унцию золота London Good Delivery."
+          },
+          "sourceIds": ["paxos_paxg_page", "paxos_paxg_terms_2025_12_12"]
+        },
+        {
+          "id": "allocation_model",
+          "group": "reserves",
+          "label": {
+            "en": "Allocation model",
+            "fr": "Modele d'allocation",
+            "ru": "Модель аллокации"
+          },
+          "value": {
+            "en": "Allocated gold bars, held on a segregated basis for token holders.",
+            "fr": "Barres d'or allouees, detenues sur une base separee pour les detenteurs.",
+            "ru": "Аллоцированные слитки, хранящиеся обособленно в интересах держателей токена."
+          },
+          "sourceIds": ["paxos_paxg_page", "paxos_paxg_terms_2025_12_12"]
+        },
+        {
+          "id": "custody_location",
+          "group": "custody",
+          "label": {
+            "en": "Reserve location",
+            "fr": "Localisation des reserves",
+            "ru": "Местоположение резервов"
+          },
+          "value": {
+            "en": "LBMA vaults in London.",
+            "fr": "Coffres LBMA a Londres.",
+            "ru": "Хранилища LBMA в Лондоне."
+          },
+          "sourceIds": ["paxos_paxg_page"]
+        },
+        {
+          "id": "regulatory_status",
+          "group": "regulation",
+          "label": {
+            "en": "Regulatory status",
+            "fr": "Statut reglementaire",
+            "ru": "Регуляторный статус"
+          },
+          "value": {
+            "en": "PAXG issuance is described as approved by the OCC in Paxos terms.",
+            "fr": "Les conditions Paxos indiquent une approbation OCC pour l'emission PAXG.",
+            "ru": "В условиях Paxos указано одобрение OCC для выпуска PAXG."
+          },
+          "sourceIds": ["paxos_paxg_page", "paxos_paxg_terms_2025_12_12"]
+        },
+        {
+          "id": "redeemability",
+          "group": "redeemability",
+          "label": {
+            "en": "Redeemability",
+            "fr": "Rachetable",
+            "ru": "Погашение"
+          },
+          "value": {
+            "en": "Redeemable for USD, unallocated Loco London gold, and LBMA-accredited Good Delivery bars (subject to eligibility/rules).",
+            "fr": "Rachetable en USD, or non alloue Loco London, et barres Good Delivery LBMA (selon eligibilite/regles).",
+            "ru": "Погашается в USD, неаллоцированное золото Loco London и слитки LBMA Good Delivery (при соблюдении условий)."
+          },
+          "sourceIds": ["paxos_paxg_page", "paxos_paxg_terms_2025_12_12"]
+        },
+        {
+          "id": "kyc_requirement",
+          "group": "redeemability",
+          "label": {
+            "en": "Primary market access",
+            "fr": "Acces marche primaire",
+            "ru": "Доступ к первичному рынку"
+          },
+          "value": {
+            "en": "Only verified customers may purchase, convert, or redeem directly with Paxos.",
+            "fr": "Seuls les clients verifies peuvent acheter, convertir ou racheter directement chez Paxos.",
+            "ru": "Только верифицированные клиенты могут покупать, конвертировать и погашать напрямую у Paxos."
+          },
+          "sourceIds": ["paxos_paxg_terms_2025_12_12"]
+        },
+        {
+          "id": "physical_redemption_minimum",
+          "group": "redeemability",
+          "label": {
+            "en": "Physical redemption minimum",
+            "fr": "Minimum de rachat physique",
+            "ru": "Минимум для физического погашения"
+          },
+          "value": {
+            "en": "430 PAXG minimum per London Good Delivery bar redemption path.",
+            "fr": "Minimum 430 PAXG pour le rachat en barre London Good Delivery.",
+            "ru": "Минимум 430 PAXG для погашения слитком London Good Delivery."
+          },
+          "sourceIds": ["paxos_paxg_terms_2025_12_12"]
+        },
+        {
+          "id": "minimum_purchase_platform",
+          "group": "fees",
+          "label": {
+            "en": "Platform minimum purchase",
+            "fr": "Achat minimum plateforme",
+            "ru": "Минимальная покупка на платформе"
+          },
+          "value": {
+            "en": "Paxos help center states a minimum purchase amount of 0.03 PAXG.",
+            "fr": "Le centre d'aide Paxos indique un achat minimum de 0.03 PAXG.",
+            "ru": "В справке Paxos указан минимальный объем покупки 0.03 PAXG."
+          },
+          "sourceIds": ["paxos_paxg_fees"]
+        },
+        {
+          "id": "attestation_cadence",
+          "group": "assurance",
+          "label": {
+            "en": "Attestation cadence",
+            "fr": "Frequence d'attestation",
+            "ru": "Периодичность аттестаций"
+          },
+          "value": {
+            "en": "Paxos states monthly attestation publication; reports dated from 2025-02-28 onward are issued by KPMG LLP.",
+            "fr": "Paxos indique des attestations mensuelles; depuis le 28/02/2025 elles sont emises par KPMG LLP.",
+            "ru": "Paxos публикует аттестации ежемесячно; отчеты с 28.02.2025 выпускает KPMG LLP."
+          },
+          "asOf": "2026-02-17",
+          "sourceIds": ["paxos_paxg_transparency"]
+        }
+      ],
+      "apiEnrichmentFeeds": [
+        {
+          "id": "coingecko_coin_market",
+          "label": {
+            "en": "Market stats by CoinGecko coin id",
+            "fr": "Stats de marche via id CoinGecko",
+            "ru": "Рыночные данные по id CoinGecko"
+          },
+          "urlTemplate": "https://pro-api.coingecko.com/api/v3/coins/markets?vs_currency={vs_currency}&ids=pax-gold",
+          "sourceIds": ["coingecko_coins_markets_docs"]
+        },
+        {
+          "id": "coingecko_token_data_by_address",
+          "label": {
+            "en": "Token data by contract address",
+            "fr": "Donnees token par adresse de contrat",
+            "ru": "Данные токена по адресу контракта"
+          },
+          "urlTemplate": "https://api.coingecko.com/api/v3/onchain/networks/eth/tokens/0x45804880de22913dafe09f4980848ece6ecbaf78",
+          "sourceIds": ["coingecko_token_data_by_address_docs"]
+        },
+        {
+          "id": "coingecko_token_info_by_address",
+          "label": {
+            "en": "Token metadata by contract address",
+            "fr": "Metadonnees token par adresse de contrat",
+            "ru": "Метаданные токена по адресу контракта"
+          },
+          "urlTemplate": "https://pro-api.coingecko.com/api/v3/onchain/networks/eth/tokens/0x45804880de22913dafe09f4980848ece6ecbaf78/info",
+          "sourceIds": ["coingecko_token_info_by_address_docs"]
+        },
+        {
+          "id": "kaiko_market_depth",
+          "label": {
+            "en": "Order-book depth for selected exchange instrument",
+            "fr": "Profondeur du carnet d'ordres pour un instrument d'exchange",
+            "ru": "Глубина стакана для выбранного инструмента биржи"
+          },
+          "urlTemplate": "https://us.market-api.kaiko.io/v2/data/order_book_snapshots.v1/exchanges/{exchange}/spot/{instrument}/snapshots/depth",
+          "note": {
+            "en": "Instrument mapping is exchange-specific (for example, paxg-usdt).",
+            "fr": "Le mapping instrument depend de l'exchange (exemple: paxg-usdt).",
+            "ru": "Код инструмента зависит от биржи (например, paxg-usdt)."
+          },
+          "sourceIds": ["kaiko_market_depth_snapshot_docs"]
+        }
+      ]
+    },
+    "0x68749665ff8d2d112fa859aa293f07a622782f38": {
+      "symbol": "XAUT",
+      "name": {
+        "en": "Tether Gold",
+        "fr": "Tether Gold",
+        "ru": "Tether Gold"
+      },
+      "network": {
+        "chainId": 1,
+        "name": "Ethereum",
+        "tokenStandard": "ERC-20",
+        "decimals": 6,
+        "sourceIds": ["etherscan_xaut_token_page", "xaut_rid_2025_01_27"]
+      },
+      "facts": [
+        {
+          "id": "issuer",
+          "group": "issuer",
+          "label": {
+            "en": "Issuer",
+            "fr": "Emetteur",
+            "ru": "Эмитент"
+          },
+          "value": {
+            "en": "TG Commodities, S.A. de C.V.",
+            "fr": "TG Commodities, S.A. de C.V.",
+            "ru": "TG Commodities, S.A. de C.V."
+          },
+          "sourceIds": ["xaut_rid_2025_01_27"]
+        },
+        {
+          "id": "jurisdiction",
+          "group": "issuer",
+          "label": {
+            "en": "Jurisdiction",
+            "fr": "Juridiction",
+            "ru": "Юрисдикция"
+          },
+          "value": {
+            "en": "Issuer incorporated under the laws of El Salvador.",
+            "fr": "Emetteur constitue selon les lois du Salvador.",
+            "ru": "Эмитент зарегистрирован по законам Сальвадора."
+          },
+          "sourceIds": ["xaut_rid_2025_01_27"]
+        },
+        {
+          "id": "regulatory_status",
+          "group": "regulation",
+          "label": {
+            "en": "Regulatory status",
+            "fr": "Statut reglementaire",
+            "ru": "Регуляторный статус"
+          },
+          "value": {
+            "en": "Reported as authorized Stablecoin Issuer and DASP under El Salvador digital-asset framework (CNAD supervision context).",
+            "fr": "Annonce comme emetteur de stablecoin et DASP autorise sous le cadre salvadorien (contexte CNAD).",
+            "ru": "Указан как авторизованный эмитент стейблкоина и DASP в рамках регулирования Сальвадора (контекст CNAD)."
+          },
+          "sourceIds": ["xaut_rid_2025_01_27", "xaut_attestation_2025_q4"]
+        },
+        {
+          "id": "backing_ratio",
+          "group": "reserves",
+          "label": {
+            "en": "Backing ratio",
+            "fr": "Ratio de collaterisation",
+            "ru": "Коэффициент обеспечения"
+          },
+          "value": {
+            "en": "Each XAUT represents ownership interest in one fine troy ounce of gold on specific bars; reserves report states at least one fine troy ounce per token.",
+            "fr": "Chaque XAUT represente un interet de propriete sur une once troy fine d'or sur des barres specifiques; le rapport de reserves indique au moins une once par token.",
+            "ru": "Каждый XAUT отражает долю владения 1 тройской унцией золота на конкретных слитках; отчет по резервам указывает минимум 1 унцию на токен."
+          },
+          "sourceIds": ["xaut_rid_2025_01_27", "xaut_attestation_2025_q4"]
+        },
+        {
+          "id": "allocation_model",
+          "group": "reserves",
+          "label": {
+            "en": "Allocation model",
+            "fr": "Modele d'allocation",
+            "ru": "Модель аллокации"
+          },
+          "value": {
+            "en": "Ownership is linked to specific gold bars and holder rights are described as undivided ownership interests.",
+            "fr": "La propriete est liee a des barres specifiques et les droits des detenteurs sont decrits comme des interets indivis.",
+            "ru": "Право владения связано с конкретными слитками; права держателей описаны как неделимая доля владения."
+          },
+          "sourceIds": ["xaut_rid_2025_01_27"]
+        },
+        {
+          "id": "custody_location",
+          "group": "custody",
+          "label": {
+            "en": "Reserve location",
+            "fr": "Localisation des reserves",
+            "ru": "Местоположение резервов"
+          },
+          "value": {
+            "en": "Gold reserves are held in Swiss vault(s).",
+            "fr": "Les reserves d'or sont detenues dans des coffres en Suisse.",
+            "ru": "Золотые резервы хранятся в швейцарских хранилищах."
+          },
+          "sourceIds": ["xaut_rid_2025_01_27", "xaut_attestation_2025_q4"]
+        },
+        {
+          "id": "redeemability",
+          "group": "redeemability",
+          "label": {
+            "en": "Redeemability",
+            "fr": "Rachetable",
+            "ru": "Погашение"
+          },
+          "value": {
+            "en": "Primary market actions are for KYC-verified users; minimum direct purchase is 50 XAUT and redemption is in full-bar increments.",
+            "fr": "Les operations de marche primaire sont pour les utilisateurs KYC verifies; achat minimum direct 50 XAUT et rachat par increments de barres completes.",
+            "ru": "Операции первичного рынка доступны KYC-пользователям; минимальная прямая покупка 50 XAUT, погашение только целыми слитками."
+          },
+          "sourceIds": ["xaut_rid_2025_01_27"]
+        },
+        {
+          "id": "transparency_updates",
+          "group": "assurance",
+          "label": {
+            "en": "Transparency update cadence",
+            "fr": "Frequence de mise a jour transparence",
+            "ru": "Частота обновления прозрачности"
+          },
+          "value": {
+            "en": "Transparency page is described as updated daily, at least once per day.",
+            "fr": "La page de transparence est indiquee comme mise a jour quotidiennement, au moins une fois par jour.",
+            "ru": "Указано, что страница прозрачности обновляется ежедневно, минимум один раз в день."
+          },
+          "sourceIds": ["xaut_attestation_2025_q4"]
+        },
+        {
+          "id": "reserve_testing",
+          "group": "assurance",
+          "label": {
+            "en": "Reserve testing",
+            "fr": "Controle des reserves",
+            "ru": "Проверка резервов"
+          },
+          "value": {
+            "en": "A sample of bars is subject to confirmatory testing on a quarterly basis by an independent qualified third party.",
+            "fr": "Un echantillon des barres fait l'objet de tests de confirmation trimestriels par un tiers independant qualifie.",
+            "ru": "Выборка слитков проходит подтверждающее тестирование ежеквартально независимой квалифицированной третьей стороной."
+          },
+          "sourceIds": ["xaut_attestation_2025_q4"]
+        },
+        {
+          "id": "assurance_standard",
+          "group": "assurance",
+          "label": {
+            "en": "Assurance standard",
+            "fr": "Norme d'assurance",
+            "ru": "Стандарт подтверждения"
+          },
+          "value": {
+            "en": "Published reserve assurance report is framed under ISAE 3000 (Revised).",
+            "fr": "Le rapport de reserves publie est etabli sous le cadre ISAE 3000 (Revised).",
+            "ru": "Опубликованный отчет по резервам оформлен по ISAE 3000 (Revised)."
+          },
+          "sourceIds": ["xaut_attestation_2025_q4"]
+        }
+      ],
+      "apiEnrichmentFeeds": [
+        {
+          "id": "coingecko_coin_market",
+          "label": {
+            "en": "Market stats by CoinGecko coin id",
+            "fr": "Stats de marche via id CoinGecko",
+            "ru": "Рыночные данные по id CoinGecko"
+          },
+          "urlTemplate": "https://pro-api.coingecko.com/api/v3/coins/markets?vs_currency={vs_currency}&ids=tether-gold",
+          "sourceIds": ["coingecko_coins_markets_docs"]
+        },
+        {
+          "id": "coingecko_token_data_by_address",
+          "label": {
+            "en": "Token data by contract address",
+            "fr": "Donnees token par adresse de contrat",
+            "ru": "Данные токена по адресу контракта"
+          },
+          "urlTemplate": "https://api.coingecko.com/api/v3/onchain/networks/eth/tokens/0x68749665ff8d2d112fa859aa293f07a622782f38",
+          "sourceIds": ["coingecko_token_data_by_address_docs"]
+        },
+        {
+          "id": "coingecko_token_info_by_address",
+          "label": {
+            "en": "Token metadata by contract address",
+            "fr": "Metadonnees token par adresse de contrat",
+            "ru": "Метаданные токена по адресу контракта"
+          },
+          "urlTemplate": "https://pro-api.coingecko.com/api/v3/onchain/networks/eth/tokens/0x68749665ff8d2d112fa859aa293f07a622782f38/info",
+          "sourceIds": ["coingecko_token_info_by_address_docs"]
+        },
+        {
+          "id": "kaiko_market_depth",
+          "label": {
+            "en": "Order-book depth for selected exchange instrument",
+            "fr": "Profondeur du carnet d'ordres pour un instrument d'exchange",
+            "ru": "Глубина стакана для выбранного инструмента биржи"
+          },
+          "urlTemplate": "https://us.market-api.kaiko.io/v2/data/order_book_snapshots.v1/exchanges/{exchange}/spot/{instrument}/snapshots/depth",
+          "note": {
+            "en": "Instrument mapping is exchange-specific (for example, xaut-usdt).",
+            "fr": "Le mapping instrument depend de l'exchange (exemple: xaut-usdt).",
+            "ru": "Код инструмента зависит от биржи (например, xaut-usdt)."
+          },
+          "sourceIds": ["kaiko_market_depth_snapshot_docs"]
+        }
+      ]
+    }
+  }
+}

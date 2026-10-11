@@ -1,0 +1,5 @@
+import { HELPERS_DIAMOND_ABI } from "../generated/helpersDiamond";
+
+
+export const HELPERS_ABI_ISSUE_FROM_BASKET = HELPERS_DIAMOND_ABI;
+export const HELPERS_ABI_ISSUE_FROM_TOKEN = HELPERS_DIAMOND_ABI;

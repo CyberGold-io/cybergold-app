@@ -1,0 +1,3382 @@
+'use client';
+import { useCachedQuoteIntent } from "@/app/hooks/flows/quotes/useCachedQuoteIntent";
+import { fetchQuoteIntent, type QuoteIntentRequest } from "@/app/utils/quoteIntent";
+import { findCygldPurchaseMax } from "@/app/utils/cygldPurchaseMax";
+import { buildQuoteDeadline } from "@/app/utils/swapPolicy";
+import { useLocalQuoteModel } from "@/app/hooks/flows/quotes/useLocalQuoteModel";
+import { useLocalBasketModel } from "@/app/hooks/flows/quotes/useLocalBasketModel";
+import { localBasketQuote } from "@/app/utils/localBasketQuote";
+import { cygldPurchaseCapacity, cygldGrossForNet, cygldBasketPurchaseAmount, cygldBasketPurchaseMax, formatCygldCapacity } from "@/app/utils/cygldSupply";
+import { computeSwapBudgetsExactIn, computeSwapBudgetsExactOut } from "@/app/utils/swapBudgets";
+import { adapterApprovalFromFacts, adapterCodePresentFromFacts, fetchHelpersRouterFacts } from "../utils/helpersRouterFacts";
+import { useProtocolConfiguration } from "../context/protocolConfigurationContext";
+import { requireProtocolAddress } from "../utils/protocolConfiguration";
+import { targetChainId, targetChainName } from "../config/chain";
+import { waitForAppTransactionReceipt } from "@/app/utils/receiptWait";
+import { useWalletAtomicStatus } from "@/app/hooks/useWalletAtomicStatus";
+import { type WalletBatchSubmission, type WalletSwapBatch } from "@/app/utils/walletBatch";
+import { prepareWalletSwapBatch, reportWalletRequestBatchDiagnostic, WalletRequestBatchStoppedError } from "@/app/utils/metaMaskRequestBatch";
+import { resolveActiveProvider } from "@/app/utils/ethereumProvider";
+
+import { ExecutionToleranceControl } from "@/app/components/executionToleranceControl";
+import { MarketSwapPanel } from "@/app/components/marketSwapPanel";
+import Image from "next/image";
+import { toast } from "sonner";
+import { FaBasketShopping } from "react-icons/fa6";
+import { Switch } from "@/components/ui/switch";
+import { Spinner } from "@/components/ui/spinner";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import { useTransactionFees } from "@/app/hooks/useTransactionFees";
+import { useRetainedQuoteDisplay } from "@/app/hooks/flows/quotes/useRetainedQuoteDisplay";
+import { useQuoteDiagnostics } from "@/app/hooks/useQuoteDiagnostics";
+import { createSwapDiagnostics, diagnosticReason, swapFailureOutcome } from "@/app/utils/clientDiagnostics";
+import { useChainId, usePublicClient, useWalletClient } from "wagmi";
+import { useConnectModal } from "@rainbow-me/rainbowkit";
+import { type erc20Token, type spendableToken } from ".././config/tokens";
+import { useTokenUsdPrices } from ".././hooks/useTokenUsdPrices";
+import { useTokenWalletBalances } from ".././hooks/useTokenWalletBalances";
+import { useImportedTokens } from "../hooks/useImportedTokens";
+import { checkSwapWalletBalances } from "../utils/walletBalanceSnapshot";
+import { nativeSellMaxAmount } from "../utils/nativeSellMaxAmount";
+import { useGoldPrice } from ".././hooks/useGoldPrice";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
+import { useObservedWalletAccount } from "../hooks/useObservedWalletAccount";
+import { useIsDarkMode } from "../hooks/useIsDarkMode";
+import { useIssueFromBasketExactInFlow } from "../hooks/flows/useIssueFromBasketExactInFlow";
+import { useIssueFromBasketExactOutFlow } from "../hooks/flows/useIssueFromBasketExactOutFlow";
+import { useRedeemToBasketExactInFlow } from "../hooks/flows/useRedeemToBasketExactInFlow";
+import { useRedeemToBasketExactOutFlow } from "../hooks/flows/useRedeemToBasketExactOutFlow";
+import { useIssueFromTokenExactInFlow } from "../hooks/flows/useIssueFromTokenExactInFlow";
+import { useIssueFromTokenExactOutFlow } from "../hooks/flows/useIssueFromTokenExactOutFlow";
+import { useRedeemToTokenExactInFlow } from "../hooks/flows/useRedeemToTokenExactInFlow";
+import { useRedeemToTokenMinOutFlow } from "../hooks/flows/useRedeemToTokenMinOutFlow";
+import { useIsAdapterApproved } from "../hooks/cybergold-helpers/useIsAdapterApproved";
+import { tokenFlowAdapterState } from "../utils/tokenFlowAdapterState";
+import type { WalletConfirmationTracker } from "../hooks/flows/shared/types";
+import { TokenPickerModal } from ".././components/tokenPickerModal";
+import { MarketDataFreshnessNotice } from "../components/marketDataFreshnessNotice";
+import { QuotePreviewError, quoteErrorMessage } from "../utils/quoteErrors";
+import { SwapTransactionNotice, type SwapTransactionNoticeProps } from "../components/swapTransactionNotice";
+import { FaChevronDown } from "react-icons/fa";
+import { LuArrowDownUp } from "react-icons/lu";
+import { useLocale, useTranslations } from 'next-intl';
+import { useBasketData } from "../hooks/cybergold/useBasketData";
+import { useRecoverySharePortfolio } from "../hooks/cybergold/useRecoverySharePortfolio";
+import { RecoveryShareAmount } from "../components/recoveryShareAmount";
+import { useCurrency } from "../context/currencyContext";
+import {
+  NetworkFeeEstimate,
+  BasketComponent,
+  TokenIssueQuoteStatus as AsyncStatus,
+  Prefill,
+} from "../types";
+import { formatUnits, formatEther, isAddress, zeroAddress, type Address, type Hex } from "viem";
+import { formatMeaningfulDecimalString, normalizeDecimalInput, formatNumberWithSpaces, formatWalletBalanceAmount, formatAmount, formatPpmAsPercent, truncateDecimalString, formatDecimalInputForCursor, getLocaleDecimalSeparator } from "../utils/formatting";
+import { useHelperFeePpm } from "../hooks/cybergold-helpers/useHelperFeePpm";
+import { useIssuanceFeePpm } from "../hooks/cybergold/useIssuanceFeePpm";
+import { useProtocolFact, useProtocolFacts } from "../hooks/protocol/useProtocolFacts";
+import { issuanceModelFromFacts } from "../utils/protocolFacts";
+import { GAS_POLICY, DEFAULT_SLIPPAGE_BPS } from "../utils/swapPolicy";
+import { deriveBasketComponentsAmountsFromSingleInput } from "../utils/basketAmounts";
+import { basketAmountsMapToOrderedBigIntArray, basketAmountsMapToStringMap } from "../utils/basketAmounts";
+import { parseDisplayNumber, parseInputToBigInt } from "../utils/numberParsing";
+import { buildBasketFromProtocolData } from "../utils/buildBasketFromProtocolData";
+import { getEtherscanBaseUrl } from "../utils/getEtherscanBaseUrl";
+import { findWalletBalanceByTokenId, isBasketComponentAmountOverWalletBalance as isBasketComponentAmountOverBalance } from "../utils/walletBalances";
+import { computeBasketSideUsdTotal } from "../utils/basketUsdTotal";
+import { computeTotalFeeUsd } from "../utils/feeUsdTotal";
+import { buildGoldReferenceGramsByTokenId, getUsdPriceFromGoldReference } from "../utils/goldReferencePricing";
+import { resolveFlowState } from "../utils/resolveFlowState";
+import { resolveTokenImagePath } from "../utils/tokenImages";
+import {
+  buildCombinedDisplayValuePlaceholder,
+  buildDisplayValuePlaceholder,
+  formatCombinedDisplayValueFromUsd,
+  formatDisplayValueFromUsd,
+} from "../utils/priceDisplay";
+import {
+  readPersistedSwapFormState,
+  writePersistedSwapFormState,
+} from "../utils/swapFormState";
+import { cn } from "@/lib/utils";
+import {
+  EXPECTED_CHAIN_ID,
+  assertWalletOnExpectedChain,
+} from "../utils/expectedChain";
+
+type WalletConfirmationProgressState = {
+  current: number;
+  total: number;
+  label: string;
+};
+
+function clampProgressPercent(value?: number) {
+  if (value === undefined || !Number.isFinite(value)) {
+    return undefined;
+  }
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function getProgressPercentFromCounts(progress?: { completed: number; total: number }) {
+  if (!progress) {
+    return undefined;
+  }
+
+  if (progress.total <= 0) {
+    return 0;
+  }
+
+  return clampProgressPercent((progress.completed / progress.total) * 100) ?? 0;
+}
+
+function useQuoteFailureToast(params: {
+  enabled: boolean;
+  status: AsyncStatus;
+  error?: string;
+  onFailure: () => void;
+}) {
+  const { enabled, status, error, onFailure } = params;
+  const t = useTranslations("Home");
+  const lastErrorRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!enabled || status !== "failed" || !error) {
+      if (!enabled || status !== "failed") {
+        lastErrorRef.current = null;
+      }
+      return;
+    }
+
+    if (lastErrorRef.current === error) {
+      return;
+    }
+
+    lastErrorRef.current = error;
+    // Capacity feedback belongs beside the CYGLD amount, without a second popup.
+    if (error !== t("quoteIssuanceCapExceeded")) {
+      toast.error(t("quoteFailed"), { description: error });
+    }
+    onFailure();
+  }, [enabled, error, onFailure, status, t]);
+}
+
+const EMPTY_PREFILL: Prefill = {
+  main: "",
+  mainRaw: 0n,
+  components: [],
+  componentRaws: [],
+};
+
+function isNativeOrErc20Token(token: { type: string } | undefined): token is spendableToken {
+  return token !== undefined && token.type !== "basket";
+}
+
+function isNativeEthToken(token: { id: string; type: string } | undefined) {
+  return token?.type === "native" && token.id === "eth";
+}
+
+// Uniswap quotes use WETH for native ETH routes.
+function resolveTokenQuoteAddress(token: { id: string; type: string; address?: `0x${string}` } | undefined, wrappedNative?: Address): Address | undefined {
+  if (!token) return undefined;
+  if (token.type === "erc20" && token.address) return token.address;
+  if (isNativeEthToken(token)) return wrappedNative;
+  return undefined;
+}
+
+// Helpers accept address(0) for native ETH and handle wrapping/unwrapping.
+function resolveTokenHelperAddress(token: { id: string; type: string; address?: `0x${string}` } | undefined): Address | undefined {
+  if (!token) return undefined;
+  if (token.type === "erc20" && token.address) return token.address;
+  if (isNativeEthToken(token)) return zeroAddress;
+  return undefined;
+}
+
+// Shared presentation styles for both sides of the swap form.
+const swapStyles = {
+  amountBox:
+    "p-3 sm:p-4 bg-background-swap border border-swap-container-border rounded-2xl transition-shadow duration-100",
+  basketSummary:
+    "w-full p-1 text-left rounded-md focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60",
+  basketValue:
+    "hidden text-xs text-text-minor-data tabular-nums sm:mt-1 sm:block",
+  tokenPicker:
+    "flex w-32 shrink-0 items-center space-x-2 sm:w-44 sm:space-x-3 p-2 shadow-sm bg-background-swap border border-swap-container-border rounded-xl hover:border-gold-cg/30 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+  tokenValueRow:
+    "mt-2 flex items-center justify-end gap-3 text-xs tabular-nums sm:justify-between",
+  maxButton:
+    "px-2 py-0.5 tracking-[0.12em] text-text-input rounded-full transition-colors hover:bg-gold-cg/15 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+  basketBox:
+    "mt-3 p-2 text-sm bg-background-swap border border-swap-container-border rounded-2xl",
+  basketHeader:
+    "flex items-center justify-between gap-2 p-1 border-b border-swap-container-border",
+  basketRow:
+    "grid grid-cols-[minmax(0,104px)_minmax(0,1fr)] items-center gap-2 p-2 text-xs sm:grid-cols-[104px_minmax(132px,170px)_minmax(0,1fr)]",
+  feeValue:
+    "min-w-0 break-words text-right font-semibold tabular-nums text-text-input",
+  amountInput:
+    "min-w-0 w-full rounded-md pl-1 pr-2 sm:pr-6 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring tabular-nums text-base sm:text-3xl font-semibold",
+  basketInput:
+    "block min-w-0 w-full rounded-md border border-swap-container-border bg-background-swap p-2 text-start text-sm tabular-nums editable-caret transition-colors focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+} as const;
+
+function SwapTokenBalance({ token, balance, isLoading, side }: {
+  token: spendableToken;
+  balance: bigint | undefined;
+  isLoading: boolean;
+  side: "sell" | "buy";
+}) {
+  const locale = useLocale();
+  const t = useTranslations("WalletBalances");
+  const amount = balance === undefined ? undefined : formatUnits(balance, token.decimals);
+  const label = t("balance", {
+    amount: amount === undefined
+      ? t(isLoading ? "loading" : "unavailableValue")
+      : formatNumberWithSpaces(amount, locale),
+    symbol: token.symbol,
+  });
+
+  return (
+    <span role="note" data-testid={`${side}-wallet-balance`} className="block min-w-0 truncate text-text-minor-data" title={label} aria-label={label}>
+      {balance === undefined ? "..." : formatWalletBalanceAmount(balance, token.decimals, locale)} {token.symbol}
+    </span>
+  );
+}
+
+export default function Home() {
+  const t = useTranslations("MarketSwap");
+  const [operation, setOperation] = useState<"core" | "market">("core");
+  return <div className="flex flex-1 flex-col">
+    <nav aria-label={t("operation")} className="relative z-10 mx-auto mt-5 flex rounded-2xl border border-swap-container-border bg-background-swap p-1 text-sm text-text-input">
+      {(["core", "market"] as const).map(value => <button key={value} type="button"
+        aria-pressed={operation === value} onClick={() => setOperation(value)}
+        className={cn("rounded-xl px-4 py-2", operation === value && "bg-gold-cg text-black")}>{t(value)}</button>)}
+    </nav>
+    {operation === "core" ? <CoreSwap /> : <MarketSwapPanel />}
+  </div>;
+}
+
+function CoreSwap() {
+  const { addresses, tokens, tokenAddresses } = useProtocolConfiguration();
+  const HELPERS_DIAMOND_ADDRESS = addresses.helpers;
+
+  // Configuration and market data.
+  const cygldTokenId = "cygld";
+  const cygldDecimals = tokens.find((token): token is erc20Token => token.id === cygldTokenId)?.decimals || 18;
+  const QUOTE_INPUT_DEBOUNCE_MS = 100;
+
+  const t = useTranslations('Home');
+  const locale = useLocale();
+  const isDarkMode = useIsDarkMode();
+  const localeDecimalSeparator = useMemo(
+    () => getLocaleDecimalSeparator(locale),
+    [locale]
+  );
+  const zeroAmountPlaceholder = `0${localeDecimalSeparator}0`;
+  const loadingAmountPlaceholder = "...";
+  
+  const { data: helperFeePpm } = useHelperFeePpm();
+  const { data: issuanceFeePpm } = useIssuanceFeePpm();
+  const helperFeePercent = formatPpmAsPercent(helperFeePpm);
+  const issuanceFeePercent = formatPpmAsPercent(issuanceFeePpm);
+  
+  const {
+    formatFiat,
+    formatGoldAmount,
+    selectedCurrency,
+    selectedGoldUnit,
+    selectedPriceDisplayMode,
+    fxFetchedAt,
+    isFxStale,
+    isFxLoading,
+  } = useCurrency();
+  const displayAmountPlaceholder = buildDisplayValuePlaceholder({
+    zeroAmountPlaceholder,
+    priceDisplayMode: selectedPriceDisplayMode,
+    selectedCurrency,
+    selectedGoldUnit,
+    locale,
+  });
+  const loadingDisplayAmountPlaceholder = buildDisplayValuePlaceholder({
+    zeroAmountPlaceholder: loadingAmountPlaceholder,
+    priceDisplayMode: selectedPriceDisplayMode,
+    selectedCurrency,
+    selectedGoldUnit,
+    locale,
+  });
+  const amountEquivalentsPlaceholder = buildCombinedDisplayValuePlaceholder({
+    zeroAmountPlaceholder,
+    selectedCurrency,
+    selectedGoldUnit,
+    locale,
+  });
+  const loadingAmountEquivalentsPlaceholder = buildCombinedDisplayValuePlaceholder({
+    zeroAmountPlaceholder: loadingAmountPlaceholder,
+    selectedCurrency,
+    selectedGoldUnit,
+    locale,
+  });
+  const {
+    price: goldPriceUsdPerGram,
+    ouncePrice: goldSpotUsdPerOzt,
+    fetchedAt: goldPriceFetchedAt,
+    isStale: isGoldPriceStale,
+    isLoading: isGoldPriceLoading,
+  } = useGoldPrice();
+
+  const { address, isConnected, chainId: walletChainId, connector } = useObservedWalletAccount();
+  useRecoverySharePortfolio(address);
+  const configuredChainId = useChainId();
+  // Account observations can precede a connector; preserve the configured-chain fallback.
+  const connectedChainId = walletChainId ?? configuredChainId;
+  const publicClient = usePublicClient({ chainId: EXPECTED_CHAIN_ID });
+  const { data: walletClient } = useWalletClient();
+  const walletAtomic = useWalletAtomicStatus(walletClient, isConnected ? address : undefined);
+  const { openConnectModal } = useConnectModal();
+
+  const applyLocalizedInputValue = useCallback(
+    (
+      input: HTMLInputElement,
+      rawValue: string,
+      setter: (value: string) => void
+    ) => {
+      const { value, selectionStart } = formatDecimalInputForCursor(
+        rawValue,
+        locale,
+        input.selectionStart
+      );
+      setter(value);
+      // Restore the caret after React applies the localized input value.
+      requestAnimationFrame(() => {
+        if (document.activeElement === input) {
+          input.setSelectionRange(selectionStart, selectionStart);
+        }
+      });
+    },
+    [locale]
+  );
+
+  const { importedTokens, importToken } = useImportedTokens();
+  const allTokens = useMemo(() => [...tokens, ...importedTokens], [tokens, importedTokens]);
+  const resolveImportedToken = useCallback((token: Address, signal: AbortSignal) => importToken(token, isConnected ? address : undefined, signal), [importToken, isConnected, address]);
+  const { balances, nonZeroBalances, isLoading: isWalletBalancesLoading, refreshWalletBalances, readWalletBalancesForSwap } = useTokenWalletBalances(importedTokens);
+
+  const { basket, cygldRefGrams } = useBasketData();
+  const basketReadFailed = basket.isError;
+  const cygldReferencePriceUsd = getUsdPriceFromGoldReference({
+    goldRefGramsFp18: cygldRefGrams.data,
+    goldSpotUsdPerOzt,
+  });
+  const cygldPriceUsd = cygldReferencePriceUsd ?? (cygldRefGrams.isError ? goldPriceUsdPerGram : undefined);
+  const { data: protocolPaused, refetch: refreshProtocolFacts } = useProtocolFact(facts => facts.pause, {
+    retry: 1,
+  });
+  const { data: protocolFacts } = useProtocolFacts();
+  const isProtocolPaused = protocolPaused === true;
+
+  const announceTransactionSuccess = useCallback((hash?: Hex) => {
+    void refreshProtocolFacts();
+    const explorerBaseUrl = getEtherscanBaseUrl();
+    const txUrl = explorerBaseUrl && hash ? `${explorerBaseUrl}/tx/${hash}` : undefined;
+
+    toast.success(t("transactionConfirmed"), {
+      action: txUrl
+        ? {
+            label: t("viewTransaction"),
+            onClick: () => window.open(txUrl, "_blank", "noopener,noreferrer"),
+          }
+        : undefined,
+    });
+  }, [refreshProtocolFacts, t]);
+
+  const confirmTransaction = useCallback(async (
+    hash: Hex
+  ) => {
+    const receipt = publicClient ? await waitForAppTransactionReceipt(publicClient, { hash }) : undefined;
+    if (!receipt || receipt.status !== "success") {
+      const error = new Error("Transaction failed");
+      error.name = receipt?.status === "reverted" ? "TransactionRevertedError" : "ReceiptUnavailableError";
+      throw error;
+    }
+    announceTransactionSuccess(hash);
+    return receipt;
+  }, [announceTransactionSuccess, publicClient]);
+
+  // Form state.
+  const [isSellInputEnabled, setIsSellInputEnabled] = useState(true);
+  const [showOnlyWalletTokens, setShowOnlyWalletTokens] = useState(false);
+  const [sellAmount, setSellAmount] = useState("");
+  const [buyAmount, setBuyAmount] = useState("");
+  // Preserve exact MAX balances while displaying shortened decimal amounts.
+  const [sellAmountRawOverride, setSellAmountRawOverride] = useState<bigint | undefined>(undefined);
+  const [driverAmountRawOverride, setDriverAmountRawOverride] = useState<bigint | undefined>(undefined);
+  const [isSellModalOpen, setIsSellModalOpen] = useState(false);
+  const [isBuyModalOpen, setIsBuyModalOpen] = useState(false);
+  // The driver is the editable basket component used to derive the other amounts.
+  const [driverToken, setDriverToken] = useState<Address | undefined>(undefined);
+  const [driverAmountStr, setDriverAmountStr] = useState<string>("");
+  const [displayedQuoteProgressPercent, setDisplayedQuoteProgressPercent] = useState(0);
+  const [isSubmittingSwap, setIsSubmittingSwap] = useState(false);
+  const [isSubmittedSwapCleanupInProgress, setIsSubmittedSwapCleanupInProgress] = useState(false);
+  const [transactionNotice, setTransactionNotice] = useState<SwapTransactionNoticeProps>();
+  const [walletConfirmationProgress, setWalletConfirmationProgress] =
+    useState<WalletConfirmationProgressState | undefined>(undefined);
+  const [hasHydratedPersistedSwapForm, setHasHydratedPersistedSwapForm] = useState(false);
+  const [hasPersistedShowOnlyWalletTokens, setHasPersistedShowOnlyWalletTokens] = useState(false);
+  
+  const mainSellInputRef = useRef<HTMLInputElement | null>(null);
+  const sellMaxRequestRef = useRef(0);
+  const purchaseMaxAbortRef = useRef<AbortController | undefined>(undefined);
+  const mainBuyInputRef = useRef<HTMLInputElement | null>(null);
+  const sellTokenPickerRef = useRef<HTMLButtonElement | null>(null);
+  const buyTokenPickerRef = useRef<HTMLButtonElement | null>(null);
+  const basketSellInputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const basketBuyInputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  
+  const shouldFocusEditableInputRef = useRef(false);
+  const hasRestoredPersistedSwapFormRef = useRef(false);
+  // Refs keep consecutive wallet steps in sync before the next React render.
+  const walletConfirmationCurrentStepRef = useRef(0);
+  const walletConfirmationTotalStepsRef = useRef(0);
+
+  // Flows supply a simulated fee once the execution payload is ready.
+  const [executionNetworkFeeEstimate, setNetworkFeeEstimate] = useState<NetworkFeeEstimate | null>(null);
+  const [isExecutionFeeEstimateLoading, setIsNetworkFeeEstimateLoading] = useState(false);
+  const [isFeeDetailsOpen, setIsFeeDetailsOpen] = useState(false);
+  const [slippageBps, setSlippageBps] = useState(DEFAULT_SLIPPAGE_BPS);
+  const [isPurchaseMaxLoading, setIsPurchaseMaxLoading] = useState(false);
+
+  // Basket data and token choices.
+  const basketWithGoldTokens = useMemo(() => {
+   return buildBasketFromProtocolData(basket.data);
+  }, [basket.data]);
+
+  const basketComponents = useMemo(() => basketWithGoldTokens?.components ?? [], [basketWithGoldTokens]);
+  const hasBasketComponents = basketComponents.length > 0;
+  const goldReferenceGramsByTokenId = useMemo(
+    () => buildGoldReferenceGramsByTokenId(basket.data),
+    [basket.data]
+  );
+
+  const tokensListWithBasket = useMemo(() => {
+    if (!basketWithGoldTokens || !hasBasketComponents) return allTokens;
+    return [basketWithGoldTokens, ...allTokens];
+  }, [basketWithGoldTokens, hasBasketComponents, allTokens]);
+
+  // Distinguish failed basket reads from successful reads with no usable basket.
+  const basketMissingAfterRead = basket.isFetched && !basket.isLoading && !basket.isError && !basketWithGoldTokens;
+  const shouldShowBasketWarning = basketReadFailed || basketMissingAfterRead;
+  const basketWarningClassName = cn(
+    "mb-4 p-3 text-center text-xs font-medium bg-amber-50 text-text-amber border-text-amber rounded-2xl",
+    "dark:bg-amber-900/20 dark:border-amber-900/40"
+  );
+
+
+  const goldBasketId: string = basketWithGoldTokens?.id || "goldbasket";
+  
+  const baseTokensWithoutCygld = useMemo(
+    () => tokens.filter((token) => token.id !== cygldTokenId),
+    [cygldTokenId, tokens]
+  );
+  const defaultConfiguredSellTokenId = baseTokensWithoutCygld[0]?.id ?? "";
+
+  const defaultSellTokenId = "";
+
+  const [sellTokenId, setSellTokenId] = useState<string>(defaultSellTokenId);
+  const [buyTokenId, setBuyTokenId] = useState<string>(cygldTokenId);
+  const sellToken = tokensListWithBasket.find((token) => token.id === sellTokenId);
+  const buyToken = tokensListWithBasket.find((token) => token.id === buyTokenId);
+  const tokenAddressMap = useMemo(() => {
+    const tokenMap = new Map<string, erc20Token>();
+    for (const token of allTokens) {
+      if (token.type === "erc20") {
+        tokenMap.set(token.address.toLowerCase(), token);
+      }
+    }
+    return tokenMap;
+  }, [allTokens]);
+  const isSellTokenSpendable = isNativeOrErc20Token(sellToken);
+  const isBuyTokenSpendable = isNativeOrErc20Token(buyToken);
+  const isSellTokenNative = sellToken?.type === "native" && sellToken.id === "eth";
+  const isBuyTokenNative = buyToken?.type === "native" && buyToken.id === "eth";
+  const sellTokenQuoteAddress = resolveTokenQuoteAddress(sellToken, tokenAddresses.WETH);
+  const buyTokenQuoteAddress = resolveTokenQuoteAddress(buyToken, tokenAddresses.WETH);
+  const sellTokenHelperAddress = resolveTokenHelperAddress(sellToken);
+  const buyTokenHelperAddress = resolveTokenHelperAddress(buyToken);
+  const buyTokenDecimals = isBuyTokenSpendable ? buyToken.decimals : undefined;
+  const sellTokenDecimals = isSellTokenSpendable ? sellToken.decimals : undefined;
+  
+  const tokensWithoutCygld = useMemo(
+    () => tokensListWithBasket.filter((token) => token.id !== cygldTokenId),
+    [tokensListWithBasket, cygldTokenId]
+  );
+  const buySelectableTokens = tokensListWithBasket;
+
+  // Protocol gold references override market prices for gold-backed assets.
+  const { prices } = useTokenUsdPrices(tokensListWithBasket, {
+    goldSpotUsdPerOzt,
+    goldReferenceGramsByTokenId,
+  });
+  const sellTokenPriceUsd = sellTokenId === cygldTokenId ? cygldPriceUsd : prices?.[sellTokenId];
+  const buyTokenPriceUsd = buyTokenId === cygldTokenId ? cygldPriceUsd : prices?.[buyTokenId];
+
+  // Clear quote feedback while preserving entered values for a retry.
+  const clearFailedQuoteFormState = useCallback(() => {
+    setDisplayedQuoteProgressPercent(0);
+    setNetworkFeeEstimate(null);
+    setIsNetworkFeeEstimateLoading(false);
+    shouldFocusEditableInputRef.current = true;
+  }, []);
+
+  // Clear submitted amounts while retaining the token pair and editable side.
+  const clearSubmittedSwapFormState = useCallback(() => {
+    setDriverToken(undefined);
+    setDriverAmountStr("");
+    setSellAmount("");
+    setBuyAmount("");
+    setSellAmountRawOverride(undefined);
+    setDriverAmountRawOverride(undefined);
+    clearFailedQuoteFormState();
+  }, [clearFailedQuoteFormState]);
+
+  const resetWalletConfirmationProgress = useCallback(() => {
+    walletConfirmationCurrentStepRef.current = 0;
+    walletConfirmationTotalStepsRef.current = 0;
+    setWalletConfirmationProgress(undefined);
+  }, []);
+
+  const walletConfirmationTracker = useMemo<WalletConfirmationTracker>(
+    () => ({
+      setTotal(total) {
+        const safeTotal = Math.max(0, total);
+        walletConfirmationCurrentStepRef.current = 0;
+        walletConfirmationTotalStepsRef.current = safeTotal;
+        setWalletConfirmationProgress({
+          current: 0,
+          total: safeTotal,
+          label: "Preparing MetaMask confirmations",
+        });
+      },
+      requestNext(_kind, label) {
+        const nextCurrent = walletConfirmationCurrentStepRef.current + 1;
+        const total = Math.max(
+          walletConfirmationTotalStepsRef.current,
+          nextCurrent
+        );
+        walletConfirmationCurrentStepRef.current = nextCurrent;
+        walletConfirmationTotalStepsRef.current = total;
+        setWalletConfirmationProgress({
+          current: nextCurrent,
+          total,
+          label,
+        });
+      },
+    }),
+    []
+  );
+
+  // Restore stored values once so later locale or basket updates cannot replace user edits.
+  useEffect(() => {
+    if (hasRestoredPersistedSwapFormRef.current) {
+      return;
+    }
+    hasRestoredPersistedSwapFormRef.current = true;
+
+    const persistedSwapFormState = readPersistedSwapFormState();
+
+    setHasPersistedShowOnlyWalletTokens(
+      persistedSwapFormState?.showOnlyWalletTokens !== undefined
+    );
+
+    if (persistedSwapFormState) {
+      setIsSellInputEnabled(persistedSwapFormState.isSellInputEnabled ?? true);
+      setShowOnlyWalletTokens(persistedSwapFormState.showOnlyWalletTokens ?? false);
+      setSellTokenId(persistedSwapFormState.sellTokenId ?? defaultSellTokenId);
+      setBuyTokenId(persistedSwapFormState.buyTokenId ?? cygldTokenId);
+      setSellAmount(
+        normalizeDecimalInput(persistedSwapFormState.sellAmount ?? "", locale)
+      );
+      setBuyAmount(
+        normalizeDecimalInput(persistedSwapFormState.buyAmount ?? "", locale)
+      );
+      setDriverToken(persistedSwapFormState.driverToken);
+      setDriverAmountStr(
+        normalizeDecimalInput(persistedSwapFormState.driverAmountStr ?? "", locale)
+      );
+    }
+
+    setHasHydratedPersistedSwapForm(true);
+  }, [cygldTokenId, defaultSellTokenId, locale]);
+
+  // Apply the connection-based filter default only when no preference was saved.
+  useEffect(() => {
+    if (!hasHydratedPersistedSwapForm || hasPersistedShowOnlyWalletTokens) {
+      return;
+    }
+    setShowOnlyWalletTokens(isConnected);
+  }, [hasHydratedPersistedSwapForm, hasPersistedShowOnlyWalletTokens, isConnected]);
+
+  const walletTokenIds = useMemo(
+    () => new Set(nonZeroBalances.map((balance) => balance.id)),
+    [nonZeroBalances]
+  );
+
+  // The wallet must hold every component for the basket to pass the wallet-only filter.
+  const basketAvailable = hasBasketComponents &&
+    basketComponents.every((component) => walletTokenIds.has(component.token.id));
+
+  const sellSelectableTokens = useMemo(() => {
+    if (!isConnected || !showOnlyWalletTokens) return tokensListWithBasket;
+    const available = allTokens.filter((token) => walletTokenIds.has(token.id));
+    if (basketAvailable) {
+      available.push(basketWithGoldTokens!);
+    }
+    return available;
+  }, [
+    showOnlyWalletTokens,
+    isConnected,
+    walletTokenIds,
+    basketAvailable,
+    tokensListWithBasket,
+    allTokens,
+    basketWithGoldTokens,
+  ]);
+
+  // Repair a basket sell selection when the protocol no longer supplies a usable basket.
+  useEffect(() => {
+    if (!basket.isLoading && !hasBasketComponents && sellTokenId === goldBasketId) {
+      setSellTokenId(defaultConfiguredSellTokenId);
+      setBuyTokenId(cygldTokenId);
+      setDriverToken(undefined);
+      setDriverAmountStr("");
+      setDriverAmountRawOverride(undefined);
+      return;
+    }
+  }, [
+    basket.isLoading,
+    cygldTokenId,
+    defaultConfiguredSellTokenId,
+    goldBasketId,
+    hasBasketComponents,
+    sellTokenId,
+  ]);
+
+  // Repair a basket buy selection while keeping CYGLD on exactly one side.
+  useEffect(() => {
+    if (!basket.isLoading && !hasBasketComponents && buyTokenId === goldBasketId) {
+      if (sellTokenId === cygldTokenId) {
+        setBuyTokenId(defaultConfiguredSellTokenId);
+      } else {
+        setSellTokenId(defaultConfiguredSellTokenId);
+        setBuyTokenId(cygldTokenId);
+      }
+      setDriverToken(undefined);
+      setDriverAmountStr("");
+      setDriverAmountRawOverride(undefined);
+      return;
+    }
+  }, [
+    basket.isLoading,
+    buyTokenId,
+    defaultConfiguredSellTokenId,
+    goldBasketId,
+    hasBasketComponents,
+    sellTokenId,
+  ]);
+
+  // Wait for restoration before saving, so initial empty values cannot overwrite storage.
+  useEffect(() => {
+    if (!hasHydratedPersistedSwapForm) {
+      return;
+    }
+
+    writePersistedSwapFormState({
+      isSellInputEnabled,
+      showOnlyWalletTokens,
+      sellAmount,
+      buyAmount,
+      sellTokenId,
+      buyTokenId,
+      driverToken,
+      driverAmountStr,
+    });
+  }, [
+    buyAmount,
+    buyTokenId,
+    driverAmountStr,
+    driverToken,
+    isSellInputEnabled,
+    sellAmount,
+    sellTokenId,
+    showOnlyWalletTokens,
+    hasHydratedPersistedSwapForm,
+  ]);
+
+  // Keep the selected token label even if the wallet filter hides it from the options.
+  const sellTokenOnTokenPicker = useMemo(
+    () =>
+      sellSelectableTokens.find((token) => token.id === sellTokenId) ??
+      tokensListWithBasket.find((token) => token.id === sellTokenId),
+    [sellSelectableTokens, sellTokenId, tokensListWithBasket]
+  );
+
+  // Selecting a receive asset sets the matching CYGLD side below.
+  const buyTokenOnTokenPicker = useMemo(
+    () => buySelectableTokens.find((token) => token.id === buyTokenId),
+    [buySelectableTokens, buyTokenId]
+  );
+
+  const derivedBasketAmountsAsBigIntMap = useMemo(
+    () => deriveBasketComponentsAmountsFromSingleInput(basketComponents, driverToken, driverAmountStr, driverAmountRawOverride, locale),
+    [basketComponents, driverToken, driverAmountStr, driverAmountRawOverride, locale]
+  );
+
+  // Preview amounts must follow the protocol's basket component order.
+  const derivedBasketAmountsAsBigIntLst = useMemo(() => {
+    return basketAmountsMapToOrderedBigIntArray(basketComponents, derivedBasketAmountsAsBigIntMap);
+  }, [basketComponents, derivedBasketAmountsAsBigIntMap]);
+
+  const hasDerivedBasketAmounts = useMemo(
+    () => derivedBasketAmountsAsBigIntLst.some((amount) => amount > 0n),
+    [derivedBasketAmountsAsBigIntLst]
+  );
+
+  const derivedBasketAmountsAsStringMap = useMemo(() => {
+    return basketAmountsMapToStringMap(basketComponents, derivedBasketAmountsAsBigIntMap, locale);
+  }, [basketComponents, derivedBasketAmountsAsBigIntMap, locale]);
+
+  const isSellBasket = hasBasketComponents && sellTokenId === goldBasketId;
+  const isBuyBasket = hasBasketComponents && buyTokenId === goldBasketId;
+
+  // Basket amounts are edited in component rows; the opposite side is supplied by quotes.
+  const isMainInputSellReadOnly = isSellBasket || !isSellInputEnabled;
+  const isMainInputBuyReadOnly = isBuyBasket || isSellInputEnabled; 
+
+  const sellSelectDisabled = isConnected && showOnlyWalletTokens && sellSelectableTokens.length === 0;
+  const isSellTokenChoicesLoading = isConnected && showOnlyWalletTokens && isWalletBalancesLoading;
+  const buySelectDisabled = buySelectableTokens.length === 0;
+
+  // Resolve issuance/redemption, token/basket routing, and the editable input mode.
+  const flowState = useMemo(() => {
+    return resolveFlowState({
+      sellTokenId,
+      buyTokenId,
+      isSellInputEnabled,
+      hasBasketComponents,
+      cygldTokenId,
+      basketTokenId: goldBasketId,
+    });
+  }, [buyTokenId, cygldTokenId, goldBasketId, hasBasketComponents, isSellInputEnabled, sellTokenId]);
+
+  const isIssueFromBasketExactIn = flowState?.direction === "issue" && flowState.route === "basket" && flowState.inputMode === "exact-in";
+  const isIssueFromBasketExactOut = flowState?.direction === "issue" && flowState.route === "basket" && flowState.inputMode === "exact-out";
+  const isRedeemToBasketExactIn = flowState?.direction === "redeem" && flowState.route === "basket" && flowState.inputMode === "exact-in";
+  const isRedeemToBasketExactOut = flowState?.direction === "redeem" && flowState.route === "basket" && flowState.inputMode === "exact-out";
+  const isIssueFromTokenExactIn = flowState?.direction === "issue" && flowState.route === "token" && flowState.inputMode === "exact-in";
+  const isIssueFromTokenExactOut = flowState?.direction === "issue" && flowState.route === "token" && flowState.inputMode === "exact-out";
+  const isRedeemToTokenExactIn = flowState?.direction === "redeem" && flowState.route === "token" && flowState.inputMode === "exact-in";
+  const isRedeemToTokenMinOut = flowState?.direction === "redeem" && flowState.route === "token" && flowState.inputMode === "exact-out";  
+
+  const isIssue = flowState?.direction === "issue";
+  const isRedeem = flowState?.direction === "redeem";
+  const isActiveTokenFlow = flowState?.route === "token";
+
+
+  useEffect(() => {
+    const activeElement = document.activeElement;
+    const nothingFocused =
+      !activeElement ||
+      activeElement === document.body ||
+      activeElement === document.documentElement;
+
+    // Move focus only after an explicit form action or when nothing is focused.
+    if (!nothingFocused && !shouldFocusEditableInputRef.current) return;
+
+    const targetInput = (() => {
+      if (sellTokenId === "goldbasket" && isSellInputEnabled) {
+        const driverIndex = basketComponents.findIndex((component) => (component.token.address as Address) === driverToken);
+        return basketSellInputRefs.current[driverIndex >= 0 ? driverIndex : 0] ?? null;
+      }
+
+      if (buyTokenId === "goldbasket" && !isSellInputEnabled) {
+        const driverIndex = basketComponents.findIndex((component) => (component.token.address as Address) === driverToken);
+        return basketBuyInputRefs.current[driverIndex >= 0 ? driverIndex : 0] ?? null;
+      }
+
+      if (!isMainInputSellReadOnly) return mainSellInputRef.current;
+      if (!isMainInputBuyReadOnly) return mainBuyInputRef.current;
+      return null;
+    })();
+
+    if (!targetInput) return;
+
+    if (activeElement === targetInput) {
+      shouldFocusEditableInputRef.current = false;
+      return;
+    }
+
+    shouldFocusEditableInputRef.current = false;
+
+    // The effect runs after refs attach. Deferring this focus could steal it
+    // from a token picker the user opens before the next animation frame.
+    targetInput.focus({ preventScroll: true });
+    const end = targetInput.value.length;
+    targetInput.setSelectionRange(end, end);
+  }, [
+    basketComponents,
+    buyTokenId,
+    driverToken,
+    isMainInputBuyReadOnly,
+    isMainInputSellReadOnly,
+    isSellInputEnabled,
+    sellTokenId,
+  ]);
+
+  // Balance feedback follows the edited input, independently of quote debounce.
+  const editedSellAmount = isNativeOrErc20Token(sellToken)
+    ? sellAmountRawOverride ?? parseInputToBigInt(sellAmount, sellToken.decimals, locale) ?? 0n : 0n;
+
+  const rawQuoteAmount = isSellInputEnabled ? editedSellAmount : isNativeOrErc20Token(buyToken)
+    ? parseInputToBigInt(buyAmount, buyToken.decimals, locale) ?? 0n : 0n;
+  const rawBudgetPlan = isIssueFromTokenExactIn && sellTokenQuoteAddress && rawQuoteAmount > 0n
+    ? computeSwapBudgetsExactIn({ inputToken: sellTokenQuoteAddress, inputAmount: rawQuoteAmount, components: basketComponents }) : undefined;
+  const rawOutputPlan = isRedeemToTokenMinOut && buyTokenQuoteAddress && rawQuoteAmount > 0n
+    ? computeSwapBudgetsExactOut({ outputToken: buyTokenQuoteAddress, outputAmount: rawQuoteAmount, components: basketComponents }) : undefined;
+  const rawQuoteIntent: Omit<QuoteIntentRequest, "deadline"> = {
+    mode: isIssueFromTokenExactIn ? "issue-exact-in" : isIssueFromTokenExactOut ? "issue-exact-out"
+      : isRedeemToTokenExactIn ? "redeem-exact-in" : "redeem-exact-out",
+    token: (isIssue ? sellTokenHelperAddress : buyTokenHelperAddress) ?? "",
+    quoteToken: (isIssue ? sellTokenQuoteAddress : buyTokenQuoteAddress) ?? "",
+    native: isIssue ? isSellTokenNative : isBuyTokenNative,
+    adapter: addresses.adapter, amount: String(rawQuoteAmount), slippageBps,
+    orderedAssets: basketComponents.map(component => component.token.address),
+    targets: isRedeemToTokenMinOut ? (rawOutputPlan?.targets ?? []).map(row => ({
+      inputAsset: row.asset, outputAsset: buyTokenQuoteAddress ?? "", amount: String(row.targetOut),
+    })) : (rawBudgetPlan?.budgets ?? []).map(row => ({ inputAsset: sellTokenQuoteAddress ?? "",
+      outputAsset: row.outputAsset, amount: String(row.amountIn) })),
+  };
+  const exactBrowserHit = useCachedQuoteIntent(rawQuoteIntent, isActiveTokenFlow && rawQuoteAmount > 0n);
+  const localQuoteAmount = useLocalQuoteModel(rawQuoteIntent, isActiveTokenFlow && rawQuoteAmount > 0n);
+  const localBasketModel = useLocalBasketModel();
+  const issuanceModel = issuanceModelFromFacts(protocolFacts, localBasketModel);
+
+
+  // Direct Basket previews start with the edited amount. Token route searches
+  // retain their input debounce; exact cached quotes and MAX remain immediate.
+  const immediatePageQuote = flowState?.route === "basket" || exactBrowserHit;
+  const debouncedSellAmount = useDebouncedValue(sellAmount, QUOTE_INPUT_DEBOUNCE_MS, immediatePageQuote);
+  const debouncedBuyAmount = useDebouncedValue(buyAmount, QUOTE_INPUT_DEBOUNCE_MS, immediatePageQuote);
+
+  const sellAmountFromInputBigInt = useMemo(() => {
+    if (!isNativeOrErc20Token(sellToken)) return 0n;
+    if (sellAmountRawOverride !== undefined) return sellAmountRawOverride;
+    const parsed = parseInputToBigInt(debouncedSellAmount, sellToken.decimals, locale);
+    return parsed ?? 0n;
+  }, [debouncedSellAmount, locale, sellToken, sellAmountRawOverride]);
+
+  const buyAmountFromInputBigInt = useMemo(() => {
+    if (!isNativeOrErc20Token(buyToken)) return 0n;
+    const parsed = parseInputToBigInt(debouncedBuyAmount, buyToken.decimals, locale);
+    return parsed ?? 0n;
+  }, [debouncedBuyAmount, buyToken, locale]);
+
+  // Disable/cancel the old token intent on the raw edit, before the replacement
+  // amount passes its typing debounce.
+  const quoteInputPending = isSellInputEnabled
+    ? sellAmount !== debouncedSellAmount : buyAmount !== debouncedBuyAmount;
+
+  // Keep every flow hook mounted and select its activity through enabled flags.
+  const issueFromBasketExactInFlow = useIssueFromBasketExactInFlow({
+    slippageBps,
+    enabled: isIssueFromBasketExactIn,
+    amountsIn: derivedBasketAmountsAsBigIntLst,
+    basketComponents,
+    onNetworkFeeEstimate: setNetworkFeeEstimate,
+    onNetworkFeeEstimateLoadingChange: setIsNetworkFeeEstimateLoading,
+  });
+  const netCygldIssueFromBasketExactIn = issueFromBasketExactInFlow.netCygldOut;
+
+  const issueFromBasketExactOutFlow = useIssueFromBasketExactOutFlow({
+    slippageBps,
+    enabled: isIssueFromBasketExactOut,
+    netCygldOut: buyAmountFromInputBigInt,
+    basketComponents,
+    onNetworkFeeEstimate: setNetworkFeeEstimate,
+    onNetworkFeeEstimateLoadingChange: setIsNetworkFeeEstimateLoading,
+  });
+  const basketAmountsInRequired = issueFromBasketExactOutFlow.amountsInRequired;
+ 
+  const redeemToBasketExactInFlow = useRedeemToBasketExactInFlow({
+    slippageBps,
+    enabled: isRedeemToBasketExactIn,
+    grossCygldIn: sellAmountFromInputBigInt,
+    basketComponents,
+    onNetworkFeeEstimate: setNetworkFeeEstimate,
+    onNetworkFeeEstimateLoadingChange: setIsNetworkFeeEstimateLoading,
+  });
+  const basketAmountsOutObtained = redeemToBasketExactInFlow.amountsOut;
+
+  const redeemToBasketExactOutFlow = useRedeemToBasketExactOutFlow({
+    slippageBps,
+    enabled: isRedeemToBasketExactOut && hasDerivedBasketAmounts,
+    amountsOut: derivedBasketAmountsAsBigIntLst,
+    basketComponents,
+    onNetworkFeeEstimate: setNetworkFeeEstimate,
+    onNetworkFeeEstimateLoadingChange: setIsNetworkFeeEstimateLoading,
+  });
+  const grossCygldRedeemToBasketExactOut = redeemToBasketExactOutFlow.grossCygldIn;
+
+  const issueFromTokenExactInFlow = useIssueFromTokenExactInFlow({
+    slippageBps,
+  enabled: isIssueFromTokenExactIn && !quoteInputPending,
+  inputToken: sellTokenHelperAddress,
+  quoteInputToken: sellTokenQuoteAddress,
+  exactInputAmount: sellAmountFromInputBigInt,
+  isNativeInputToken: isSellTokenNative,
+  basketComponents,
+  onNetworkFeeEstimate: setNetworkFeeEstimate,
+  onNetworkFeeEstimateLoadingChange: setIsNetworkFeeEstimateLoading,
+});
+
+  const netCygldIssueFromTokenExactIn = issueFromTokenExactInFlow.displayNetCygldOut;
+  const issueFromTokenExactInQuoteError = issueFromTokenExactInFlow.quoteError;
+
+  const issueFromTokenExactOutFlow = useIssueFromTokenExactOutFlow({
+    slippageBps,
+    enabled: isIssueFromTokenExactOut && !quoteInputPending,
+    inputToken: sellTokenHelperAddress,
+    quoteInputToken: sellTokenQuoteAddress,
+    netCygldOut: buyAmountFromInputBigInt,
+    isNativeInputToken: isSellTokenNative,
+    basketComponents,
+    onNetworkFeeEstimate: setNetworkFeeEstimate,
+    onNetworkFeeEstimateLoadingChange: setIsNetworkFeeEstimateLoading,
+  });
+
+  const issueFromTokenExactOutQuoteError = issueFromTokenExactOutFlow.quoteError;
+
+  const redeemToTokenExactInFlow = useRedeemToTokenExactInFlow({
+    slippageBps,
+    enabled: isRedeemToTokenExactIn && !quoteInputPending,
+    outputToken: buyTokenHelperAddress,
+    quoteOutputToken: buyTokenQuoteAddress,
+    grossCygldIn: sellAmountFromInputBigInt,
+    basketComponents,
+    isNativeOutputToken: isBuyTokenNative,
+    onNetworkFeeEstimate: setNetworkFeeEstimate,
+    onNetworkFeeEstimateLoadingChange: setIsNetworkFeeEstimateLoading,
+  });
+  const redeemToTokenExactInQuoteError = redeemToTokenExactInFlow.quoteError;
+  const netAmountOutRedeemToTokenExactIn = redeemToTokenExactInFlow.displayNetAmountOut;
+  
+  const redeemToTokenMinOutFlow = useRedeemToTokenMinOutFlow({
+    slippageBps,
+    enabled: isRedeemToTokenMinOut && !quoteInputPending,
+    outputToken: buyTokenHelperAddress,
+    quoteOutputToken: buyTokenQuoteAddress,
+    targetOut: buyAmountFromInputBigInt,
+    basketComponents,
+    isNativeOutputToken: isBuyTokenNative,
+    onNetworkFeeEstimate: setNetworkFeeEstimate,
+    onNetworkFeeEstimateLoadingChange: setIsNetworkFeeEstimateLoading,
+  });
+  const redeemToTokenMinOutQuoteError = redeemToTokenMinOutFlow.quoteError;
+  const redeemToTokenMinOutAmountTooSmall =
+    redeemToTokenMinOutFlow.isAmountTooSmall;
+  const redeemToTokenMinOutProgressCounts =
+    redeemToTokenMinOutFlow.progressCounts;
+
+  // Shared display state and submission must refer to the same active flow.
+  const activeFlow = isIssueFromBasketExactIn ? issueFromBasketExactInFlow
+    : isIssueFromBasketExactOut ? issueFromBasketExactOutFlow
+    : isIssueFromTokenExactIn ? issueFromTokenExactInFlow
+    : isIssueFromTokenExactOut ? issueFromTokenExactOutFlow
+    : isRedeemToBasketExactIn ? redeemToBasketExactInFlow
+    : isRedeemToBasketExactOut ? redeemToBasketExactOutFlow
+    : isRedeemToTokenExactIn ? redeemToTokenExactInFlow
+    : isRedeemToTokenMinOut ? redeemToTokenMinOutFlow
+    : undefined;
+  const activeQuoteStatus = activeFlow?.quoteStatus;
+  const activeQuoteError = activeFlow?.quoteError;
+  const purchaseCapacity = cygldPurchaseCapacity(issuanceModel);
+  const remainingNetCapacity = isIssueFromTokenExactIn
+    ? issueFromTokenExactInFlow.remainingNetCapacity ?? purchaseCapacity?.available : purchaseCapacity?.available;
+  const requestedBasketPurchase = isIssueFromBasketExactIn
+    ? cygldBasketPurchaseAmount(issuanceModel, derivedBasketAmountsAsBigIntLst) : undefined;
+  const requestedGrossIssuance = isIssueFromTokenExactIn ? issueFromTokenExactInFlow.requestedGrossCygldOut
+    : isIssueFromBasketExactIn ? requestedBasketPurchase?.gross
+    : isIssue && !isSellInputEnabled ? cygldGrossForNet(issuanceModel, rawQuoteAmount) : undefined;
+  const remainingGrossCapacity = isIssueFromTokenExactIn
+    ? issueFromTokenExactInFlow.remainingGrossCapacity ?? purchaseCapacity?.grossRemaining : purchaseCapacity?.grossRemaining;
+  const isIssuanceCapError = activeQuoteStatus === "failed" && activeQuoteError === t("quoteIssuanceCapExceeded");
+  const isPurchaseOverCap = isIssue && (isIssuanceCapError ||
+    (remainingNetCapacity === 0n && (rawQuoteAmount > 0n || hasDerivedBasketAmounts)) || (
+    requestedGrossIssuance !== undefined && remainingGrossCapacity !== undefined && requestedGrossIssuance > remainingGrossCapacity
+  ));
+  const purchaseCapacityLabel = remainingNetCapacity === 0n ? t("cygldSupplyCapReached")
+    : remainingNetCapacity !== undefined ? t(isPurchaseOverCap ? "cygldPurchaseCapExceeded" : "cygldAvailableToBuy", {
+      amount: formatCygldCapacity(remainingNetCapacity, cygldDecimals, locale),
+    }) : isIssuanceCapError ? t("reduceAmountToSupplyLimit") : undefined;
+  const purchaseCapacityDetails = purchaseCapacity ? t("cygldSupplyCapDetails", {
+    cap: formatCygldCapacity(purchaseCapacity.cap, cygldDecimals, locale),
+    supply: formatCygldCapacity(purchaseCapacity.supply, cygldDecimals, locale),
+  }) : undefined;
+  useEffect(() => {
+    if (isIssuanceCapError) void refreshProtocolFacts();
+  }, [isIssuanceCapError, refreshProtocolFacts]);
+  const diagnosticContext = flowState ? { direction: flowState.direction, route: flowState.route,
+    inputMode: flowState.inputMode, chainId: EXPECTED_CHAIN_ID, assetCount: basketComponents.length } : undefined;
+  const quoteDiagnostics = useQuoteDiagnostics(diagnosticContext, activeQuoteStatus);
+
+  const executionBoundsReady = activeQuoteStatus === "success" && !isPurchaseOverCap && !quoteInputPending;
+  const formatBound = (amount: bigint, decimals: number, symbol: string) =>
+    `${formatUnits(amount, decimals).replace(".", getLocaleDecimalSeparator(locale))} ${symbol}`;
+  const minimumExecutionOutput = executionBoundsReady && activeFlow ? (
+    "minimumOutputAmount" in activeFlow && activeFlow.minimumOutputAmount !== undefined
+      ? formatBound(activeFlow.minimumOutputAmount, buyTokenDecimals ?? cygldDecimals, buyToken?.symbol ?? "CYGLD")
+      : "minimumOutputAmounts" in activeFlow && activeFlow.minimumOutputAmounts
+        ? activeFlow.minimumOutputAmounts.map((amount, index) => {
+          const component = basketComponents[index];
+          return component ? formatBound(amount, component.token.decimals, component.token.symbol) : "";
+        }).filter(Boolean).join(" + ") : "—"
+  ) : "—";
+  const maximumExecutionInput = executionBoundsReady && activeFlow ? (
+    "maximumInputAmount" in activeFlow && activeFlow.maximumInputAmount !== undefined
+      ? formatBound(activeFlow.maximumInputAmount, sellTokenDecimals ?? cygldDecimals, sellToken?.symbol ?? "CYGLD")
+      : "maximumInputAmounts" in activeFlow && activeFlow.maximumInputAmounts
+        ? activeFlow.maximumInputAmounts.map((amount, index) => {
+          const component = basketComponents[index];
+          return component ? formatBound(amount, component.token.decimals, component.token.symbol) : "";
+        }).filter(Boolean).join(" + ") : "—"
+  ) : "—";
+
+  // Quote previews determine whether this operation actually needs swap legs.
+  const activeTokenFlow = isIssueFromTokenExactIn ? issueFromTokenExactInFlow
+    : isIssueFromTokenExactOut ? issueFromTokenExactOutFlow
+    : isRedeemToTokenExactIn ? redeemToTokenExactInFlow
+    : isRedeemToTokenMinOut ? redeemToTokenMinOutFlow
+    : undefined;
+  const requiresTokenFlowAdapter = activeTokenFlow?.requiresSwapAdapter ?? false;
+  const tokenFlowAdapter = activeTokenFlow?.adapter ?? addresses.adapter;
+  const hasConfiguredTokenFlowAdapter =
+    typeof tokenFlowAdapter === "string" &&
+    isAddress(tokenFlowAdapter) &&
+    tokenFlowAdapter !== zeroAddress;
+  const tokenFlowAdapterApproval = useIsAdapterApproved(
+    requiresTokenFlowAdapter && hasConfiguredTokenFlowAdapter
+      ? tokenFlowAdapter
+      : undefined
+  );
+  const adapterState = tokenFlowAdapterState({
+    requiresSwapAdapter: requiresTokenFlowAdapter,
+    hasConfiguredAdapter: hasConfiguredTokenFlowAdapter,
+    approval: tokenFlowAdapterApproval,
+  });
+  const isTokenFlowAdapterReady = adapterState.ready;
+  const isTokenFlowAdapterCheckPending = adapterState.pending;
+  const tokenFlowAdapterError = adapterState.error ? t(adapterState.error) : undefined;
+
+  // Approximate gas scales with token count; amount edits reuse the gas-price query.
+  const issueBasketInputCount = isIssueFromBasketExactIn
+    ? issueFromBasketExactInFlow.permitted.length
+    : isIssueFromBasketExactOut
+      ? issueFromBasketExactOutFlow.permitted.length
+      : 0;
+  const estimatedSwapGas = isIssue
+    ? GAS_POLICY.ISSUE_BASE_GAS + BigInt(Math.max(issueBasketInputCount, 1)) * GAS_POLICY.ISSUE_PER_TOKEN_GAS
+    : isRedeem
+      ? GAS_POLICY.REDEEM_BASE_GAS + BigInt(Math.max(basketComponents.length, 1)) * GAS_POLICY.REDEEM_PER_TOKEN_GAS
+      : undefined;
+
+  // The operation estimate and head-scoped gas price do not require a wallet.
+  const canEstimateNetworkFee = estimatedSwapGas !== undefined;
+  const networkGasFees = useTransactionFees(canEstimateNetworkFee);
+  const maxFeePerGas = networkGasFees.data?.maxFeePerGas ?? 0n;
+  const approximateNetworkFeeEstimate: NetworkFeeEstimate | null =
+    estimatedSwapGas !== undefined && maxFeePerGas > 0n && !networkGasFees.isError
+      ? {
+          wei: estimatedSwapGas * maxFeePerGas,
+          gas: estimatedSwapGas,
+          maxFeePerGas,
+          mode: "approx",
+        }
+      : null;
+  // Prefer execution simulation when available, with the approximate fee as a fallback.
+  const hasEnteredSwapAmount = isIssueFromBasketExactIn || isRedeemToBasketExactOut
+    ? hasDerivedBasketAmounts : rawQuoteAmount > 0n;
+  const networkFeeEstimate = canEstimateNetworkFee && hasEnteredSwapAmount
+    ? executionNetworkFeeEstimate && maxFeePerGas > 0n && !networkGasFees.isError
+      ? { ...executionNetworkFeeEstimate, maxFeePerGas, wei: executionNetworkFeeEstimate.gas * maxFeePerGas }
+      : approximateNetworkFeeEstimate
+    : null;
+  const isNetworkFeeEstimateLoading = canEstimateNetworkFee && hasEnteredSwapAmount &&
+    (isExecutionFeeEstimateLoading || (!executionNetworkFeeEstimate && networkGasFees.isLoading));
+
+  // Recovery shares are separate outputs and are excluded from fiat/gold amount totals.
+  const displayedRecoveryShareQuote = useMemo(() => {
+    const quote = isRedeemToBasketExactIn
+      ? {
+          assets: redeemToBasketExactInFlow.orderedRecoveryAssets,
+          amounts: redeemToBasketExactInFlow.recoverySharesOut,
+        }
+      : isRedeemToBasketExactOut
+        ? {
+            assets: redeemToBasketExactOutFlow.orderedRecoveryAssets,
+            amounts: redeemToBasketExactOutFlow.recoverySharesOut,
+          }
+        : isRedeemToTokenExactIn
+          ? {
+              assets: redeemToTokenExactInFlow.orderedRecoveryAssets,
+              amounts: redeemToTokenExactInFlow.recoverySharesOut,
+            }
+          : isRedeemToTokenMinOut
+            ? {
+                assets: redeemToTokenMinOutFlow.orderedRecoveryAssets,
+                amounts: redeemToTokenMinOutFlow.recoverySharesOut,
+              }
+            : undefined;
+    return quote?.assets?.length && quote.amounts?.some((amount) => amount > 0n)
+      ? quote
+      : undefined;
+  }, [
+    isRedeemToBasketExactIn,
+    isRedeemToBasketExactOut,
+    isRedeemToTokenExactIn,
+    isRedeemToTokenMinOut,
+    redeemToBasketExactInFlow.orderedRecoveryAssets,
+    redeemToBasketExactInFlow.recoverySharesOut,
+    redeemToBasketExactOutFlow.orderedRecoveryAssets,
+    redeemToBasketExactOutFlow.recoverySharesOut,
+    redeemToTokenExactInFlow.orderedRecoveryAssets,
+    redeemToTokenExactInFlow.recoverySharesOut,
+    redeemToTokenMinOutFlow.orderedRecoveryAssets,
+    redeemToTokenMinOutFlow.recoverySharesOut,
+  ]);
+  const redeemToTokenMinOutGrossCygld =
+    redeemToTokenMinOutFlow.grossCygldInToDisplay;
+
+useQuoteFailureToast({
+  enabled: isIssueFromBasketExactIn,
+  status: issueFromBasketExactInFlow.quoteStatus,
+  error: issueFromBasketExactInFlow.quoteError,
+  onFailure: clearFailedQuoteFormState,
+});
+
+useQuoteFailureToast({
+  enabled: isIssueFromBasketExactOut,
+  status: issueFromBasketExactOutFlow.quoteStatus,
+  error: issueFromBasketExactOutFlow.quoteError,
+  onFailure: clearFailedQuoteFormState,
+});
+
+useQuoteFailureToast({
+  enabled: isRedeemToBasketExactIn,
+  status: redeemToBasketExactInFlow.quoteStatus,
+  error: redeemToBasketExactInFlow.quoteError,
+  onFailure: clearFailedQuoteFormState,
+});
+
+useQuoteFailureToast({
+  enabled: isIssueFromTokenExactIn,
+  status: issueFromTokenExactInFlow.quoteStatus,
+  error: issueFromTokenExactInQuoteError,
+  onFailure: clearFailedQuoteFormState,
+});
+
+useQuoteFailureToast({
+  enabled: isIssueFromTokenExactOut,
+  status: issueFromTokenExactOutFlow.quoteStatus,
+  error: issueFromTokenExactOutQuoteError,
+  onFailure: clearFailedQuoteFormState,
+});
+
+useQuoteFailureToast({
+  enabled: isRedeemToTokenExactIn,
+  status: redeemToTokenExactInFlow.quoteStatus,
+  error: redeemToTokenExactInQuoteError,
+  onFailure: clearFailedQuoteFormState,
+});
+
+useQuoteFailureToast({
+  enabled: isRedeemToTokenMinOut,
+  status: redeemToTokenMinOutFlow.quoteStatus,
+  error: redeemToTokenMinOutQuoteError,
+  onFailure: clearFailedQuoteFormState,
+});
+
+// Fee display.
+const activeFees = activeFlow?.fees;
+
+const protocolFeeUsd = useMemo(() => {
+  const cygldUsdPrice = Number.isFinite(cygldPriceUsd) ? cygldPriceUsd : undefined;
+  if (!activeFees) return undefined;
+  if (activeFees.protocolFeeCygld === 0n) return 0;
+  if (cygldUsdPrice === undefined) return undefined;
+  return Number(formatUnits(activeFees.protocolFeeCygld, cygldDecimals)) * cygldUsdPrice;
+}, [activeFees, cygldDecimals, cygldPriceUsd]);
+
+const helpersFeeUsd = useMemo(() => {
+  const cygldUsdPrice = Number.isFinite(cygldPriceUsd) ? cygldPriceUsd : undefined;
+  if (!activeFees) return undefined;
+  if (activeFees.helperFeeCygld === 0n) return 0;
+  if (cygldUsdPrice === undefined) return undefined;
+  return Number(formatUnits(activeFees.helperFeeCygld, cygldDecimals)) * cygldUsdPrice;
+}, [activeFees, cygldDecimals, cygldPriceUsd]);
+
+const issueFromBasketExactOutProgressCounts = useMemo(() => {
+  if (!isIssueFromBasketExactOut || buyAmountFromInputBigInt <= 0n) {
+    return undefined;
+  }
+
+  return {
+    completed:
+      issueFromBasketExactOutFlow.quoteStatus !== "loading" && issueFromBasketExactOutFlow.isFetched ? 1 : 0,
+    total: 1,
+  };
+}, [
+  isIssueFromBasketExactOut,
+  buyAmountFromInputBigInt,
+  issueFromBasketExactOutFlow.isFetched,
+  issueFromBasketExactOutFlow.quoteStatus,
+]);
+
+const isQuoteLoading =
+  isTokenFlowAdapterCheckPending || activeQuoteStatus === "loading";
+
+const activeQuoteProgressCounts = (() => {
+  if (isSubmittingSwap) {
+    return undefined;
+  }
+
+  if (isRedeemToTokenMinOut && buyAmountFromInputBigInt > 0n) {
+    return redeemToTokenMinOutProgressCounts;
+  }
+
+  if (isIssueFromTokenExactOut && buyAmountFromInputBigInt > 0n) {
+    return issueFromTokenExactOutFlow.progressCounts;
+  }
+
+  if (isIssueFromBasketExactOut && buyAmountFromInputBigInt > 0n) {
+    return issueFromBasketExactOutProgressCounts;
+  }
+
+  if (isIssueFromTokenExactIn && sellAmountFromInputBigInt > 0n) {
+    return issueFromTokenExactInFlow.quoteStatus === "loading"
+      ? issueFromTokenExactInFlow.progressCounts
+      : undefined;
+  }
+
+  if (isRedeemToTokenExactIn && sellAmountFromInputBigInt > 0n) {
+    return redeemToTokenExactInFlow.quoteStatus === "loading"
+      ? redeemToTokenExactInFlow.progressCounts
+      : undefined;
+  }
+
+  return undefined;
+})();
+
+const activeQuoteProgressPercent = getProgressPercentFromCounts(activeQuoteProgressCounts);
+
+const quoteProcessingLabel = t("quoteProcessing");
+
+const quoteButtonProgressPercent = displayedQuoteProgressPercent;
+
+useEffect(() => {
+  if (isSubmittingSwap) {
+    return;
+  }
+  setDisplayedQuoteProgressPercent(0);
+}, [
+  isSubmittingSwap,
+  flowState?.direction,
+  flowState?.route,
+  flowState?.inputMode,
+  sellTokenId,
+  buyTokenId,
+  isSellInputEnabled,
+  sellAmountFromInputBigInt,
+  buyAmountFromInputBigInt,
+]);
+
+useEffect(() => {
+  if (isSubmittingSwap || !isQuoteLoading) {
+    return;
+  }
+  // Keep progress monotonic within a quote and below 100 until quoting finishes.
+  const nextProgress = Math.min(99, clampProgressPercent(activeQuoteProgressPercent) ?? 0);
+  setDisplayedQuoteProgressPercent((current) =>
+    nextProgress > current ? nextProgress : current
+  );
+}, [activeQuoteProgressPercent, isQuoteLoading, isSubmittingSwap]);
+
+useEffect(() => {
+  if (isQuoteLoading) {
+    return;
+  }
+  setDisplayedQuoteProgressPercent(0);
+}, [isQuoteLoading]);
+
+// Preserve typed buy input and show the completed initial issue estimate while execution is prepared.
+const computedBuyPrefill = useMemo((): Prefill => {
+  if (!isSellInputEnabled) {
+    return {
+      main: buyAmount,
+      mainRaw: buyAmountFromInputBigInt,
+      components: [],
+      componentRaws: [],
+    };
+  }
+  if (isIssueFromBasketExactIn) { 
+    if (!issueFromBasketExactInFlow.canSubmit) {
+      return EMPTY_PREFILL;
+    }
+    const netCygldOut = isPurchaseOverCap
+      ? requestedBasketPurchase?.net ?? netCygldIssueFromBasketExactIn ?? 0n
+      : netCygldIssueFromBasketExactIn ?? 0n;
+    return {
+      main: formatAmount(netCygldOut, cygldDecimals),
+      mainRaw: netCygldOut,
+      components: [],
+      componentRaws: [],
+    };
+  }
+  if (isIssueFromTokenExactIn) {
+    if (!issueFromTokenExactInFlow.canSubmit &&
+      !(issueFromTokenExactInFlow.quoteStatus === "loading" && (netCygldIssueFromTokenExactIn ?? 0n) > 0n)) {
+      return EMPTY_PREFILL;
+    }
+    return {
+      main: formatAmount(netCygldIssueFromTokenExactIn ?? 0n, cygldDecimals),
+      mainRaw: netCygldIssueFromTokenExactIn ?? 0n,
+      components: [],
+      componentRaws: [],
+    };
+  }
+  if (isRedeemToBasketExactIn) { 
+    if (
+      !redeemToBasketExactInFlow.canSubmit ||
+      !Array.isArray(basketAmountsOutObtained) ||
+      basketAmountsOutObtained.length !== basketComponents.length
+    ) {
+      return EMPTY_PREFILL;
+    }
+    const components = basketComponents.map((component, index) => {
+      const componentAmountBigInt = basketAmountsOutObtained?.[index] ?? 0n;
+      return formatAmount(componentAmountBigInt, component.token.decimals);
+    });
+    return {
+      main: "",
+      mainRaw: 0n,
+      components,
+      componentRaws: [...basketAmountsOutObtained],
+    };
+  }
+  if (isRedeemToTokenExactIn) {
+    if ((!redeemToTokenExactInFlow.canSubmit && !(redeemToTokenExactInFlow.quoteStatus === "loading" && (netAmountOutRedeemToTokenExactIn ?? 0n) > 0n)) || buyTokenDecimals === undefined) {
+      return EMPTY_PREFILL;
+    }
+    return {
+      main: formatAmount(netAmountOutRedeemToTokenExactIn ?? 0n, buyTokenDecimals),
+      mainRaw: netAmountOutRedeemToTokenExactIn ?? 0n,
+      components: [],
+      componentRaws: [],
+    };
+  }
+  return EMPTY_PREFILL;           
+}, [isPurchaseOverCap, requestedBasketPurchase?.net, isSellInputEnabled, buyAmount, buyAmountFromInputBigInt, cygldDecimals, basketComponents, netCygldIssueFromBasketExactIn, netCygldIssueFromTokenExactIn, basketAmountsOutObtained, netAmountOutRedeemToTokenExactIn, issueFromBasketExactInFlow.canSubmit, issueFromTokenExactInFlow.canSubmit, issueFromTokenExactInFlow.quoteStatus, isIssueFromBasketExactIn, isIssueFromTokenExactIn, isRedeemToBasketExactIn, isRedeemToTokenExactIn, redeemToBasketExactInFlow.canSubmit, redeemToTokenExactInFlow.canSubmit, redeemToTokenExactInFlow.quoteStatus, buyTokenDecimals]);
+
+// Preserve typed sell input; quoted basket amounts must match the current component order.
+const computedSellPrefill = useMemo(() : Prefill => {
+  if (isSellInputEnabled) {
+    return {
+      main: sellAmount,
+      mainRaw: sellAmountFromInputBigInt,
+      components: [],
+      componentRaws: [],
+    };
+  }
+  if (isIssueFromBasketExactOut) { 
+    if (
+      !issueFromBasketExactOutFlow.canSubmit ||
+      !Array.isArray(basketAmountsInRequired) ||
+      basketAmountsInRequired.length !== basketComponents.length
+    ) {
+      return EMPTY_PREFILL;
+    }
+    const components = basketComponents.map((component, index) => {
+      const componentAmountBigInt = basketAmountsInRequired?.[index] ?? 0n;
+      return formatAmount(componentAmountBigInt, component.token.decimals);
+  });
+  return {
+    main: "",
+    mainRaw: 0n,
+    components,
+    componentRaws: [...basketAmountsInRequired],
+  };
+}
+  if (isIssueFromTokenExactOut) {
+    if ((!issueFromTokenExactOutFlow.canSubmit && !(issueFromTokenExactOutFlow.quoteStatus === "loading" && (issueFromTokenExactOutFlow.displayExpectedInputAmount ?? 0n) > 0n)) || sellTokenDecimals === undefined) {
+      return EMPTY_PREFILL;
+    }
+    return {
+      main: formatAmount(issueFromTokenExactOutFlow.displayExpectedInputAmount ?? 0n, sellTokenDecimals),
+      mainRaw: issueFromTokenExactOutFlow.displayExpectedInputAmount ?? 0n,
+      components: [],
+      componentRaws: [],
+    };
+  }
+  if (isRedeemToBasketExactOut) { 
+    if (!redeemToBasketExactOutFlow.canSubmit) {
+      return EMPTY_PREFILL;
+    }
+    const main = formatAmount(grossCygldRedeemToBasketExactOut ?? 0n, cygldDecimals);
+    return { main, mainRaw: grossCygldRedeemToBasketExactOut ?? 0n, components: [], componentRaws: [] };
+    }
+  if (isRedeemToTokenMinOut) {
+    if (!redeemToTokenMinOutFlow.canSubmit && !(redeemToTokenMinOutFlow.quoteStatus === "loading" && (redeemToTokenMinOutGrossCygld ?? 0n) > 0n)) {
+      return EMPTY_PREFILL;
+    }
+    return {
+      main: formatAmount(redeemToTokenMinOutGrossCygld ?? 0n, cygldDecimals),
+      mainRaw: redeemToTokenMinOutGrossCygld ?? 0n,
+      components: [],
+      componentRaws: [],
+    };
+  }
+  return EMPTY_PREFILL;
+}, [ isSellInputEnabled, sellAmount, sellAmountFromInputBigInt, cygldDecimals, basketComponents, basketAmountsInRequired, grossCygldRedeemToBasketExactOut, redeemToTokenMinOutGrossCygld, issueFromBasketExactOutFlow.canSubmit, isIssueFromBasketExactOut, isIssueFromTokenExactOut, isRedeemToBasketExactOut, isRedeemToTokenMinOut, redeemToBasketExactOutFlow.canSubmit, redeemToTokenMinOutFlow.canSubmit, issueFromTokenExactOutFlow.canSubmit, issueFromTokenExactOutFlow.quoteStatus, issueFromTokenExactOutFlow.displayExpectedInputAmount, redeemToTokenMinOutFlow.quoteStatus, sellTokenDecimals]);
+
+  const displayQuoteIdentity = [flowState?.direction, flowState?.route, flowState?.inputMode,
+    sellTokenId, buyTokenId, isSellInputEnabled, slippageBps,
+    isSellInputEnabled ? sellAmount : buyAmount, sellAmountRawOverride,
+    driverToken, driverAmountStr,
+    basketComponents.map(component => [component.token.address, component.token.decimals, component.targetWeight])];
+  const retainedBuyQuote = useRetainedQuoteDisplay(displayQuoteIdentity,
+    quoteInputPending ? EMPTY_PREFILL : computedBuyPrefill, quoteInputPending ? "idle" : activeQuoteStatus, isSubmittingSwap);
+  const retainedSellQuote = useRetainedQuoteDisplay(displayQuoteIdentity,
+    quoteInputPending ? EMPTY_PREFILL : computedSellPrefill, quoteInputPending ? "idle" : activeQuoteStatus, isSubmittingSwap);
+  const localPrefill: Prefill | undefined = localQuoteAmount !== undefined && localQuoteAmount > 0n &&
+    (quoteInputPending || activeQuoteStatus === "loading" || isPurchaseOverCap) && !retainedBuyQuote.retained && !retainedSellQuote.retained ? {
+      main: formatAmount(localQuoteAmount, isSellInputEnabled ? buyTokenDecimals ?? 18 : sellTokenDecimals ?? 18),
+      mainRaw: localQuoteAmount, components: [], componentRaws: [],
+    } : undefined;
+  const localBasketPrefill = useMemo<Prefill | undefined>(() => {
+    if (flowState?.route !== "basket" || (activeQuoteStatus !== "loading" && !isPurchaseOverCap) || retainedBuyQuote.retained || retainedSellQuote.retained) return undefined;
+    const mode = `${flowState.direction}-${flowState.inputMode}` as "issue-exact-in" | "issue-exact-out" | "redeem-exact-in" | "redeem-exact-out";
+    const value = localBasketQuote(localBasketModel, mode, basketComponents.map(c => c.token.address), rawQuoteAmount, derivedBasketAmountsAsBigIntLst, issuanceModel);
+    if (!value) return undefined;
+    const amounts = value.componentAmounts ?? [];
+    const amount = mode === "issue-exact-in" && isPurchaseOverCap
+      ? requestedBasketPurchase?.net ?? value.amount ?? 0n
+      : value.amount ?? 0n;
+    return { main: amount > 0n ? formatAmount(amount, cygldDecimals) : "", mainRaw: amount,
+      components: amounts.map((n, i) => formatAmount(n, basketComponents[i].token.decimals)), componentRaws: amounts };
+  }, [flowState, activeQuoteStatus, isPurchaseOverCap, retainedBuyQuote.retained, retainedSellQuote.retained,
+    requestedBasketPurchase?.net, localBasketModel, issuanceModel, basketComponents, rawQuoteAmount, derivedBasketAmountsAsBigIntLst, cygldDecimals]);
+  const prefillBuySectionWhenSellSectionEnabled = isSellInputEnabled && localBasketPrefill ? localBasketPrefill
+    : isSellInputEnabled && localPrefill && retainedBuyQuote.value.mainRaw <= 0n ? localPrefill : retainedBuyQuote.value;
+  const prefillSellSectionWhenBuySectionEnabled = !isSellInputEnabled && localBasketPrefill ? localBasketPrefill
+    : !isSellInputEnabled && localPrefill && retainedSellQuote.value.mainRaw <= 0n ? localPrefill : retainedSellQuote.value;
+
+  const buyAmountStr = prefillBuySectionWhenSellSectionEnabled.main;
+  const buyAmountBigInt = prefillBuySectionWhenSellSectionEnabled.mainRaw;
+  
+  const sellAmountStr = prefillSellSectionWhenBuySectionEnabled.main;
+  const sellAmountBigInt = prefillSellSectionWhenBuySectionEnabled.mainRaw;
+  const executionSpendAmount = activeFlow && "maximumInputAmount" in activeFlow
+    ? activeFlow.maximumInputAmount ?? sellAmountBigInt : sellAmountBigInt;
+  
+  const walletBalanceByTokenId = useMemo(() => {
+    return findWalletBalanceByTokenId(balances);
+  }, [balances]);
+
+  const sellTokenWalletBalance = walletBalanceByTokenId[sellTokenId] ?? 0n;
+  const sellTokenBalanceKnown = walletBalanceByTokenId[sellTokenId] !== undefined;
+
+  const isBasketComponentAmountOverWalletBalance = useCallback(
+    (component: BasketComponent, amountStr: string) => {
+      if (!isConnected) return false;
+      return isBasketComponentAmountOverBalance({
+        component,
+        amountStr,
+        walletBalanceByTokenId,
+        locale,
+      });
+    },
+    [isConnected, locale, walletBalanceByTokenId]
+  );
+  
+  // Suppress token balance warnings while quotes or post-submission balances are changing.
+  const isTokenSellAmountOverWalletBalance = useMemo(() => {
+    if (isQuoteLoading && !isSellInputEnabled) return false;
+    if (isSubmittingSwap) return false;
+    if (isSubmittedSwapCleanupInProgress) return false;
+    if (!isConnected) return false;
+    if (!isSellTokenSpendable) return false;
+    if (!sellTokenBalanceKnown) return false;
+    const amount = isSellInputEnabled ? editedSellAmount : executionSpendAmount;
+    if (amount <= 0n) return false;
+    return amount > sellTokenWalletBalance;
+  }, [
+    isConnected,
+    isSubmittedSwapCleanupInProgress,
+    isSubmittingSwap,
+    isQuoteLoading,
+    isSellInputEnabled,
+    isSellTokenSpendable,
+    executionSpendAmount,
+    editedSellAmount,
+    sellTokenWalletBalance,
+    sellTokenBalanceKnown,
+  ]);
+
+  const canUseSellMax = isSellInputEnabled && isConnected && isSellTokenSpendable && sellToken !== undefined && sellTokenBalanceKnown;
+  const { data: currentGasFees, isError: gasFeesUnavailable,
+    isFetching: isFetchingGasFees, refetch: refetchGasFees } = networkGasFees;
+
+  // A fee read started by MAX must not overwrite a later edit or wallet change.
+  useEffect(() => () => { sellMaxRequestRef.current++; purchaseMaxAbortRef.current?.abort(); }, [
+    address, connectedChainId, isConnected, isSellInputEnabled, sellTokenId, buyTokenId,
+    sellAmount, buyAmount, sellAmountRawOverride, driverToken, driverAmountStr, driverAmountRawOverride,
+    sellTokenWalletBalance, estimatedSwapGas, slippageBps,
+  ]);
+
+  const getSpendableInputForMax = useCallback(async () => {
+    if (!isConnected || !sellTokenBalanceKnown || !isSellTokenSpendable) return undefined;
+    let amount = sellTokenWalletBalance;
+    if (isSellTokenNative) {
+      if (estimatedSwapGas === undefined) return undefined;
+      let fees = currentGasFees;
+      if (!fees || gasFeesUnavailable || isFetchingGasFees) {
+        const result = await refetchGasFees({ cancelRefetch: false });
+        if (result.isError || !result.data) return undefined;
+        fees = result.data;
+      }
+      amount = nativeSellMaxAmount(amount, estimatedSwapGas * fees.maxFeePerGas);
+    }
+    return amount;
+  }, [isConnected, sellTokenBalanceKnown, isSellTokenSpendable, sellTokenWalletBalance, isSellTokenNative,
+    estimatedSwapGas, currentGasFees, gasFeesUnavailable, isFetchingGasFees, refetchGasFees]);
+
+  const handleSetPurchaseMax = useCallback(async () => {
+    if (!isIssue || remainingNetCapacity === undefined || remainingNetCapacity === 0n) return;
+    const request = ++sellMaxRequestRef.current;
+    purchaseMaxAbortRef.current?.abort();
+    const controller = new AbortController();
+    purchaseMaxAbortRef.current = controller;
+    setIsPurchaseMaxLoading(true);
+    try {
+      let netCygldOut = remainingNetCapacity;
+      if (isSellBasket) {
+        if (isConnected && issuanceModel) {
+          const walletBudget = basketComponents.map(component => walletBalanceByTokenId[component.token.id]);
+          if (walletBudget.every(amount => amount !== undefined)) {
+            const affordable = cygldBasketPurchaseMax(issuanceModel, walletBudget as bigint[], slippageBps);
+            if (affordable !== undefined && affordable < netCygldOut) netCygldOut = affordable;
+          }
+        }
+      } else if (isNativeOrErc20Token(sellToken) && sellTokenQuoteAddress && sellTokenHelperAddress) {
+        const spendableInput = await getSpendableInputForMax();
+        if (isConnected && isSellTokenNative && spendableInput === undefined) return;
+        if (spendableInput !== undefined) {
+          const result = await findCygldPurchaseMax({ netCygldCap: netCygldOut, spendableInput, slippageBps,
+            fetchQuoteIntent: async ({ mode, amount }) => {
+              const plan = mode === "issue-exact-in" ? computeSwapBudgetsExactIn({
+                inputToken: sellTokenQuoteAddress, inputAmount: amount, components: basketComponents,
+              }) : undefined;
+              const quote = await fetchQuoteIntent({ mode, token: sellTokenHelperAddress, quoteToken: sellTokenQuoteAddress,
+                native: isSellTokenNative, amount: String(amount), slippageBps,
+                adapter: addresses.adapter, deadline: String(buildQuoteDeadline()),
+                orderedAssets: basketComponents.map(component => component.token.address),
+                targets: (plan?.budgets ?? []).map(budget => ({ inputAsset: sellTokenQuoteAddress,
+                  outputAsset: budget.outputAsset, amount: String(budget.amountIn) })),
+              }, controller.signal, () => {});
+              return { executionAmount: quote.executionAmount, expectedInputAmount: quote.expectedInputAmount,
+                maximumInputAmount: quote.maximumInputAmount };
+            },
+          });
+          if (!result) return;
+          netCygldOut = result.netCygldOut;
+        }
+      } else return;
+      if (request !== sellMaxRequestRef.current || controller.signal.aborted) return;
+      setIsSellInputEnabled(false);
+      setBuyAmount(formatUnits(netCygldOut, cygldDecimals).replace(".", getLocaleDecimalSeparator(locale)));
+      setDriverAmountRawOverride(undefined);
+      setDriverToken(undefined);
+      setDriverAmountStr("");
+    } catch (error) {
+      if (!controller.signal.aborted) toast.error(t("noQuoteAvailableMessage"), {
+        description: error instanceof QuotePreviewError ? quoteErrorMessage(error, t) : undefined,
+      });
+    } finally {
+      if (purchaseMaxAbortRef.current === controller) setIsPurchaseMaxLoading(false);
+    }
+  }, [isIssue, remainingNetCapacity, isSellBasket, isConnected, issuanceModel, basketComponents,
+    walletBalanceByTokenId, sellToken, sellTokenQuoteAddress, sellTokenHelperAddress, getSpendableInputForMax,
+    slippageBps, isSellTokenNative, cygldDecimals, locale, t, addresses.adapter]);
+
+  const handleSetSellMax = useCallback(async () => {
+    if (!isNativeOrErc20Token(sellToken)) return;
+    if (isIssue && remainingNetCapacity !== undefined && (!isConnected || !isSellInputEnabled)) return handleSetPurchaseMax();
+    if (!canUseSellMax) return;
+    const request = ++sellMaxRequestRef.current;
+    const amount = await getSpendableInputForMax();
+    if (amount === undefined || request !== sellMaxRequestRef.current) return;
+    if (isIssue && remainingNetCapacity !== undefined && sellTokenHelperAddress && sellTokenQuoteAddress && amount > 0n) {
+      purchaseMaxAbortRef.current?.abort();
+      const controller = new AbortController();
+      purchaseMaxAbortRef.current = controller;
+      setIsPurchaseMaxLoading(true);
+      try {
+        const plan = computeSwapBudgetsExactIn({ inputToken: sellTokenQuoteAddress, inputAmount: amount, components: basketComponents });
+        const quote = await fetchQuoteIntent({ mode: "issue-exact-in", token: sellTokenHelperAddress, quoteToken: sellTokenQuoteAddress,
+          native: isSellTokenNative, amount: String(amount), slippageBps,
+          adapter: addresses.adapter, deadline: String(buildQuoteDeadline()),
+          orderedAssets: basketComponents.map(component => component.token.address),
+          targets: (plan?.budgets ?? []).map(budget => ({ inputAsset: sellTokenQuoteAddress, outputAsset: budget.outputAsset, amount: String(budget.amountIn) })),
+        }, controller.signal, () => {});
+        if (request !== sellMaxRequestRef.current || controller.signal.aborted) return;
+        const requested = quote.requestedGrossCygldOut;
+        const remaining = quote.remainingGrossCapacity;
+        if (requested !== undefined && remaining !== undefined && requested > remaining) {
+          await handleSetPurchaseMax();
+          return;
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) toast.error(t("noQuoteAvailableMessage"), {
+          description: error instanceof QuotePreviewError ? quoteErrorMessage(error, t) : undefined,
+        });
+        return;
+      } finally {
+        if (purchaseMaxAbortRef.current === controller) setIsPurchaseMaxLoading(false);
+      }
+    }
+    if (request !== sellMaxRequestRef.current) return;
+    setSellAmountRawOverride(amount);
+    setSellAmount(truncateDecimalString(formatUnits(amount, sellToken.decimals), 3));
+  }, [canUseSellMax, sellToken, isIssue, isConnected, isSellInputEnabled, remainingNetCapacity, handleSetPurchaseMax, getSpendableInputForMax,
+    sellTokenHelperAddress, sellTokenQuoteAddress, isSellTokenNative, slippageBps, basketComponents, t, addresses.adapter]);
+
+  const activeBasketSellDriver = useMemo(() => {
+    if (!isSellInputEnabled || sellTokenId !== "goldbasket") return undefined;
+    if (driverToken) {
+      return basketComponents.find((component) => (component.token.address as Address) === driverToken);
+    }
+    return basketComponents[0];
+  }, [isSellInputEnabled, sellTokenId, driverToken, basketComponents]);
+
+  const activeBasketSellDriverBalance = activeBasketSellDriver
+    ? walletBalanceByTokenId[activeBasketSellDriver.token.id] ?? 0n
+    : 0n;
+
+  const canUseBasketSellMax = isConnected && isSellInputEnabled && activeBasketSellDriver !== undefined
+    && walletBalanceByTokenId[activeBasketSellDriver.token.id] !== undefined;
+
+  const handleSetBasketSellMax = useCallback(() => {
+    if (isIssue && remainingNetCapacity !== undefined) { void handleSetPurchaseMax(); return; }
+    if (!canUseBasketSellMax) return;
+    setDriverToken(activeBasketSellDriver.token.address as Address);
+    setDriverAmountRawOverride(activeBasketSellDriverBalance);
+    setDriverAmountStr(
+      truncateDecimalString(
+        formatUnits(activeBasketSellDriverBalance, activeBasketSellDriver.token.decimals)
+        , 3
+      )
+    );
+  }, [canUseBasketSellMax, activeBasketSellDriverBalance, activeBasketSellDriver, isIssue, remainingNetCapacity, handleSetPurchaseMax]);
+
+  const isSellAmountOverWalletBalance = useMemo(() => {
+    if (isQuoteLoading && !isSellInputEnabled) return false;
+    if (!isConnected) return false;
+
+    if (isIssueFromBasketExactIn) {
+      return basketComponents.some((component) => {
+        const componentAddress = component.token.address as `0x${string}`;
+        const displayedValue =
+          componentAddress === driverToken
+            ? driverAmountStr
+            : (derivedBasketAmountsAsStringMap[componentAddress] ?? "");
+
+        return isBasketComponentAmountOverWalletBalance(component, displayedValue);
+      });
+    }
+
+    if (isIssueFromBasketExactOut) {
+      return basketComponents.some((component, index) => {
+        const displayedValue = prefillSellSectionWhenBuySectionEnabled.components[index] ?? "";
+        return isBasketComponentAmountOverWalletBalance(component, displayedValue);
+      });
+    }
+
+    return isTokenSellAmountOverWalletBalance;
+  }, [
+    isConnected,
+    isQuoteLoading,
+    isSellInputEnabled,
+    isIssueFromBasketExactIn,
+    isIssueFromBasketExactOut,
+    isTokenSellAmountOverWalletBalance,
+    basketComponents,
+    driverToken,
+    driverAmountStr,
+    derivedBasketAmountsAsStringMap,
+    prefillSellSectionWhenBuySectionEnabled.components,
+    isBasketComponentAmountOverWalletBalance,
+  ]);
+
+  const buyPriceUsd = Number.isFinite(buyTokenPriceUsd) ? buyTokenPriceUsd : undefined;
+  const sellPriceUsd = Number.isFinite(sellTokenPriceUsd) ? sellTokenPriceUsd: undefined;
+  const wethPriceCandidate = prices?.weth ?? prices?.eth;
+  const wethPriceUsd = Number.isFinite(wethPriceCandidate) ? wethPriceCandidate : undefined;
+
+  // Value and amount share the current rendered frame; quote debounce applies only to requests.
+  const buyValuationAmount = isSellInputEnabled ? buyAmountBigInt : rawQuoteAmount;
+  const sellValuationAmount = isSellInputEnabled ? editedSellAmount : sellAmountBigInt;
+  const buyAmountUsdApprox =
+    buyPriceUsd !== undefined &&
+    buyTokenDecimals !== undefined &&
+    buyValuationAmount > 0n
+      ? Number(formatUnits(buyValuationAmount, buyTokenDecimals)) * buyPriceUsd
+      : undefined;
+
+  const sellAmountUsdApprox =
+    sellPriceUsd !== undefined &&
+    sellTokenDecimals !== undefined &&
+    sellValuationAmount > 0n
+      ? Number(formatUnits(sellValuationAmount, sellTokenDecimals)) * sellPriceUsd
+      : undefined;
+  
+  const networkFeeUsd =
+    networkFeeEstimate && wethPriceUsd !== undefined
+      ? Number(formatEther(networkFeeEstimate.wei)) * wethPriceUsd
+      : undefined;
+  
+  const totalFeeUsd = useMemo(() => {
+    return computeTotalFeeUsd({
+      activeFees,
+      cygldDecimals,
+      cygldPriceUsd,
+      cygldTokenId,
+      networkFeeUsd,
+      networkFeeWei: networkFeeEstimate?.wei,
+      prices,
+      tokenAddressMap,
+    });
+  }, [activeFees, cygldDecimals, cygldPriceUsd, cygldTokenId, networkFeeEstimate?.wei, networkFeeUsd, prices, tokenAddressMap]);
+
+  // Only the presentation retains previous fees. Submission continues to use
+  // the current quote, current balances and existing execution readiness.
+  const areFeesUpdating = quoteInputPending || isQuoteLoading || isNetworkFeeEstimateLoading;
+  const retainedFees = useRetainedQuoteDisplay(
+    [flowState?.direction, flowState?.route, flowState?.inputMode, sellTokenId, buyTokenId,
+      basketComponents.map(component => [component.token.address, component.token.decimals, component.targetWeight])],
+    { fees: activeFees, protocolFeeUsd, helpersFeeUsd, networkFeeEstimate, networkFeeUsd, totalFeeUsd },
+    !hasEnteredSwapAmount ? "empty" : areFeesUpdating ? "loading" : activeQuoteStatus,
+    isSubmittingSwap
+  );
+  const feeDisplay = retainedFees.value;
+  const isFeeDisplayUpdating = hasEnteredSwapAmount && areFeesUpdating;
+  const feeValueClassName = cn(swapStyles.feeValue, isFeeDisplayUpdating && "text-text-input-disabled");
+
+  const formatApproxDisplayValue = (
+    amountUsd?: number,
+    placeholder = displayAmountPlaceholder
+  ) => {
+    if (amountUsd === undefined || !Number.isFinite(amountUsd) || amountUsd <= 0) {
+      return placeholder;
+    }
+
+    const formatted = formatDisplayValueFromUsd({
+      amountUsd,
+      priceDisplayMode: selectedPriceDisplayMode,
+      goldSpotUsdPerOzt,
+      formatFiat,
+      formatGoldAmount,
+    });
+
+    return formatted ? `~ ${formatted}` : placeholder;
+  };
+
+  const formatApproxFiatValue = (
+    amountUsd?: number,
+    placeholder = displayAmountPlaceholder
+  ) => {
+    if (amountUsd === undefined || !Number.isFinite(amountUsd) || amountUsd < 0) {
+      return placeholder;
+    }
+
+    return `~ ${formatFiat(amountUsd)}`;
+  };
+
+  const formatAmountEquivalentDisplayValue = (
+    amountUsd?: number,
+    placeholder = amountEquivalentsPlaceholder
+  ) => {
+    if (amountUsd === undefined || !Number.isFinite(amountUsd) || amountUsd <= 0) {
+      return placeholder;
+    }
+
+    const formatted = formatCombinedDisplayValueFromUsd({
+      amountUsd,
+      goldSpotUsdPerOzt,
+      formatFiat,
+      formatGoldAmount,
+    });
+
+    return formatted ? `~ ${formatted}` : placeholder;
+  };
+
+  const cygldUsdReferenceLabel = useMemo(() => {
+    const currentCygldPriceUsd = Number.isFinite(cygldPriceUsd)
+        ? cygldPriceUsd
+        : undefined;
+
+    if (currentCygldPriceUsd !== undefined) {
+      const formatted = formatDisplayValueFromUsd({
+        amountUsd: currentCygldPriceUsd,
+        priceDisplayMode: selectedPriceDisplayMode,
+        goldSpotUsdPerOzt,
+        formatFiat,
+        formatGoldAmount,
+      });
+
+      if (formatted) {
+        return `1 CYGLD ≈ ${formatted}`;
+      }
+    }
+    return "1 CYGLD ≈ —";
+  }, [
+    cygldPriceUsd,
+    formatFiat,
+    formatGoldAmount,
+    goldSpotUsdPerOzt,
+    selectedPriceDisplayMode,
+  ]);
+
+  const sellBasketComponentsUsdTotal = useMemo(() => {
+    return computeBasketSideUsdTotal({
+      tokenId: sellTokenId,
+      basketComponents,
+      prices,
+      driverToken,
+      driverAmountStr,
+      derivedBasketAmountsAsStringMap,
+      isSideInputEnabled: isSellInputEnabled,
+      quotedComponents: prefillSellSectionWhenBuySectionEnabled.components,
+      locale,
+    });
+  }, [ sellTokenId, basketComponents, driverToken, driverAmountStr, derivedBasketAmountsAsStringMap, isSellInputEnabled, locale, prefillSellSectionWhenBuySectionEnabled.components, prices,
+  ]);
+
+  const buyBasketComponentsUsdTotal = useMemo(() => {
+    return computeBasketSideUsdTotal({
+      tokenId: buyTokenId,
+      basketComponents,
+      prices,
+      driverToken,
+      driverAmountStr,
+      derivedBasketAmountsAsStringMap,
+      isSideInputEnabled: !isSellInputEnabled,
+      quotedComponents: prefillBuySectionWhenSellSectionEnabled.components,
+      locale,
+    });
+  }, [ buyTokenId, basketComponents, driverToken, driverAmountStr, derivedBasketAmountsAsStringMap, isSellInputEnabled, locale, prefillBuySectionWhenSellSectionEnabled.components, prices,
+  ]);
+  
+  const hasMissingSwapAmount =
+    isIssueFromBasketExactIn || isRedeemToBasketExactOut
+      ? !hasDerivedBasketAmounts
+      : isIssueFromBasketExactOut
+        ? !Array.isArray(basketAmountsInRequired) || !basketAmountsInRequired.some((amount) => amount > 0n)
+        : sellAmountBigInt <= 0n;
+
+  const swapActionError = useMemo(() => {
+    if (isProtocolPaused) {
+      return t("protocolPausedSwapBlocked");
+    }
+    if (tokenFlowAdapterError) {
+      return tokenFlowAdapterError;
+    }
+    if (isRedeemToTokenMinOut && redeemToTokenMinOutAmountTooSmall) {
+      return t("redeemOutputTooSmall");
+    }
+    if (isSellAmountOverWalletBalance) {
+      return t("reduceAmountToBalance");
+    }
+    if (isPurchaseOverCap) return remainingNetCapacity === 0n ? t("cygldSupplyCapReached") : t("reduceAmountToSupplyLimit");
+    if (activeQuoteStatus === "failed") {
+      if (isIssuanceCapError) return purchaseCapacity?.available === 0n
+        ? t("cygldSupplyCapReached") : t("reduceAmountToSupplyLimit");
+      return activeQuoteError;
+    }
+    return undefined;
+  }, [
+    isProtocolPaused,
+    tokenFlowAdapterError,
+    isRedeemToTokenMinOut,
+    redeemToTokenMinOutAmountTooSmall,
+    activeQuoteStatus,
+    activeQuoteError,
+    isIssuanceCapError,
+    isPurchaseOverCap,
+    remainingNetCapacity,
+    purchaseCapacity?.available,
+    isSellAmountOverWalletBalance,
+    t,
+  ]);
+
+  const hasMissingFlowQuotes = activeFlow !== undefined &&
+    (activeQuoteStatus !== "success" || !activeFlow.canSubmit);
+
+  const isWalletOnWrongNetwork = isConnected && connectedChainId !== EXPECTED_CHAIN_ID;
+  const isSwapActionDisabled =
+    isSubmittingSwap ||
+    (isActiveTokenFlow && !isTokenFlowAdapterReady) ||
+    isWalletOnWrongNetwork ||
+    isQuoteLoading ||
+    quoteInputPending ||
+    hasMissingFlowQuotes ||
+    !!swapActionError ||
+    hasMissingSwapAmount ||
+    isTokenSellAmountOverWalletBalance;
+
+  const shouldShowQuoteButtonPercent =
+    isQuoteLoading && quoteButtonProgressPercent > 0;
+  
+  const shouldMuteComputedAmounts =
+    !isSubmittingSwap &&
+    (isQuoteLoading || hasMissingFlowQuotes);
+  const shouldMuteQuotedSellAmounts =
+    shouldMuteComputedAmounts && !isSellInputEnabled;
+  const shouldMuteQuotedBuyAmounts =
+    shouldMuteComputedAmounts && isSellInputEnabled;
+
+  const shouldBlockQuotedSellInput =
+    isQuoteLoading && !isSellInputEnabled;
+  const shouldBlockQuotedBuyInput =
+    isQuoteLoading && isSellInputEnabled;
+  const shouldHideQuotedBasketSellAmounts = shouldBlockQuotedSellInput && !localBasketPrefill;
+  const shouldHideQuotedBasketBuyAmounts = shouldBlockQuotedBuyInput && !localBasketPrefill;
+
+  const hasProgressiveSellEstimate = (isIssueFromTokenExactOut || isRedeemToTokenMinOut || isRedeemToBasketExactOut) &&
+    (activeQuoteStatus === "loading" || quoteInputPending || isPurchaseOverCap) && !retainedSellQuote.retained && prefillSellSectionWhenBuySectionEnabled.mainRaw > 0n;
+  const hasProgressiveBuyEstimate = (isIssueFromTokenExactIn || isRedeemToTokenExactIn || isIssueFromBasketExactIn) &&
+    (activeQuoteStatus === "loading" || quoteInputPending) && !retainedBuyQuote.retained && prefillBuySectionWhenSellSectionEnabled.mainRaw > 0n;
+  const displayedQuotedSellAmount = formatMeaningfulDecimalString(prefillSellSectionWhenBuySectionEnabled.main, locale);
+  const displayedQuotedBuyAmount = formatMeaningfulDecimalString(prefillBuySectionWhenSellSectionEnabled.main, locale);
+
+  const sellAmountPlaceholderText = shouldBlockQuotedSellInput
+    ? loadingAmountPlaceholder
+    : zeroAmountPlaceholder;
+  const buyAmountPlaceholderText = shouldBlockQuotedBuyInput
+    ? loadingAmountPlaceholder
+    : zeroAmountPlaceholder;
+  const sellAmountEquivalentsPlaceholderText = shouldBlockQuotedSellInput
+    ? loadingAmountEquivalentsPlaceholder
+    : amountEquivalentsPlaceholder;
+  const buyAmountEquivalentsPlaceholderText = shouldBlockQuotedBuyInput
+    ? loadingAmountEquivalentsPlaceholder
+    : amountEquivalentsPlaceholder;
+  const sellMobileAmountEquivalentDisplayValue = isSellBasket
+    ? formatAmountEquivalentDisplayValue(
+        sellBasketComponentsUsdTotal,
+        shouldBlockQuotedSellInput
+          ? loadingAmountEquivalentsPlaceholder
+          : amountEquivalentsPlaceholder
+      )
+    : sellAmountUsdApprox !== undefined
+        ? formatAmountEquivalentDisplayValue(sellAmountUsdApprox)
+        : sellAmountEquivalentsPlaceholderText;
+  const buyMobileAmountEquivalentDisplayValue = isBuyBasket
+    ? formatAmountEquivalentDisplayValue(
+        buyBasketComponentsUsdTotal,
+        shouldBlockQuotedBuyInput
+          ? loadingAmountEquivalentsPlaceholder
+          : amountEquivalentsPlaceholder
+      )
+    : buyAmountUsdApprox !== undefined
+        ? formatAmountEquivalentDisplayValue(buyAmountUsdApprox)
+        : buyAmountEquivalentsPlaceholderText;
+
+  // Prefer the clicked basket row, then a valid existing driver, then the first component.
+  // Use its displayed amount when that side becomes editable.
+  const resolveBasketDriverFromDisplayedComponents = useCallback((params: {
+    componentValues: readonly string[];
+    preferredAddress?: Address;
+    preferredValue?: string;
+  }) => {
+    const { componentValues, preferredAddress, preferredValue } = params;
+    const nextDriverToken =
+      preferredAddress ??
+      (basketComponents.some(
+        (component) => (component.token.address as Address) === driverToken
+      )
+        ? driverToken
+        : undefined) ??
+      (basketComponents[0]?.token.address as Address | undefined);
+    const componentIndex = basketComponents.findIndex(
+      (component) => (component.token.address as Address) === nextDriverToken
+    );
+
+    if (!nextDriverToken || componentIndex === -1) {
+      return {
+        token: undefined,
+        amount: "",
+      };
+    }
+
+    return {
+      token: nextDriverToken,
+      amount: normalizeDecimalInput(
+        preferredValue ?? componentValues[componentIndex],
+        locale
+      ),
+    };
+  }, [basketComponents, driverToken, locale]);
+
+  // Promote the displayed quote to editable input when the user switches input sides.
+  const activateInputSide = useCallback((params: {
+    side: "sell" | "buy";
+    basketComponentAddress?: Address;
+    basketComponentValue?: string;
+  }) => {
+    const { side, basketComponentAddress, basketComponentValue } = params;
+    const nextIsSellInputEnabled = side === "sell";
+    if (isQuoteLoading || nextIsSellInputEnabled === isSellInputEnabled) {
+      return;
+    }
+
+    shouldFocusEditableInputRef.current = true;
+    setIsSellInputEnabled(nextIsSellInputEnabled);
+    setSellAmountRawOverride(undefined);
+    setDriverAmountRawOverride(undefined);
+
+    if (nextIsSellInputEnabled) {
+      if (sellTokenId === goldBasketId) {
+        const nextDriver = resolveBasketDriverFromDisplayedComponents({
+          componentValues: prefillSellSectionWhenBuySectionEnabled.components,
+          preferredAddress: basketComponentAddress,
+          preferredValue: basketComponentValue,
+        });
+        setDriverToken(nextDriver.token);
+        setDriverAmountStr(nextDriver.amount);
+      } else {
+        setSellAmount(normalizeDecimalInput(sellAmountStr, locale));
+      }
+    } else if (buyTokenId === goldBasketId) {
+      const nextDriver = resolveBasketDriverFromDisplayedComponents({
+        componentValues: prefillBuySectionWhenSellSectionEnabled.components,
+        preferredAddress: basketComponentAddress,
+        preferredValue: basketComponentValue,
+      });
+      setDriverToken(nextDriver.token);
+      setDriverAmountStr(nextDriver.amount);
+    } else {
+      setBuyAmount(normalizeDecimalInput(buyAmountStr, locale));
+    }
+
+    setDisplayedQuoteProgressPercent(0);
+  }, [
+    buyAmountStr,
+    buyTokenId,
+    goldBasketId,
+    isSellInputEnabled,
+    isQuoteLoading,
+    locale,
+    prefillBuySectionWhenSellSectionEnabled.components,
+    prefillSellSectionWhenBuySectionEnabled.components,
+    resolveBasketDriverFromDisplayedComponents,
+    sellAmountStr,
+    sellTokenId,
+  ]);
+
+  // Move the user's editable token and amount to the opposite side when swapping direction.
+  const handleToggleDirection = useCallback(() => {
+    const nextSellTokenId = buyTokenId;
+    const nextBuyTokenId = sellTokenId;
+    const nextIsSellInputEnabled = !isSellInputEnabled;
+    const activeSide: "sell" | "buy" = isSellInputEnabled ? "sell" : "buy";
+    const activeTokenId = activeSide === "sell" ? sellTokenId : buyTokenId;
+    const activeTokenIsBasket = activeTokenId === goldBasketId;
+    const preservedMainAmount = normalizeDecimalInput(
+      activeSide === "sell" ? sellAmount : buyAmount,
+      locale
+    );
+    const preservedBasketComponents = activeTokenIsBasket
+      ? basketComponents.map((component) => {
+          const componentAddress = component.token.address as Address;
+          return componentAddress === driverToken
+            ? driverAmountStr
+            : (derivedBasketAmountsAsStringMap[componentAddress] ?? "");
+        })
+      : [];
+
+    shouldFocusEditableInputRef.current = true;
+    setIsSellInputEnabled(nextIsSellInputEnabled);
+    setSellTokenId(nextSellTokenId);
+    setBuyTokenId(nextBuyTokenId);
+    setSellAmount(nextIsSellInputEnabled && !activeTokenIsBasket ? preservedMainAmount : "");
+    setBuyAmount(!nextIsSellInputEnabled && !activeTokenIsBasket ? preservedMainAmount : "");
+    setSellAmountRawOverride(undefined);
+
+    if (activeTokenIsBasket) {
+      const nextDriver = resolveBasketDriverFromDisplayedComponents({
+        componentValues: preservedBasketComponents,
+        preferredAddress: driverToken,
+        preferredValue: driverAmountStr,
+      });
+      setDriverToken(nextDriver.token);
+      setDriverAmountStr(nextDriver.amount);
+      // Retain full MAX precision when the same basket moves to the opposite side.
+      setDriverAmountRawOverride(driverAmountRawOverride);
+    } else {
+      setDriverToken(undefined);
+      setDriverAmountStr("");
+      setDriverAmountRawOverride(undefined);
+    }
+
+    setDisplayedQuoteProgressPercent(0);
+  }, [
+    basketComponents,
+    buyAmount,
+    buyTokenId,
+    driverAmountRawOverride,
+    derivedBasketAmountsAsStringMap,
+    driverAmountStr,
+    driverToken,
+    goldBasketId,
+    isSellInputEnabled,
+    locale,
+    resolveBasketDriverFromDisplayedComponents,
+    sellAmount,
+    sellTokenId,
+  ]);
+
+  // Preserve main amounts across single-token choices and driver input across basket choices.
+  // Drop exact MAX overrides when the editable token changes.
+  const resetQuoteStateForTokenChange = useCallback((params: {
+    nextSellTokenId: string;
+    nextBuyTokenId: string;
+    changedSide: "sell" | "buy";
+  }) => {
+    const { nextSellTokenId, nextBuyTokenId, changedSide } = params;
+    const editableSide: "sell" | "buy" = isSellInputEnabled ? "sell" : "buy";
+    const currentEditableTokenId = editableSide === "sell" ? sellTokenId : buyTokenId;
+    const nextEditableTokenId = editableSide === "sell" ? nextSellTokenId : nextBuyTokenId;
+    const currentEditableTokenIsBasket = currentEditableTokenId === goldBasketId;
+    const nextEditableTokenIsBasket = nextEditableTokenId === goldBasketId;
+    const editableSideChanged = changedSide === editableSide || currentEditableTokenId !== nextEditableTokenId;
+    const preserveEditableOverrides = !editableSideChanged;
+    const preserveEditableMainAmount =
+      !nextEditableTokenIsBasket &&
+      (!editableSideChanged || !currentEditableTokenIsBasket);
+    const preserveEditableDriver =
+      nextEditableTokenIsBasket &&
+      (!editableSideChanged || currentEditableTokenIsBasket);
+
+    setSellAmount(
+      editableSide === "sell" && preserveEditableMainAmount ? sellAmount : ""
+    );
+    setBuyAmount(
+      editableSide === "buy" && preserveEditableMainAmount ? buyAmount : ""
+    );
+    setSellAmountRawOverride(
+      editableSide === "sell" && preserveEditableOverrides
+        ? sellAmountRawOverride
+        : undefined
+    );
+    setDriverAmountRawOverride(
+      preserveEditableDriver && preserveEditableOverrides
+        ? driverAmountRawOverride
+        : undefined
+    );
+    setDriverToken(preserveEditableDriver ? driverToken : undefined);
+    setDriverAmountStr(preserveEditableDriver ? driverAmountStr : "");
+  }, [
+    isSellInputEnabled,
+    sellTokenId,
+    buyTokenId,
+    goldBasketId,
+    sellAmount,
+    buyAmount,
+    sellAmountRawOverride,
+    driverAmountRawOverride,
+    driverToken,
+    driverAmountStr,
+  ]);
+
+  // Keep CYGLD on exactly one side, choosing a valid counterpart when sell becomes CYGLD.
+  const handleSellTokenChange = (value: string) => {
+    if (value === sellTokenId) {
+      setIsSellModalOpen(false);
+      return;
+    }
+    const nextBuyTokenId =
+      value === cygldTokenId
+        ? [buyTokenId, sellTokenId].find((tokenId) =>
+            tokensWithoutCygld.some((token) => token.id === tokenId)
+          ) ??
+          tokensWithoutCygld.find((token) => token.id === goldBasketId)?.id ??
+          tokensWithoutCygld[0]?.id ??
+          ""
+        : cygldTokenId;
+    setSellTokenId(value);
+    setBuyTokenId(nextBuyTokenId);
+    resetQuoteStateForTokenChange({
+      nextSellTokenId: value,
+      nextBuyTokenId,
+      changedSide: "sell",
+    });
+    setIsSellModalOpen(false);
+  };
+
+  // Every receive asset is selectable; keep CYGLD on exactly one side.
+  const handleBuyTokenChange = (value: string) => {
+    if (value === buyTokenId) {
+      setIsBuyModalOpen(false);
+      return;
+    }
+    const nextSellTokenId = value === cygldTokenId
+      ? (sellTokenId !== cygldTokenId ? sellTokenId
+        : tokensWithoutCygld.find(token => token.id === buyTokenId)?.id
+          ?? tokensWithoutCygld.find(token => token.id === goldBasketId)?.id
+          ?? tokensWithoutCygld[0]?.id ?? "")
+      : cygldTokenId;
+    setSellTokenId(nextSellTokenId);
+    setBuyTokenId(value);
+    resetQuoteStateForTokenChange({
+      nextSellTokenId,
+      nextBuyTokenId: value,
+      changedSide: "buy",
+    });
+    setIsBuyModalOpen(false);
+  };
+
+  // Submission and wallet confirmation.
+  const handleSwapClick = async () => {
+  
+    if (!isConnected) {
+      openConnectModal?.();
+      return;
+    }
+    if (isSwapActionDisabled || !address || !publicClient || !activeFlow) return;
+    // The accepted visible amount supersedes any earlier MAX fee read.
+    sellMaxRequestRef.current++;
+    // Capture the execution closure and visible terms before the first await.
+    const executionFlow = activeFlow;
+    // Supported atomic accounts retain priority. "ready" may use non-atomic
+    // SDK request batching; this app never requests an account upgrade.
+    const atomicStatus = walletAtomic.data;
+    let walletBatch: WalletSwapBatch | undefined;
+    const requiredBalances = isIssueFromBasketExactIn || isIssueFromBasketExactOut
+      ? basketComponents.map((component, index) => ({ tokenId: component.token.id,
+          amount: (isIssueFromBasketExactIn ? issueFromBasketExactInFlow.amountsInUsed : basketAmountsInRequired)?.[index] ?? 0n }))
+      : [{ tokenId: sellTokenId, amount: isSellInputEnabled ? editedSellAmount : executionSpendAmount }];
+    setIsSubmittingSwap(true);
+    try {
+      // These fresh observations are independent. Both retain their existing
+      // checks before any wallet prompt; neither waits for the other to start.
+      const [snapshot, , preparedBatch] = await Promise.all([
+        readWalletBalancesForSwap(requiredBalances.map(row => row.tokenId)).catch(() => {
+          throw new Error(t("swapBalanceRefreshFailed"));
+        }),
+        (async () => {
+          if (!requiresTokenFlowAdapter) return;
+          if (!hasConfiguredTokenFlowAdapter || !tokenFlowAdapter) {
+            throw new Error(t("tokenSwapAdapterInvalid"));
+          }
+          const facts = await fetchHelpersRouterFacts(undefined, fetch, tokenFlowAdapter)
+            .catch(error => {
+              if (error instanceof QuotePreviewError) throw error;
+              throw new Error(t("tokenSwapAdapterApprovalUnavailable"));
+            });
+          const approved = (() => {
+            try { return adapterApprovalFromFacts(facts, tokenFlowAdapter); }
+            catch { throw new Error(t("tokenSwapAdapterApprovalUnavailable")); }
+          })();
+          if (approved !== true) throw new Error(t("tokenSwapAdapterNotApproved"));
+          const codePresent = (() => {
+            try { return adapterCodePresentFromFacts(facts); }
+            catch { throw new Error(t("tokenSwapAdapterApprovalUnavailable")); }
+          })();
+          if (!codePresent) throw new Error(t("tokenSwapAdapterInvalid"));
+        })(),
+        walletClient ? prepareWalletSwapBatch(walletClient, address, requireProtocolAddress(HELPERS_DIAMOND_ADDRESS, "Helpers"), {
+          chainId: targetChainId, atomicStatus,
+          getProvider: () => resolveActiveProvider(connector ?? null),
+          waitReceipt: hash => waitForAppTransactionReceipt(publicClient, { hash }),
+        }) : undefined,
+      ]);
+      walletBatch = preparedBatch;
+      const issue = checkSwapWalletBalances(snapshot, requiredBalances);
+      if (issue) {
+        const symbol = tokensListWithBasket.find(token => token.id === issue.tokenId)?.symbol ?? issue.tokenId.toUpperCase();
+        throw new Error(t(issue.reason === "unavailable" ? "swapBalanceUnavailable" : "swapBalanceInsufficient", { symbol }));
+      }
+    } catch (error) {
+      setIsSubmittingSwap(false);
+      toast.error(t("transactionFailed"), { description: error instanceof QuotePreviewError ? quoteErrorMessage(error, t)
+        : error instanceof Error ? error.message : t("swapBalanceRefreshFailed") });
+      return;
+    }
+    try {
+      // The wallet may have switched networks during the balance read.
+      await assertWalletOnExpectedChain(walletClient);
+    } catch {
+      setIsSubmittingSwap(false);
+      toast.error(t("wrongNetwork", { network: targetChainName }));
+      return;
+    }
+
+    const diagnostics = createSwapDiagnostics(diagnosticContext ?? {}, quoteDiagnostics.current?.id);
+    let shouldCleanUpSubmittedSwap = false;
+    let submittedHash: Hex | undefined;
+    let submittedBatch: WalletBatchSubmission | undefined;
+    const confirmBatch = async (submission: WalletBatchSubmission) => {
+      const result = await submission.wait();
+      announceTransactionSuccess(result.transactionHash);
+      return result;
+    };
+    setWalletConfirmationProgress({
+      current: 0,
+      total: 0,
+      label: "Preparing MetaMask confirmations",
+    });
+    walletConfirmationCurrentStepRef.current = 0;
+    walletConfirmationTotalStepsRef.current = 0;
+    const feeEstimate = new AbortController();
+
+    try {
+      const submission = await executionFlow.submit({
+        owner: address,
+        recipient: address,
+        feeEstimateSignal: feeEstimate.signal,
+        walletBatch,
+        walletConfirmationTracker: {
+          setTotal: walletConfirmationTracker.setTotal,
+          requestNext(kind, label) {
+            diagnostics.walletStep(kind);
+            walletConfirmationTracker.requestNext(kind, label);
+          },
+        },
+      });
+      submittedHash = typeof submission === "string" ? submission : undefined;
+      submittedBatch = typeof submission === "string" ? undefined : submission;
+      diagnostics.submitted(submittedHash ?? submittedBatch?.transactionHashes?.at(-1));
+      // Either a returned transaction hash or bundle ID means submitted. A
+      // later confirmation outage does not make this attempt safe to resend.
+      shouldCleanUpSubmittedSwap = true;
+      resetWalletConfirmationProgress();
+      const receipt = typeof submission === "string" ? await confirmTransaction(submission) : await confirmBatch(submission);
+      diagnostics.confirmed(receipt.transactionHash);
+
+    } catch (error) {
+      if (error instanceof WalletRequestBatchStoppedError) {
+        // An approval hash is not evidence that the Helpers swap was sent.
+        // Only a known Helpers hash makes this submitted. Approval-only stops
+        // retain the form; every stopped batch retains its public diagnostics.
+        reportWalletRequestBatchDiagnostic({ outcome: "stopped", transactionHashes: error.transactionHashes });
+        if (error.submission) {
+          submittedBatch = error.submission;
+          shouldCleanUpSubmittedSwap = true;
+          diagnostics.submitted(submittedBatch.transactionHashes?.at(-1));
+        }
+        if (error.transactionHashes.length) void refreshWalletBalances();
+      }
+      diagnostics.failed(error);
+      const outcome = swapFailureOutcome(error, Boolean(submittedHash || submittedBatch));
+      const reason = diagnosticReason(error);
+      const knownRouteErrors = [t("tokenSwapAdapterInvalid"), t("tokenSwapAdapterApprovalUnavailable"), t("tokenSwapAdapterNotApproved")];
+      const message = error instanceof Error && knownRouteErrors.includes(error.message)
+        ? error.message
+        : error instanceof Error && error.message === "Permit2 address is unavailable"
+          ? t("authorizationUnavailable")
+          : reason === "wallet_rejected" ? t("transactionCancelledDescription")
+            : t("transactionFailedDescription");
+      if (submittedHash) {
+        const hash = submittedHash;
+        setTransactionNotice({ hash, outcome: outcome === "reverted" ? "reverted" : "unconfirmed",
+          recheck: () => confirmTransaction(hash) });
+      } else if (submittedBatch) {
+        const submission = submittedBatch;
+        setTransactionNotice({ batchId: submission.id, hash: submission.transactionHashes?.at(-1), outcome,
+          recheck: () => confirmBatch(submission) });
+      }
+      if (outcome === "unconfirmed") {
+        toast.info(t("confirmationUnavailable"), { description: t("confirmationUnavailableDescription") });
+      } else if (outcome === "reverted") {
+        toast.error(t("transactionReverted"), { description: t("transactionRevertedDescription") });
+      } else if (reason === "wrong_chain") {
+        toast.error(t("wrongNetwork", { network: targetChainName }));
+      } else {
+        toast.error(t(reason === "wallet_rejected" ? "transactionCancelled" : "transactionFailed"), { description: message });
+      }
+    } finally {
+      // A late fee hint cannot update the next form after this attempt ends.
+      feeEstimate.abort();
+      resetWalletConfirmationProgress();
+      if (shouldCleanUpSubmittedSwap) {
+        setIsSubmittedSwapCleanupInProgress(true);
+        clearSubmittedSwapFormState();
+        await refreshWalletBalances();
+        // Render cleared inputs and refreshed balances before restoring token balance warnings.
+        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+        setIsSubmittedSwapCleanupInProgress(false);
+      }
+      setIsSubmittingSwap(false);
+    }
+  };
+
+  const submittingSwapButtonLabel = useMemo(() => {
+    const isIssueFromNativeEthFlow =
+      isNativeEthToken(sellToken) &&
+      (isIssueFromTokenExactIn || isIssueFromTokenExactOut);
+
+    const translateConfirmationLabel = (label: string) => {
+      if (isIssueFromNativeEthFlow) {
+        switch (label) {
+          case "Wrap ETH to WETH":
+            return t("wrapEthToWeth");
+          case "Token approval":
+            return t("approveWethForIssuingCygld");
+          case "Permit signature":
+          case "Token permit signature":
+            return t("signWethPermit");
+          case "Transaction confirmation":
+            return t("issueCygldFromWeth");
+          case "Unwrap WETH to ETH":
+            return t("unwrapRemainingWethToEth");
+          default:
+            return label;
+        }
+      }
+
+      switch (label) {
+        case "Wrap ETH to WETH":
+          return t("wrapEthToWeth");
+        case "Token approval":
+          return t("tokenApproval");
+        case "Permit signature":
+        case "Token permit signature":
+          return t("permitSignature");
+        case "Transaction confirmation":
+          return t("transactionConfirmation");
+        case "Unwrap WETH to ETH":
+          return t("unwrapWethToEth");
+        default:
+          return label;
+      }
+    };
+
+    if (!walletConfirmationProgress) {
+      return isIssueFromNativeEthFlow
+        ? t("processingEthIssueFlow")
+        : t("processingTransaction");
+    }
+
+    if (walletConfirmationProgress.total <= 0) {
+      return isIssueFromNativeEthFlow
+        ? t("preparingEthIssueFlowConfirmations")
+        : t("preparingMetaMaskConfirmations");
+    }
+
+    if (walletConfirmationProgress.current <= 0) {
+      if (isIssueFromNativeEthFlow) {
+        return t("metamaskWillRequestEthIssueFlowConfirmations");
+      }
+      const confirmationLabel = walletConfirmationProgress.total === 1
+        ? t("confirmationSingular")
+        : t("confirmationPlural");
+      return t("metamaskWillRequestConfirmations", {
+        count: walletConfirmationProgress.total,
+        confirmationLabel,
+      });
+    }
+
+    return t("metamaskConfirmationProgress", {
+      current: walletConfirmationProgress.current,
+      total: walletConfirmationProgress.total,
+      label: translateConfirmationLabel(walletConfirmationProgress.label),
+    });
+  }, [
+    isIssueFromTokenExactIn,
+    isIssueFromTokenExactOut,
+    sellToken,
+    t,
+    walletConfirmationProgress,
+  ]);
+
+  return (
+    <div className="swap-page-background relative z-10 flex flex-1 flex-col justify-start overflow-x-clip overflow-y-visible py-6 transition-colors duration-300">
+      <div aria-hidden="true" className="swap-page-backdrop" />
+      <div className="relative z-10 mx-auto w-full min-w-0 max-w-lg px-3 sm:max-w-xl sm:px-6 lg:max-w-2xl lg:px-10">
+          <div className="relative">
+            <div
+              aria-hidden="true"
+              className="glass-container swap-panel-underlay pointer-events-none absolute -inset-x-[1cm] -inset-y-[1cm] rounded-[calc(1.5rem+1cm)]"
+            />
+            <section id="swapsection"
+              className="glass-container swap-panel-surface relative z-10 flex w-full min-w-0 flex-col rounded-3xl p-3 sm:p-5 lg:p-6"
+            >
+            <MarketDataFreshnessNotice
+              className="mb-3"
+              locale={locale}
+              gold={{
+                fetchedAt: goldPriceFetchedAt,
+                isStale: isGoldPriceStale,
+                isLoading: isGoldPriceLoading,
+              }}
+              fx={
+                selectedCurrency === "USD"
+                  ? undefined
+                  : {
+                      fetchedAt: fxFetchedAt,
+                      isStale: isFxStale,
+                      isLoading: isFxLoading,
+                    }
+              }
+            />
+            {/* Protocol availability */}
+            {shouldShowBasketWarning && (
+              <div className={basketWarningClassName}>
+                <p className="font-semibold">{t("basketReadErrorTitle")}</p>
+
+                <p className="mt-1">
+                  {basketReadFailed ? basket.error instanceof QuotePreviewError
+                    ? quoteErrorMessage(basket.error, t) : t("basketReadErrorRpc") : t("basketReadErrorEmpty")}
+                </p>
+
+              </div>
+            )}
+
+        {/* Sell form */}
+
+        <div className={cn("relative", isSellModalOpen && "z-40")}>
+          <div className="flex flex-wrap items-end justify-between mb-2 gap-2">
+            <label id="sell-amount-label" htmlFor={!isSellBasket ? "sell-amount" : undefined} className="text-sm text-text-input">{t('youSell')}</label>
+            {isConnected && <div className="flex items-center gap-2 p-1 text-text-input bg-background-badge rounded-2xl">
+              <label htmlFor="wallet-only-tokens" className="text-xs">
+                <span className="hidden md:inline">{t('showOnlyWalletTokens')}</span>
+                <span className="md:hidden">{t('showOnlyWalletTokensShort')}</span>
+              </label>
+              <Switch id="wallet-only-tokens" aria-label={t('showOnlyWalletTokens')} checked={showOnlyWalletTokens} onCheckedChange={setShowOnlyWalletTokens} />
+            </div>}
+          </div>
+          <div className={cn(swapStyles.amountBox, isPurchaseOverCap ? "ring-1 ring-red-500" : isTokenSellAmountOverWalletBalance && "ring-1 ring-text-amber")}>
+            <div className="flex items-center justify-between gap-2 sm:gap-4">
+              <div className="relative min-w-0 flex-1">
+
+                {isSellBasket ? (
+                  <button
+                    type="button"
+                    disabled={shouldBlockQuotedSellInput}
+                    className={swapStyles.basketSummary}
+                    aria-label={t("editSellBasketAmounts")}
+                    onClick={() => {
+                      shouldFocusEditableInputRef.current = true;
+                      if (!isSellInputEnabled) {
+                        activateInputSide({ side: "sell" });
+                        return;
+                      }
+                      requestAnimationFrame(() => {
+                        basketSellInputRefs.current[0]?.focus();
+                      });
+                    }}
+                  >
+                    <span className="hidden text-2xl sm:block text-text-minor-data"> 
+                      {t("basketAssets")}
+                    </span>
+
+                    <span className={swapStyles.basketValue}>
+                      {formatAmountEquivalentDisplayValue(
+                        sellBasketComponentsUsdTotal,
+                        shouldBlockQuotedSellInput
+                          ? loadingAmountEquivalentsPlaceholder
+                          : amountEquivalentsPlaceholder
+                      )}
+                    </span>
+                  </button>
+                  
+                ) : (
+                  <>
+                  {hasProgressiveSellEstimate && (
+                    <span id="quote-sell-estimate" data-testid="quote-estimate-description" className="sr-only">{t('quoteEstimate')}</span>
+                  )}
+                  <input
+                    ref={mainSellInputRef}
+                    id="sell-amount"
+                    aria-labelledby="sell-amount-label sell-token-label"
+                    className={cn(
+                      swapStyles.amountInput,
+                      !isMainInputSellReadOnly && "editable-caret",
+                      isPurchaseOverCap ? "text-red-500 placeholder:text-red-500" : isTokenSellAmountOverWalletBalance
+                        ? "text-text-amber placeholder:text-text-amber"
+                        : shouldMuteQuotedSellAmounts
+                          ? "text-text-input-disabled"
+                          : "text-text-input"
+                    )}
+                    readOnly={isMainInputSellReadOnly}
+                    disabled={shouldBlockQuotedSellInput}
+                    aria-invalid={isPurchaseOverCap || isTokenSellAmountOverWalletBalance || undefined}
+                    aria-describedby={[
+                      isPurchaseOverCap && "purchase-cap-warning",
+                      hasProgressiveSellEstimate && "quote-sell-estimate",
+                      isTokenSellAmountOverWalletBalance && isSellTokenSpendable && sellToken && "sell-wallet-balance-warning",
+                    ].filter(Boolean).join(" ") || undefined}
+                    type="text"
+                    inputMode="decimal"
+                    value={isSellInputEnabled ? sellAmount : displayedQuotedSellAmount}
+                    min={0}
+                    placeholder={sellAmountPlaceholderText}
+                    onFocus={() => {
+                      if (!isSellInputEnabled) {
+                        activateInputSide({ side: "sell" });
+                      }
+                    }}
+                    onChange={(event) => {
+                      setSellAmountRawOverride(undefined);
+                      applyLocalizedInputValue(
+                        event.currentTarget,
+                        event.currentTarget.value,
+                        setSellAmount
+                      );
+                    }}
+                  />
+                  </>
+                )}
+              </div>
+
+              <div className="relative flex shrink-0 flex-col items-end gap-2">
+                <button
+                  type="button"
+                  ref={sellTokenPickerRef}
+                  disabled={sellSelectDisabled}
+                  aria-busy={isSellTokenChoicesLoading || undefined}
+                  aria-haspopup="dialog"
+                  aria-expanded={isSellModalOpen}
+                  aria-controls={isSellModalOpen ? "dropdown-from" : undefined}
+                  onClick={() => {
+                    setIsBuyModalOpen(false);
+                    setIsSellModalOpen((isOpen) => !isOpen);
+                  }}
+                  className={cn(swapStyles.tokenPicker, !sellTokenId && "w-auto whitespace-nowrap border-gold-cg bg-gold-cg text-black")}
+                >
+                  {sellTokenOnTokenPicker ? (
+                    <>
+                      {sellTokenOnTokenPicker.id === goldBasketId ? (
+                        <FaBasketShopping className="text-gold-cg" />
+                      ) : (
+                          <Image
+                            src={resolveTokenImagePath(sellTokenOnTokenPicker.id, isDarkMode)}
+                            alt={sellTokenOnTokenPicker.symbol}
+                            width={22}
+                            height={22}
+                            className="h-[22px] w-[22px] shrink-0 object-contain"
+                          />
+                      )}
+                      <span id="sell-token-label" className="text-sm font-semibold text-text-input">{sellTokenOnTokenPicker.symbol}</span>
+                    </>
+                  ) : (
+                    <span id="sell-token-label" className="text-sm font-semibold">{t("selectToken")}</span>
+                  )}
+                  {isSellTokenChoicesLoading ? (
+                    <Spinner aria-hidden="true" role={undefined} aria-label={undefined} className="ml-auto size-4 text-current" />
+                  ) : (
+                    <FaChevronDown className={cn("ml-auto", sellTokenId ? "text-text-input" : "text-black")} />
+                  )}
+                </button>
+                <TokenPickerModal
+                  open={isSellModalOpen}
+                  onClose={() => setIsSellModalOpen(false)}
+                  tokens={sellSelectableTokens}
+                  selectedId={sellTokenId}
+                  onSelect={handleSellTokenChange}
+                  onImport={resolveImportedToken}
+                  walletOnly={isConnected && showOnlyWalletTokens}
+                  triggerRef={sellTokenPickerRef}
+                />
+              </div>
+            </div>
+
+            <span
+              data-testid="sell-amount-equivalents"
+              className={`mt-2 block text-center text-xs leading-tight tabular-nums sm:hidden
+                ${isTokenSellAmountOverWalletBalance && !isSellBasket ? "text-text-amber" : "text-text-muted"}`}
+            >
+              {sellMobileAmountEquivalentDisplayValue}
+            </span>
+
+            {isTokenSellAmountOverWalletBalance && isSellTokenSpendable && sellToken && (
+              <span id="sell-wallet-balance-warning" className="sr-only">
+                {t('amountExceedsWalletBalance', {
+                  balance: formatNumberWithSpaces(
+                    formatUnits(sellTokenWalletBalance, sellToken.decimals),
+                    locale
+                  ),
+                  symbol: sellToken.symbol,
+                })}
+              </span>
+            )}
+
+            {!isSellBasket && (
+              <div className={swapStyles.tokenValueRow}>
+                <span data-testid="sell-amount-equivalents" className={`hidden sm:inline ${isTokenSellAmountOverWalletBalance ? "text-text-amber" : "text-text-minor-data"}`}>
+                  {sellMobileAmountEquivalentDisplayValue}
+                </span>
+                <div className="ml-auto flex min-w-0 items-center justify-end gap-2 sm:gap-3">
+                  {isConnected && sellToken && sellToken.type !== "basket" && (
+                    <SwapTokenBalance token={sellToken} balance={walletBalanceByTokenId[sellToken.id]} isLoading={isWalletBalancesLoading} side="sell" />
+                  )}
+                  {(canUseSellMax || (isIssue && remainingNetCapacity !== undefined)) && (
+                    <button
+                      type="button"
+                      onClick={handleSetSellMax}
+                      disabled={isPurchaseMaxLoading || isSubmittingSwap}
+                      aria-label={t("useMaximumSellAmount")}
+                      className={swapStyles.maxButton}
+                    >
+                      MAX
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Basket component inputs */}
+
+        {isSellBasket && (
+            <div id="sell-basket-composition" className={swapStyles.basketBox}>
+              <div className={swapStyles.basketHeader}>
+                <div className="flex items-center gap-2">
+                  <FaBasketShopping className="text-gold-cg" />
+                  <span className="text-text-input">{t('basket')}</span>
+                </div>
+                <div className="flex items-center gap-3">
+                  {(canUseBasketSellMax || (isIssue && remainingNetCapacity !== undefined)) && (
+                    <button
+                      type="button"
+                      onClick={handleSetBasketSellMax}
+                      disabled={isPurchaseMaxLoading || isSubmittingSwap}
+                      aria-label={t("useMaximumSellAmount")}
+                      className={swapStyles.maxButton}
+                    >
+                      MAX
+                    </button>
+                  )}
+                </div>
+              </div>
+              { basketComponents.map((component, index) => {
+                const componentAddress = component.token.address as `0x${string}`;
+                const componentSymbol = component.token.symbol;
+                const weightPercent = Number(component.targetWeight) / 1_000_000 * 100;
+                const componentId = component.token.id;
+                const componentPriceUsd = prices?.[componentId];
+                
+                const isDriver = componentAddress === driverToken;
+                const derivedValue = derivedBasketAmountsAsStringMap[componentAddress] ?? "";  
+                const displayedValue = isDriver ? driverAmountStr : derivedValue;
+                const currentBasketComponentAmount = isSellInputEnabled
+                  ? displayedValue
+                  : shouldHideQuotedBasketSellAmounts
+                    ? ""
+                    : (prefillSellSectionWhenBuySectionEnabled.components[index] ?? zeroAmountPlaceholder);
+                const isComponentAmountOverWalletBalance = shouldBlockQuotedSellInput
+                  ? false
+                  : isBasketComponentAmountOverWalletBalance(component, currentBasketComponentAmount);
+                const sellBasketComponentFiatOrGoldValue =
+                  isSellInputEnabled && componentPriceUsd !== undefined
+                    ? formatApproxDisplayValue(
+                        (parseDisplayNumber(isDriver ? driverAmountStr : derivedValue, locale) ?? 0) *
+                          componentPriceUsd
+                      )
+                    : shouldHideQuotedBasketSellAmounts
+                      ? loadingDisplayAmountPlaceholder
+                      : prefillSellSectionWhenBuySectionEnabled.components[index] &&
+                          componentPriceUsd !== undefined
+                        ? formatApproxDisplayValue(
+                            (parseDisplayNumber(
+                              prefillSellSectionWhenBuySectionEnabled.components[index],
+                              locale
+                            ) ?? 0) *
+                              componentPriceUsd
+                          )
+                        : formatApproxDisplayValue(0);
+                return (
+                  <div
+                    key={component.token.id}
+                    className={swapStyles.basketRow}
+                  >
+                    <div className="flex min-w-0 items-center gap-2">   
+                      <div className="flex h-[22px] w-[22px] shrink-0 items-center justify-center overflow-hidden">
+                        <Image
+                          src={resolveTokenImagePath(component.token.id, isDarkMode)}
+                          alt={component.token.symbol}
+                          width={22}
+                          height={22}
+                          className="h-full w-full object-contain"
+                        />
+                        </div>
+                      <span className="whitespace-nowrap text-text-input">{ componentSymbol }</span>
+                      <span className="whitespace-nowrap text-text-muted">{weightPercent}%</span>
+                    </div>
+
+                  <div className="min-w-0">
+                    {isSellInputEnabled ? (
+                    <input
+                      ref={(element) => {
+                        basketSellInputRefs.current[index] = element;
+                      }}
+                      className={cn(
+                        swapStyles.basketInput,
+                        isPurchaseOverCap
+                          ? "text-red-500 border-red-500"
+                          : isComponentAmountOverWalletBalance
+                          ? "text-text-amber border-text-amber"
+                          : "text-text-input focus:border-gold-cg/45",
+                        "focus:ring-0"
+                      )}
+                      type="text"
+                      aria-label={t("sellAmount", { symbol: componentSymbol })}
+                      aria-invalid={isPurchaseOverCap || isComponentAmountOverWalletBalance || undefined}
+                      aria-describedby={isPurchaseOverCap ? "purchase-cap-warning" : undefined}
+                      inputMode="decimal"
+                      step="0.01"
+                      placeholder={zeroAmountPlaceholder}
+                      value={displayedValue}
+                      onFocus={(event) => {
+                        const next =
+                          displayedValue === "" ||
+                          (parseDisplayNumber(displayedValue, locale) ?? 0) === 0
+                            ? ""
+                            : displayedValue;
+                        if (
+                          driverAmountRawOverride !== undefined ||
+                          driverToken !== componentAddress ||
+                          driverAmountStr !== next
+                        ) {
+                          setDriverAmountRawOverride(undefined);
+                          setDriverToken(componentAddress);
+                          setDriverAmountStr(next);
+                        }
+                        requestAnimationFrame(() => {
+                          if (document.activeElement === event.currentTarget) event.currentTarget.select();
+                        });
+                      }}
+                      onChange={(event) => {
+                        setDriverAmountRawOverride(undefined);
+                        applyLocalizedInputValue(
+                          event.currentTarget,
+                          event.currentTarget.value,
+                          setDriverAmountStr
+                        );
+                      }}
+                    />) : (
+                      <button
+                      type="button"
+                      aria-label={t("editSellAmount", { symbol: componentSymbol })}
+                      aria-describedby={isPurchaseOverCap ? "purchase-cap-warning" : undefined}
+                      disabled={shouldBlockQuotedSellInput}
+                      className={cn(
+                        swapStyles.basketInput,
+                        isPurchaseOverCap
+                          ? "text-red-500 border-red-500"
+                          : isComponentAmountOverWalletBalance
+                          ? "text-text-amber border-text-amber"
+                          : shouldMuteQuotedSellAmounts
+                            ? "text-text-input-disabled"
+                            : "text-text-input"
+                      )}
+                      onClick={() => {
+                        activateInputSide({
+                          side: "sell",
+                          basketComponentAddress: componentAddress,
+                          basketComponentValue:
+                            prefillSellSectionWhenBuySectionEnabled.components[index] ?? "",
+                          });
+                      }}
+                      >
+                      {shouldHideQuotedBasketSellAmounts
+                        ? loadingAmountPlaceholder
+                        : prefillSellSectionWhenBuySectionEnabled.components.length
+                        ? formatMeaningfulDecimalString(
+                            prefillSellSectionWhenBuySectionEnabled.components[index] ?? "",
+                            locale
+                          )
+                        : zeroAmountPlaceholder}
+                    </button>
+                    )}
+                  </div>  
+
+                  <div
+                    className={`hidden min-w-0 truncate text-right tabular-nums sm:block ${
+                      isComponentAmountOverWalletBalance ? "text-text-amber" : "text-text-input"
+                    }`}
+                    title={sellBasketComponentFiatOrGoldValue}
+                  >
+                    {sellBasketComponentFiatOrGoldValue}
+                  </div>
+                </div>
+                );
+              })}
+            </div>
+        )}
+
+         {/* Swap direction */}
+
+        <div className="flex justify-center my-4 rounded-2xl bg-background-swap text-text-input text-sm">
+          <button
+            type="button"
+            className="flex items-center gap-2 p-3 tabular-nums"
+            onClick={handleToggleDirection}
+            aria-label={t("reverseSwapDirection")}
+            title={t("reverseSwapDirection")}
+          >
+              <LuArrowDownUp
+                className="h-6 w-6 shrink-0 text-gold-cg"
+                strokeWidth={2.6}
+              />
+              <span>{cygldUsdReferenceLabel}</span>
+          </button>
+        </div>
+
+        {/* Buy form */}
+
+        <div className={cn("relative", isBuyModalOpen && "z-40")}>
+          <div className="mb-2 flex items-baseline justify-between gap-2">
+            <label id="buy-amount-label" htmlFor={!isBuyBasket ? "buy-amount" : undefined} className="shrink-0 text-sm text-text-input">{t('youBuy')}</label>
+            {buyTokenId === cygldTokenId && purchaseCapacityLabel && (
+              <span
+                role="note"
+                data-testid="cygld-purchase-capacity"
+                className={cn("min-w-0 truncate text-xs tabular-nums", isPurchaseOverCap || remainingNetCapacity === 0n ? "text-red-500" : "text-text-minor-data")}
+                title={purchaseCapacityDetails}
+                aria-label={[purchaseCapacityLabel, purchaseCapacityDetails].filter(Boolean).join(". ")}
+              >
+                {purchaseCapacityLabel}
+              </span>
+            )}
+          </div>
+            <div className={cn(swapStyles.amountBox, isPurchaseOverCap && "ring-1 ring-red-500")}>
+              <div className="flex items-center justify-between gap-2 sm:gap-4">
+                <div className="relative min-w-0 flex-1">
+
+                {isBuyBasket ? (
+                  <button
+                    type="button"
+                    disabled={shouldBlockQuotedBuyInput}
+                    className={swapStyles.basketSummary}
+                    aria-label={t("editBuyBasketAmounts")}
+                    onClick={() => {
+                      shouldFocusEditableInputRef.current = true;
+                      if (isSellInputEnabled) {
+                        activateInputSide({ side: "buy" });
+                        return;
+                      }
+                      requestAnimationFrame(() => {
+                        basketBuyInputRefs.current[0]?.focus();
+                      });
+                    }}
+                  >
+                    <span className="hidden text-2xl sm:block text-text-minor-data">
+                      {t("basketAssets")}
+                    </span>
+
+                    <span className={swapStyles.basketValue}>
+                      {formatAmountEquivalentDisplayValue(
+                        buyBasketComponentsUsdTotal,
+                        shouldBlockQuotedBuyInput
+                          ? loadingAmountEquivalentsPlaceholder
+                          : amountEquivalentsPlaceholder
+                      )}
+                    </span>
+                  </button>
+                ) : (
+                  <>
+                  {hasProgressiveBuyEstimate && (
+                    <span id="quote-buy-estimate" data-testid="quote-estimate-description" className="sr-only">{t('quoteEstimate')}</span>
+                  )}
+                  <input
+                    ref={mainBuyInputRef}
+                    id="buy-amount"
+                    aria-labelledby="buy-amount-label buy-token-label"
+                    className={cn(
+                      swapStyles.amountInput,
+                      !isMainInputBuyReadOnly && "editable-caret",
+                      isPurchaseOverCap ? "text-red-500" : shouldMuteQuotedBuyAmounts ? "text-text-input-disabled" : "text-text-input"
+                    )}
+                    readOnly={isMainInputBuyReadOnly}
+                    disabled={shouldBlockQuotedBuyInput}
+                    aria-invalid={isPurchaseOverCap || undefined}
+                    aria-describedby={isPurchaseOverCap ? "purchase-cap-warning" : hasProgressiveBuyEstimate ? "quote-buy-estimate" : undefined}
+                    type="text"
+                    inputMode="decimal"
+                    value={!isSellInputEnabled ? buyAmount : displayedQuotedBuyAmount}
+                    min={0}
+                    placeholder={buyAmountPlaceholderText}
+                    onFocus={() => {
+                      if (isSellInputEnabled) {
+                        activateInputSide({ side: "buy" });
+                      }
+                    }}
+                    onChange={(event) =>
+                      applyLocalizedInputValue(
+                        event.currentTarget,
+                        event.currentTarget.value,
+                        setBuyAmount
+                      )
+                    }
+                  />
+                  </>
+                )}
+              </div>
+              <div className="relative flex shrink-0 flex-col items-end gap-2">
+                <button
+                  type="button"
+                  ref={buyTokenPickerRef}
+                  disabled={buySelectDisabled}
+                  aria-haspopup="dialog"
+                  aria-expanded={isBuyModalOpen}
+                  aria-controls={isBuyModalOpen ? "dropdown-from" : undefined}
+                  onClick={() => {
+                    setIsSellModalOpen(false);
+                    setIsBuyModalOpen((isOpen) => !isOpen);
+                  }}
+                  className={cn(swapStyles.tokenPicker, !buyTokenId && "w-auto whitespace-nowrap border-gold-cg bg-gold-cg text-black")}
+                >
+                  {buyTokenOnTokenPicker ? (
+                    <>
+                      {buyTokenOnTokenPicker.id === goldBasketId ? (
+                        <FaBasketShopping className="text-gold-cg" />
+                      ) : (
+                          <Image
+                            src={resolveTokenImagePath(buyTokenOnTokenPicker.id, isDarkMode)}
+                            alt={buyTokenOnTokenPicker.symbol}
+                            width={22}
+                            height={22}
+                            className="h-[22px] w-[22px] shrink-0 object-contain"
+                          />
+                      )}
+                      <span id="buy-token-label" className="text-sm font-semibold text-text-input">{buyTokenOnTokenPicker.symbol}</span>
+                    </>
+                  ) : (
+                    <span id="buy-token-label" className="text-sm font-semibold">{t("selectToken")}</span>
+                  )}
+                  <FaChevronDown className={cn("ml-auto", buyTokenId ? "text-text-input" : "text-black")} />
+                </button>
+                <TokenPickerModal
+                  open={isBuyModalOpen}
+                  onClose={() => setIsBuyModalOpen(false)}
+                  tokens={buySelectableTokens}
+                  selectedId={buyTokenId}
+                  onSelect={handleBuyTokenChange}
+                  onImport={resolveImportedToken}
+                  triggerRef={buyTokenPickerRef}
+                />
+              </div>
+            </div>
+
+            <span data-testid="buy-amount-equivalents" className="mt-2 block text-center text-xs text-text-muted leading-tight tabular-nums sm:hidden">
+              {buyMobileAmountEquivalentDisplayValue}
+            </span>
+
+            {!isBuyBasket && (
+              <div className={swapStyles.tokenValueRow}>
+                <span data-testid="buy-amount-equivalents" className="hidden text-text-minor-data sm:inline">
+                  {buyMobileAmountEquivalentDisplayValue}
+                </span>
+                <div className="ml-auto flex min-w-0 items-center justify-end gap-2 sm:gap-3">
+                  {isConnected && buyToken && buyToken.type !== "basket" && (
+                    <SwapTokenBalance token={buyToken} balance={walletBalanceByTokenId[buyToken.id]} isLoading={isWalletBalancesLoading} side="buy" />
+                  )}
+                  {isIssue && remainingNetCapacity !== undefined && (
+                    <button type="button" onClick={() => void handleSetPurchaseMax()} aria-label={t("useMaximumBuyAmount")}
+                      disabled={isPurchaseMaxLoading || isSubmittingSwap || remainingNetCapacity === 0n} className={swapStyles.maxButton}>
+                      {isPurchaseMaxLoading ? <Spinner aria-hidden="true" role={undefined} aria-label={undefined} className="size-3" /> : "MAX"}
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {isPurchaseOverCap && <p id="purchase-cap-warning" role="status" className="mt-2 text-xs text-red-500">
+          {t("purchaseCapWarning")}
+        </p>}
+
+         {/* Basket component inputs */}
+
+        {isBuyBasket && (
+            <div id="buy-basket-composition" className={swapStyles.basketBox}>
+              <div className={swapStyles.basketHeader}>
+                <div className="flex items-center gap-2">
+                  <FaBasketShopping className="text-gold-cg" />
+                  <span className="text-text-input">{t('basket')}</span>
+                </div>
+              </div>
+              { basketComponents.map((component, index) => {
+                const componentAddress = component.token.address as `0x${string}`;
+                const componentSymbol = component.token.symbol;
+                const weightPercent = Number(component.targetWeight) / 1_000_000 * 100;
+                const componentId = component.token.id;
+                const componentPriceUsd = prices?.[componentId];
+
+                const isDriver = componentAddress === driverToken;
+                const derivedValue = derivedBasketAmountsAsStringMap[componentAddress] ?? "";
+                const displayedValue = isDriver ? driverAmountStr : derivedValue;
+                const buyBasketComponentFiatOrGoldValue =
+                  !isSellInputEnabled && componentPriceUsd !== undefined
+                    ? formatApproxDisplayValue(
+                        (parseDisplayNumber(isDriver ? driverAmountStr : derivedValue, locale) ?? 0) *
+                          componentPriceUsd
+                      )
+                    : shouldHideQuotedBasketBuyAmounts
+                      ? loadingDisplayAmountPlaceholder
+                      : prefillBuySectionWhenSellSectionEnabled.components[index] &&
+                          componentPriceUsd !== undefined
+                        ? formatApproxDisplayValue(
+                            Number(prefillBuySectionWhenSellSectionEnabled.components[index]) *
+                              componentPriceUsd
+                          )
+                        : formatApproxDisplayValue(0);
+
+                return (
+                  <div
+                    key={component.token.id}
+                    className={swapStyles.basketRow}
+                  >
+                    <div className="flex min-w-0 items-center gap-2">   
+                      <div className="flex h-[22px] w-[22px] shrink-0 items-center justify-center overflow-hidden">
+                        <Image
+                          src={resolveTokenImagePath(component.token.id, isDarkMode)}
+                          alt={component.token.symbol}
+                          width={22}
+                          height={22}
+                          className="h-full w-full object-contain"
+                        />
+                        </div>
+                      <span className="whitespace-nowrap text-text-input">{ componentSymbol }</span>
+                      <span className="whitespace-nowrap text-text-muted">{weightPercent}%</span>
+                    </div>
+                  
+                    {!isSellInputEnabled ? (
+                    <input
+                      ref={(element) => {
+                        basketBuyInputRefs.current[index] = element;
+                      }}
+                      className={cn(swapStyles.basketInput,
+                        "text-text-input focus:border-gold-cg/45",
+                        "focus:ring-0")}
+                      type="text"
+                      aria-label={t("buyAmount", { symbol: componentSymbol })}
+                      inputMode="decimal"
+                      step="0.01"
+                      placeholder={zeroAmountPlaceholder}
+                      value={displayedValue}
+                      onFocus={(event) => {
+                        const next =
+                        displayedValue === "" ||
+                        (parseDisplayNumber(displayedValue, locale) ?? 0) === 0
+                        ? "" : displayedValue;
+                        if (
+                          driverAmountRawOverride !== undefined ||
+                          driverToken !== componentAddress ||
+                          driverAmountStr !== next
+                        ) {
+                          setDriverAmountRawOverride(undefined);
+                          setDriverToken(componentAddress);
+                          setDriverAmountStr(next);
+                        }
+                        requestAnimationFrame(() => {
+                          if (document.activeElement === event.currentTarget) event.currentTarget.select();
+                        });
+                      }}
+                      onChange={(event) => {
+                        setDriverAmountRawOverride(undefined);
+                        applyLocalizedInputValue(
+                          event.currentTarget,
+                          event.currentTarget.value,
+                          setDriverAmountStr
+                        );
+                      }}
+                      readOnly={!!driverToken && !isDriver}
+                    />) : (
+                      <button
+                        type="button"
+                        aria-label={t("editBuyAmount", { symbol: componentSymbol })}
+                        disabled={shouldBlockQuotedBuyInput}
+                        className={cn(
+                          swapStyles.basketInput,
+                          shouldMuteQuotedBuyAmounts
+                            ? "text-text-input-disabled"
+                            : "text-text-input"
+                        )}
+                        onClick={() => {
+                          activateInputSide({
+                            side: "buy",
+                            basketComponentAddress: componentAddress,
+                            basketComponentValue:
+                              prefillBuySectionWhenSellSectionEnabled.components[index] ?? "",
+                          });
+                        }}
+                      >
+                        {shouldHideQuotedBasketBuyAmounts
+                          ? loadingAmountPlaceholder
+                          : prefillBuySectionWhenSellSectionEnabled.components.length
+                          ? formatMeaningfulDecimalString(
+                              prefillBuySectionWhenSellSectionEnabled.components[index] ?? "",
+                              locale
+                            )
+                          : zeroAmountPlaceholder}
+                      </button>
+                    )}
+                      
+                    <div
+                      className="hidden min-w-0 truncate text-right text-text-input text-xs font-medium tabular-nums sm:block"
+                      title={buyBasketComponentFiatOrGoldValue}
+                    >
+                      {buyBasketComponentFiatOrGoldValue}
+                    </div>
+                </div>
+                );
+              })}
+            </div>
+        )}
+
+        {displayedRecoveryShareQuote?.assets &&
+        displayedRecoveryShareQuote.amounts ? (
+          <div className="order-6 mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/20 dark:text-amber-100">
+            <p className="font-semibold">{t("recoveryOutputTitle")}</p>
+            <p className="mt-1">{t("recoveryOutputDescription")}</p>
+            <div className="mt-2 space-y-1 font-mono">
+              {displayedRecoveryShareQuote.assets.map((asset, index) => (
+                <div key={asset} className="flex justify-between gap-3">
+                  <span>
+                    {`${asset.slice(0, 6)}…${asset.slice(-4)}`}
+                  </span>
+                  <span>
+                    <RecoveryShareAmount asset={asset} amount={displayedRecoveryShareQuote.amounts?.[index] ?? 0n} />
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+         {/* Fee breakdown */}
+
+          <div data-testid="swap-fees" aria-busy={isFeeDisplayUpdating} className="order-6 my-4 text-xs text-text-muted">
+            <button
+              type="button"
+              onClick={() => setIsFeeDetailsOpen((isOpen) => !isOpen)}
+              className="flex w-full items-center justify-between p-2 bg-background-swap border border-swap-container-border rounded-2xl text-xs"
+              aria-expanded={isFeeDetailsOpen}
+            >
+              <span>{t('totalFee')}</span>
+                <span className={cn("inline-flex items-center gap-2 font-semibold tabular-nums", isFeeDisplayUpdating ? "text-text-input-disabled" : "text-text-input")}>
+                {feeDisplay.totalFeeUsd !== undefined
+                  ? formatApproxFiatValue(feeDisplay.totalFeeUsd)
+                  : "—"}
+                <FaChevronDown
+                  className={`text-xs text-text-muted transition-transform ${isFeeDetailsOpen ? "rotate-180" : ""}`}
+                />
+              </span>
+            </button>
+
+            {isFeeDetailsOpen && (
+              <div className="flex flex-col space-y-2 mt-2 p-2 bg-background-swap border border-swap-container-border rounded-2xl text-xs">
+
+                <div className="flex justify-between gap-3">
+                  <span>{t('protocolFee')}{issuanceFeePercent ? ` (${issuanceFeePercent})` : ""}:</span>
+                  <span className={feeValueClassName}>
+                    {feeDisplay.fees ? `${formatMeaningfulDecimalString(formatUnits(feeDisplay.fees.protocolFeeCygld, cygldDecimals), locale)} CYGLD` : "—"}
+                    {feeDisplay.protocolFeeUsd !== undefined ? ` (${formatApproxFiatValue(feeDisplay.protocolFeeUsd)})` : ""}
+                  </span>
+                </div>
+
+                <div className="flex justify-between gap-3">
+                  <span>{t('helpersFee')}{helperFeePercent ? ` (${helperFeePercent})` : ""}:</span>
+                  <span className={feeValueClassName}>
+                    {feeDisplay.fees ? `${formatMeaningfulDecimalString(formatUnits(feeDisplay.fees.helperFeeCygld, cygldDecimals), locale)} CYGLD` : "—"}
+                    {feeDisplay.helpersFeeUsd !== undefined ? ` (${formatApproxFiatValue(feeDisplay.helpersFeeUsd)})` : ""}
+                  </span>
+                </div>
+
+                <div className="mt-2 flex items-center justify-between gap-3 border-t pt-2 bg-background-swap text-xs">
+                  <span>{t('transactionFee')}:</span>
+                  <span className={feeValueClassName}>
+                    {feeDisplay.networkFeeEstimate
+                      ? `~ ${formatMeaningfulDecimalString(formatEther(feeDisplay.networkFeeEstimate.wei), locale)} ETH${feeDisplay.networkFeeUsd !== undefined ? ` (${formatApproxFiatValue(feeDisplay.networkFeeUsd)})` : ""}`
+                      : "—"}
+                  </span>
+                </div>
+                <div className="space-y-3 border-t border-swap-container-border pt-3">
+                  <ExecutionToleranceControl value={slippageBps} onChange={setSlippageBps} disabled={isSubmittingSwap} />
+                  <div className="border-t border-swap-container-border pt-2" aria-live="polite">
+                    {isSellInputEnabled ? (
+                      <div className="flex justify-between gap-3" data-testid="swap-minimum-output">
+                        <span className="shrink-0">{t("minimumOutput")}:</span>
+                        <span className="min-w-0 break-all text-right text-text-input tabular-nums">{minimumExecutionOutput}</span>
+                      </div>
+                    ) : (
+                      <div className="flex justify-between gap-3" data-testid="swap-maximum-input">
+                        <span className="shrink-0">{t("maximumInput")}:</span>
+                        <span className="min-w-0 break-all text-right text-text-input tabular-nums">{maximumExecutionInput}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+        {/* Swap submission */}
+
+        {transactionNotice && <SwapTransactionNotice key={transactionNotice.hash ?? transactionNotice.batchId} {...transactionNotice} />}
+
+        <button
+            className={`order-4 w-full my-4 rounded-2xl bg-gold-cg p-3 text-sm font-semibold shadow-md transition-all ${
+              isConnected && isSwapActionDisabled
+                ? "cursor-not-allowed text-text-minor-data opacity-60"
+                : "text-black hover:opacity-90"
+            }`}
+            onClick={handleSwapClick}
+            type="button"
+            title={!isConnected ? t("pleaseConnectWallet") : undefined}
+            disabled={isConnected && isSwapActionDisabled}
+          >
+            {!isConnected
+              ? t("pleaseConnectWallet")
+              : isSubmittingSwap
+                ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <Spinner aria-hidden="true" role={undefined} aria-label={undefined} className="size-4 text-current" />
+                    <span>{submittingSwapButtonLabel}</span>
+                  </span>
+                )
+                : isWalletOnWrongNetwork
+                  ? t("wrongNetwork", { network: targetChainName })
+                : swapActionError
+                  ? swapActionError
+                : isQuoteLoading
+                  ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <Spinner aria-hidden="true" role={undefined} aria-label={undefined} className="size-4 text-current" />
+                      <span>{quoteProcessingLabel}</span>
+                      {shouldShowQuoteButtonPercent ? (
+                        <span className="opacity-80">{quoteButtonProgressPercent}%</span>
+                      ) : null}
+                    </span>
+                  )
+              : isSwapActionDisabled
+                ? (swapActionError ?? t('enterValidAmountsForSwap'))
+                : t('swapCurrencies')}
+        </button>
+            </section>
+          </div>
+      </div>
+    </div>
+  );
+}

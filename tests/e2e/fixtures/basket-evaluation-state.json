@@ -1,0 +1,38 @@
+{
+  "assets": [
+    "basketAsset1",
+    "basketAsset2"
+  ],
+  "weights": [
+    "600000",
+    "400000"
+  ],
+  "conversions": [
+    "31103476800000000000",
+    "31103476800000000000000000000000"
+  ],
+  "issueFee": "1000",
+  "helperFee": "0",
+  "redeemFee": "1000",
+  "supply": "155517383999999999",
+  "maxSupply": "250000000000000000000",
+  "effectiveCap": "250000000000000000000",
+  "available": [
+    "3000000000000000",
+    "2000"
+  ],
+  "recoveryShares": [],
+  "recoveryValues": [],
+  "descriptors": [
+    {
+      "kind": 0,
+      "token": "basketAsset1",
+      "id": "0"
+    },
+    {
+      "kind": 0,
+      "token": "basketAsset2",
+      "id": "0"
+    }
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "date": "2026-10-02",
+  "scope": "Current App compatibility retirement and production cleanup; local source qualification",
+  "installed": false,
+  "ownerPolicy": "Older open tabs must reload when current /api/rpc retires; retained images/backend compatibility and public RPC hosts remain.",
+  "qualification": {
+    "focusedCases": 30,
+    "canonicalUnitCases": 316,
+    "canonical": "Final corrected source passes existing lint/types/contracts/ABIs/docs, 316 units and production build with pinned Node 26.10.0",
+    "chromium": {
+      "passed": 61,
+      "skipped": 0,
+      "profile": "Synthetic chain 31338 production server",
+      "retirement": "POST /api/rpc returns 404; fresh/reloaded client and wallet chooser use fixed observations. The reload assertion waits for its fixed request, independently of delayed error presentation."
+    },
+    "browserCorrection": "Hosted dev run 36996175458 failed only the unnecessary five-second basket-error assertion. The corrected test observes the fixed request directly; all 61 production Chromium cases pass again.",
+    "developmentProfile": {
+      "passed": 7,
+      "profile": "CI fixture chain 31337; webpack development mode for shared local node_modules symlink",
+      "scope": "Affected home/reload cases; fixed request directly observed"
+    }
+  },
+  "sourceBindings": {
+    "app/server/backend-client.ts": "93ba60c64c439039b537ceab710136f48cd0d17fa24bdeb18435acf44405ab65",
+    "app/utils/receiptWait.ts": "dd734e6c714093746b748e4e1196efd3f397ef2ed9e9a74b77ef46c35aac766f",
+    "tests/fixtures/receipt-compatibility.ts": "7c52cd9834180e12fadb629f84d240dbf783a59483eca1358519944096afb43c",
+    "tests/e2e/home.spec.ts": "7fa58caed0a859190fefb31ab2207180720501a2da4e20945d8204b69cd0e892",
+    "tests/e2e/recovery-portfolio.spec.ts": "12181e5c24d7fc56be319394a086cfdf88415b0e3f39b131d2d969d58589dfb1",
+    "scripts/check-docs.py": "5f4c22d691b613a28ef69d39e2a0a9072371043a0df7700f3186a05a3b472352"
+  },
+  "removed": [
+    "app/api/rpc/route.ts",
+    "RPC-specific frontend forwarding/error parser"
+  ],
+  "cleanup": "Unused receipt comparison wrapper moved from production into its test fixture. Old RPC mocks no longer serve responses that could hide fallback. Authored-doc checker excludes ignored Synpress/Playwright generated outputs.",
+  "retainedContract": "Backend generated OpenAPI /api/rpc remains for supported retained frontend images; current frontend route type excludes it.",
+  "logs": [
+    "/tmp/cybergold-retirement-focused.log",
+    "/tmp/cybergold-retirement-app-ci.log",
+    "/tmp/cybergold-retirement-browser.log",
+    "/tmp/cybergold-retirement-reload-focused.log",
+    "/tmp/cybergold-retirement-development-focused.log",
+    "/tmp/cybergold-retirement-corrected-ci.log"
+  ],
+  "notQualified": [
+    "Hosted publication/install of this cleanup batch",
+    "Real deployed wallet signing",
+    "Every arbitrary older tab; reload is the explicit supported transition"
+  ]
+}

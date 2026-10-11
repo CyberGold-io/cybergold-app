@@ -1,0 +1,2 @@
+This is intentionally not a published Gitleaks archive.
+The installer integration test must reject it before extraction or installation.

@@ -1,0 +1,41 @@
+{
+  "date": "2026-10-02",
+  "scope": "Current fixed App/Wagmi library client and fixed default environment validation; local source only",
+  "installed": false,
+  "qualification": {
+    "focused": "44 fixed client/ENS/receipt/environment cases and actual loopback validation pass",
+    "canonical": "317 unit cases, types, lint, generated ABIs/contracts and production build pass",
+    "chromium": {
+      "passed": 60,
+      "skipped": 0,
+      "profile": "Synthetic chain 31338 production build; all three fork-reset cases executed",
+      "actualConnectedRainbowKit": "Native-balance fixed API requested; rendered 9 ETH; no generic RPC request"
+    }
+  },
+  "behavior": "Fixed native balance, ENS/NFT, receipt/head/block/transaction and revert operations; no generic transport fallback in the production client",
+  "wallet": "Control/signing/submission remain in browser; existing public wallet RPC hosts retained",
+  "compatibility": "App /api/rpc route retained for supported old clients pending observed transition; explicit tooling RPC override retained",
+  "sourceBindings": {
+    "Dockerfile": "a22c0ce31e682b4fa7155da9d6fa8ba2ba8b64e2e916f497d6f132fe788c78b5",
+    "app/providers.tsx": "a072c6dbb53381af95af4ddd8fdd38d94b67429fe1f63925d526b15a12d51d8f",
+    "app/config/chain.ts": "235a4b90bbef35617ba466b010e76b513e4c0df4693f6de3432201e6f709f5d5",
+    "app/utils/appPublicClient.ts": "cb81da83cd649e1acc1b574b5a6eed86fcf0b7b80954d2a196721f65ac17b5cb",
+    "app/utils/ensRecords.ts": "befb6207525542f5c23ce74ea22828c6975ce0c2071ef3555a8dba683ee68503",
+    "app/utils/receiptWait.ts": "3d1f4d9621482f44c87320544189274f12ea15633c831e9d1dd43e636b166269",
+    "scripts/validate-active-env.mjs": "336ea89d4eec2ceb3180a6cbc346b4f6e9502ae63269c049b7a3763fd2014559",
+    "tests/e2e/wallet-balances-api.spec.ts": "06d6a826cfb25e2c2c3cc5aae12642f6507cc47d9d5ba16ce9cbe92a49951473",
+    "app/contracts/backend/http.d.ts": "8427b6e28485d4aa7b7e82e74c2c4c5fa699a14a81bf145bbdee8526e2b32442",
+    "app/contracts/backend/openapi.json": "df3796be3bfa69677481e7fe75b79450b7fe07096254a66df76fa40e97006b03"
+  },
+  "logs": [
+    "/tmp/cybergold-fixed-client-app-final-ci.log",
+    "/tmp/cybergold-fixed-client-browser-final.log",
+    "/tmp/cybergold-fixed-validation-focused.log"
+  ],
+  "notQualified": [
+    "Installed final source batch",
+    "Real wallet signature/submission",
+    "Exhaustive older browser tab traffic"
+  ],
+  "protocolArtifactCommit": "6429bf0fcb713ae746e0d7501fdb7f170ff142c7"
+}

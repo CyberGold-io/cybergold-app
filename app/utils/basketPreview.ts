@@ -1,0 +1,47 @@
+import type { components } from "../contracts/backend/http";
+import type { CoreTokenAmount, HelperFees } from "../types";
+import { receiveProtocolModel } from "./quoteModelStore.ts";
+import { quoteResponseError } from "./quoteErrors.ts";
+
+export type BasketPreviewRequest = components["schemas"]["BasketPreviewRequest"];
+export type BasketPreview = components["schemas"]["BasketPreview"];
+export type BasketPreviewResults = {
+  "issue-exact-in": { netCygldOut: bigint; fees: HelperFees; amountsInExact: bigint[]; orderedCoreAssets: `0x${string}`[] };
+  "issue-exact-out": { fees: HelperFees; amountsInExact: bigint[]; orderedCoreAssets: `0x${string}`[] };
+  "redeem-exact-in": { projectedCoreOutputs: CoreTokenAmount[]; fees: HelperFees };
+  "redeem-exact-out": { grossCygldIn: bigint; projectedCoreOutputs: CoreTokenAmount[]; fees: HelperFees };
+};
+
+/** Restore the existing Helpers result shapes without floating point amounts. */
+export function basketPreviewResult(value: BasketPreview): BasketPreviewResults[BasketPreview["mode"]] {
+  const fees = { protocolFeeCygld: BigInt(value.result.fees.protocolFeeCygld),
+    helperFeeCygld: BigInt(value.result.fees.helperFeeCygld) };
+  if (value.mode === "issue-exact-in" || value.mode === "issue-exact-out") {
+    const result = { fees, amountsInExact: value.result.amountsInExact.map(BigInt),
+      orderedCoreAssets: value.result.orderedCoreAssets as `0x${string}`[] };
+    return value.mode === "issue-exact-in" ? { ...result, netCygldOut: BigInt(value.result.netCygldOut) } : result;
+  }
+  const projectedCoreOutputs = value.result.projectedCoreOutputs.map(row => ({
+    kind: row.kind as CoreTokenAmount["kind"], token: row.token as `0x${string}`,
+    id: BigInt(row.id), amount: BigInt(row.amount),
+  }));
+  return value.mode === "redeem-exact-out"
+    ? { fees, projectedCoreOutputs, grossCygldIn: BigInt(value.result.grossCygldIn) }
+    : { fees, projectedCoreOutputs };
+}
+
+export async function fetchBasketPreview<M extends BasketPreviewRequest["mode"]>(
+  request: Extract<BasketPreviewRequest, { mode: M }>, signal?: AbortSignal, fetchImpl: typeof fetch = fetch, modelScope = "",
+): Promise<BasketPreviewResults[M]> {
+  const response = await fetchImpl("/api/quotes/basket-preview", {
+    method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", signal,
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    throw await quoteResponseError(response);
+  }
+  // The generated request/response contract binds each mode to its tuple.
+  const value: BasketPreview = await response.json();
+  if (!signal?.aborted) receiveProtocolModel(value.basketModel, modelScope);
+  return basketPreviewResult(value) as BasketPreviewResults[M];
+}

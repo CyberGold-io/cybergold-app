@@ -1,0 +1,287 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Semantic utilities. Typography: IBM Plex Sans for UI, monospace for code.
+   Use text-xs/sm for metadata, text-base for body, text-xl/2xl/3xl for headings.
+   Weights: 400 regular, 500 body, 600 emphasis, 700 bold. */
+@theme inline {
+  --color-background: var(--background);
+  --color-background-input: var(--background-input);
+  --color-navbar: var(--navbar-bg);
+  --color-navbar-border: var(--navbar-border);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-background-badge: var(--background-badge);
+  --color-background-swap: var(--background-swap-container);
+  --font-sans: var(--font-ibm-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", "Courier New", monospace;
+  --color-gold-cg: var(--gold-cg);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-swap-container-border: var(--swap-container-border);
+  --color-accent: var(--accent);
+  --color-primary: var(--primary);
+  --color-text-amber: var(--text-amber);
+  --color-text-input: var(--text-input);
+  --color-text-input-disabled: var(--text-input-disabled);
+  --color-text-minor-data: var(--text-minor-data);
+  --color-text-muted: var(--text-muted);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  /* Brand and geometry */
+  --gold-cg: rgb(223 185 65);
+  --radius: 0.625rem;
+
+  /* Surfaces */
+  --background: oklch(1 0 0);
+  --background-swap-container: var(--background);
+  --background-input: oklch(0.98 0 0);
+  --background-badge: oklch(0.95 0 0);
+  --navbar-bg: var(--background-swap-container);
+  --popover: var(--background-swap-container);
+
+  /* Text */
+  --text-input: oklch(0.15 0 0);
+  --text-muted: oklch(0.48 0 0);
+  --text-minor-data: oklch(55.2% 0.016 285.938);
+  --text-input-disabled: var(--text-muted);
+  --text-amber: oklch(0.666 0.179 58.318);
+  --popover-foreground: oklch(0.145 0 0);
+
+  /* Borders and controls */
+  --swap-container-border: oklch(0.92 0 0);
+  --navbar-border: var(--swap-container-border);
+  --border: oklch(0.922 0 0);
+  --input: var(--border);
+  --ring: oklch(0.708 0 0);
+  --primary: oklch(0.205 0 0);
+  --accent: oklch(0.97 0 0);
+
+  /* Glass appearance */
+  --glass-underlay-shadow: 0 18px 60px rgb(15 23 42 / 0.08);
+  --glass-underlay-border: 1px solid rgb(255 255 255 / 0.28);
+  --glass-underlay-background: rgb(255 255 255 / 0.05);
+  --glass-underlay-filter: blur(10px) saturate(155%);
+  --glass-surface-shadow: 0 16px 44px rgb(15 23 42 / 0.1);
+  --glass-surface-border: 1px solid rgb(255 255 255 / 0.62);
+  --glass-surface-background: linear-gradient( 180deg, rgb(255 255 255 / 0.78), rgb(255 255 255 / 0.62) );
+  --glass-surface-filter: blur(18px) saturate(180%);
+  --glass-surface-highlight: radial-gradient(circle at top left, rgb(255 255 255 / 0.55), transparent 42%), linear-gradient(135deg, rgb(255 255 255 / 0.18), transparent 60%);
+}
+
+.dark {
+  /* Surfaces */
+  --background: oklch(0 0 0);
+  --background-swap-container: oklch(0.18 0.02 250);
+  --background-input: var(--background);
+  --background-badge: var(--background);
+  --navbar-bg: var(--background-swap-container);
+  --popover: oklch(0.205 0 0);
+
+  /* Text */
+  --text-input: oklch(1 0 0);
+  --text-muted: oklch(0.72 0 0);
+  --text-minor-data: var(--text-input);
+  --text-input-disabled: oklch(0.82 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+
+  /* Borders and controls */
+  --swap-container-border: oklch(0.28 0.02 250);
+  --navbar-border: var(--swap-container-border);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --primary: oklch(0.922 0 0);
+  --accent: oklch(0.269 0 0);
+
+  /* Glass appearance */
+  --glass-underlay-shadow: 0 18px 60px rgb(0 0 0 / 0.24);
+  --glass-underlay-border: 1px solid rgb(255 255 255 / 0.08);
+  --glass-underlay-background: rgb(2 6 23 / 0.05);
+  --glass-underlay-filter: blur(10px) saturate(150%);
+  --glass-surface-shadow: 0 16px 44px rgb(0 0 0 / 0.3);
+  --glass-surface-border: 1px solid rgb(255 255 255 / 0.12);
+  --glass-surface-background: linear-gradient( 180deg, rgb(15 23 42 / 0.72), rgb(2 6 23 / 0.54) );
+  --glass-surface-filter: blur(18px) saturate(170%);
+  --glass-surface-highlight: radial-gradient(circle at top left, rgb(255 255 255 / 0.11), transparent 38%), linear-gradient(135deg, rgb(255 255 255 / 0.08), transparent 58%);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply font-sans font-medium;
+  }
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  nav a,
+  nav button {
+    @apply font-semibold;
+  }
+}
+
+/* Page backgrounds and glass panels */
+@layer components {
+  .wallet-panel {
+    position: fixed;
+    inset: 0;
+    width: 100vw;
+    height: 100dvh;
+  }
+
+  /* The desktop wallet shares the space below the full-width, 4rem navbar
+     and its border. The native mobile dialog still fills the viewport. */
+  @media (min-width: 1025px) {
+    .app-shell:has(.wallet-panel[open]) > main,
+    .app-shell:has(.wallet-panel[open]) > footer {
+      margin-right: 440px;
+    }
+
+    .wallet-panel {
+      inset: calc(4rem + 1px) 0 0 auto;
+      width: 440px;
+      height: calc(100dvh - 4rem - 1px);
+    }
+  }
+
+  /* Clip the decorative layer to the page, while sizing its image against a
+     stable viewport. Dynamic fees, warnings and baskets cannot zoom it. */
+  .swap-page-backdrop {
+    position: absolute;
+    inset: 0;
+    clip-path: inset(0);
+    pointer-events: none;
+  }
+
+  .swap-page-backdrop::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-image: url("/backgrounds/light-bg.webp");
+  }
+
+  .dark .swap-page-backdrop::before {
+    background-image: url("/backgrounds/dark-bg.webp");
+  }
+
+  .site-footer {
+    background-image:
+      linear-gradient(rgb(0 0 0 / 0.72), rgb(0 0 0 / 0.72)),
+      url("/backgrounds/dark-bg.webp");
+    background-position: center bottom;
+    background-repeat: no-repeat;
+    background-size: cover;
+  }
+
+  .glass-container {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+  }
+
+  .glass-container::before,
+  .swap-panel-surface::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+
+  .glass-container::before {
+    -webkit-backdrop-filter: blur(10px) saturate(160%);
+    backdrop-filter: blur(10px) saturate(160%);
+  }
+
+  .glass-container::before,
+  .swap-panel-surface {
+    transition:
+      background 300ms ease,
+      border-color 300ms ease,
+      box-shadow 300ms ease;
+  }
+
+  .glass-container > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .swap-panel-underlay {
+    box-shadow: var(--glass-underlay-shadow);
+    transition:
+      box-shadow 300ms ease;
+  }
+
+  .swap-panel-underlay::before {
+    border: var(--glass-underlay-border);
+    background: var(--glass-underlay-background);
+    -webkit-backdrop-filter: var(--glass-underlay-filter);
+    backdrop-filter: var(--glass-underlay-filter);
+  }
+
+  .swap-panel-surface {
+    background: transparent;
+    box-shadow: var(--glass-surface-shadow);
+    overflow: visible;
+    z-index: 20;
+  }
+
+  .swap-panel-surface::before {
+    border: var(--glass-surface-border);
+    background: var(--glass-surface-background);
+    -webkit-backdrop-filter: var(--glass-surface-filter);
+    backdrop-filter: var(--glass-surface-filter);
+  }
+
+  .swap-panel-surface::after {
+    background: var(--glass-surface-highlight);
+    transition:
+      background 300ms ease,
+      opacity 300ms ease;
+  }
+}
+
+/* Keep quoted swap placeholders lighter than the active editable field */
+.swap-page-background input:disabled::placeholder {
+  color: var(--text-input-disabled);
+  opacity: 0.35;
+  font-weight: 400;
+}
+
+@keyframes editable-caret-blink {
+  0%,
+  45% {
+    caret-color: var(--text-input);
+  }
+  50%,
+  100% {
+    caret-color: transparent;
+  }
+}
+
+.editable-caret {
+  caret-color: var(--text-input);
+  animation: editable-caret-blink 1s steps(1, end) infinite;
+}
+
+.editable-caret::placeholder {
+  font-weight: 600;
+  opacity: 0.75;
+}
