@@ -18,15 +18,30 @@ test("source discovery bypasses locale routing while product pages keep it", () 
   assert.equal(unstable_doesMiddlewareMatch({ config, nextConfig: {}, url: "/en/governance" }), true);
 });
 
-test("current App and Backend select their own exact retained offers", async () => {
-  const app = retainedSourceOffers.find((item) => item.repository === "cybergold-app")!;
-  const backend = retainedSourceOffers.find((item) => item.repository === "cybergold-backend")!;
-  const page = await sourcePage(app.version, async () => ({ version: backend.version }));
-  assert.ok(page.includes(app.downloadUrl)); assert.ok(page.includes(backend.downloadUrl));
-  assert.ok(page.includes(app.version)); assert.ok(page.includes(backend.version));
-  assert.equal(sourceOffer("cybergold-app", app.version).downloadUrl, app.downloadUrl);
-  assert.ok(page.includes(sourceOffer("cybergold-app", app.version).dependencySourcesUrl));
-  assert.ok(page.includes(sourceOffer("cybergold-backend", backend.version).dependencySourcesUrl));
+test("current source archives and rollback offers remain available after retirement", async () => {
+  const appVersion = "a886a7a692f9f559d41b7760704e1ecae0770590";
+  const backendVersion = "8594a405243a21082fb146f3f8236efc665d64d5";
+  const page = await sourcePage(appVersion, async () => ({ version: backendVersion }));
+  const staticPage = readFileSync(new URL("../../public/source/index.html", import.meta.url), "utf8");
+  assert.ok(page.includes(sourceOffer("cybergold-app", appVersion).downloadUrl!));
+  assert.ok(page.includes(sourceOffer("cybergold-backend", backendVersion).downloadUrl!));
+  assert.equal(sourceOffer("cybergold-backend", backendVersion).downloadUrl,
+    `https://github.com/CyberGold-io/cybergold-backend/archive/${backendVersion}.tar.gz`);
+  for (const retained of retainedSourceOffers) {
+    assert.ok(page.includes(retained.downloadUrl)); assert.ok(staticPage.includes(retained.downloadUrl));
+    assert.equal(sourceOffer(retained.repository, retained.version).downloadUrl, retained.downloadUrl);
+  }
+  assert.ok(page.includes("corresponding-source-1c69aff1d186e9fd19c404a9d3f5be0186c52616"));
+  assert.ok(page.includes("corresponding-source-43c412967a44ed5b9095b8b6748b9418ef6792c9"));
+  for (const retiredVersion of [
+    "847990c5f5ff412aa2be235423790e28fe11a876",
+    "ab8526199a33d81aca84f05c70b4a683993c242d",
+    "728ca83dc890f6aeb0d67af8c1ef710f15b20e59",
+  ]) {
+    assert.ok(!page.includes(retiredVersion)); assert.ok(!staticPage.includes(retiredVersion));
+  }
+  assert.ok(page.includes(sourceOffer("cybergold-app", appVersion).dependencySourcesUrl));
+  assert.ok(page.includes(sourceOffer("cybergold-backend", backendVersion).dependencySourcesUrl));
   assert.ok(page.includes("Library source and build controls"));
 });
 
