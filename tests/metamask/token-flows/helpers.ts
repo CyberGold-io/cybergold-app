@@ -157,7 +157,6 @@ export async function approveMetaMaskPrompts(page: Page, password: string) {
 
 export async function openWalletBalanceModal(page: Page) {
   await page.getByRole("button", { name: "Open wallet menu" }).click();
-  await page.getByRole("button", { name: "View balances" }).click();
   await expect(page.getByTestId("wallet-balance-modal")).toBeVisible();
 }
 

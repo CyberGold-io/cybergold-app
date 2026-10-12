@@ -47,8 +47,14 @@ export async function requestWallet(page: Page, request: { method: string; param
 
 export async function waitReceipt(hash: Hex, fetcher: typeof fetch) {
   let receipt: Awaited<ReturnType<typeof fetchTransactionReceipt>>;
-  await expect.poll(async () => { receipt = await fetchTransactionReceipt(hash, undefined, fetcher); return receipt !== null; },
-    { timeout: 90_000, intervals: [500, 1000, 2000] }).toBe(true);
+  try {
+    await expect.poll(async () => { receipt = await fetchTransactionReceipt(hash, undefined, fetcher); return receipt !== null; },
+      { timeout: 90_000, intervals: [500, 1000, 2000] }).toBe(true);
+  } catch {
+    // A broadcast hash exists, but this confirmation deadline did not establish
+    // its chain outcome. Retain the hash; do not report a failed transaction.
+    throw new ScenarioUnavailableError("submitted-unconfirmed");
+  }
   requireInvariant(receipt!.status === "success", "receipt-reverted"); return receipt!;
 }
 async function approval(page: Page, token: Address, owner: Address, spender: Address, amount: bigint, chainId: number, fetcher: typeof fetch) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { coreIntentRequest, splitAmount, tradeScenarios } from "../../tests/trading/scenarios.ts";
+import { coreIntentRequest, ScenarioUnavailableError, splitAmount, tradeScenarios } from "../../tests/trading/scenarios.ts";
 import { failureResult, matchesBasketIntent, resultFor, uint, validateBasket, validateTrade } from "../../tests/trading/regression.ts";
 import type { BasketPreview } from "./basketPreview.ts";
 import { QuotePreviewError } from "./quoteErrors.ts";
@@ -67,6 +67,15 @@ test("wallet and receipt failures preserve quote linkage while adding failure re
   assert.deepEqual(failureResult(result, new Error("wallet failure")).refs, { requestId });
   assert.deepEqual(failureResult(result, new QuotePreviewError("rpc-timeout", "rpc-timeout", { correlationId })).refs,
     { requestId, correlationId });
+});
+
+test("a submitted confirmation timeout stays unavailable with its transaction hash and quote references", () => {
+  const transactionHash = `0x${"a".repeat(64)}`;
+  const requestId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e";
+  const result = failureResult({ ...resultFor(tradeScenarios[0], "execution"), transactionHash, refs: { requestId } },
+    new ScenarioUnavailableError("submitted-unconfirmed"));
+  assert.equal(result.status, "unavailable"); assert.equal(result.code, "submitted-unconfirmed");
+  assert.equal(result.transactionHash, transactionHash); assert.deepEqual(result.refs, { requestId });
 });
 
 test("browser basket matching rejects warm vectors and validates current asset bounds", () => {
