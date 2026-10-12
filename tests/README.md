@@ -4,7 +4,7 @@ doc_type: test-guide
 status: active
 owner: app-maintainer
 created: 2026-07-11
-last_reviewed: 2026-10-02
+last_reviewed: 2026-10-12
 canonical_for: App Playwright and Synpress end-to-end test operation
 ---
 
@@ -129,13 +129,23 @@ run the command under `xvfb-run -a` if no desktop display is available. The
 extension runs in headed mode; a virtual display supplies its browser windows.
 
 The command runs the three session/network scenarios plus
-[fixed-api-roundtrips.spec.ts](./metamask/fixed-api-roundtrips.spec.ts): eight
-PAXG/USDC/ETH/basket issue and redemption flows, typed signatures, native wallet
+[fixed-api-roundtrips.spec.ts](./metamask/fixed-api-roundtrips.spec.ts): sixteen
+PAXG/USDC/ETH/basket UI paths across both amount modes, typed signatures, native wallet
 confirmations and transaction rejection. Successful balance changes and mined
 receipts are real observations from the Python API and owned fork. Funded
 responses are not intercepted. Every case asserts zero attempted App
 `/api/rpc` calls. This focused qualification does not claim every case in the
-broader token/basket acceptance specifications.
+broader token/basket acceptance specifications. It also runs
+`regression-execution.spec.ts` using the shared 20-case inventory: PAXG, USDC,
+ETH and basket Core issue/redeem exact-in/out, plus PAXG market buy/sell
+exact-in/out. Independent provider tests use the existing intent/market APIs;
+they never force a route in the production UI. MetaMask signs the constructed
+operation, and the suite verifies the mined selector, Helpers operation event,
+integer input ceiling/output floor, fees/refunds and basket ordering. Native
+permit, Permit2, ordinary allowance and mixed-basket funding are recorded.
+Every scenario remains unavailable until its receipt assertions pass. The
+sixteen UI trades remain separate evidence of automatic route selection, with
+actual mined operation and bound assertions recorded in `regression-ui.json`.
 
 The cache command uses Synpress's extension download and wallet setup with the
 same current Chromium as the tests; an old browser's Linux profile is not reused.
@@ -153,6 +163,57 @@ results/logs remain in the output directory. A successful `qualification.json`
 records the exact App commit, test file hashes, backend image, fork anchor and
 wallet transaction receipts. Hosted execution and GitHub required merge checks
 are separate workstreams; this command introduces no required CI job.
+
+### Deployed regression runner
+
+`tests/trading/scenarios.ts` is the common inventory. `tests/trading/regression.ts`
+checks actual fixed API responses, including terminal NDJSON errors inside
+HTTP 200; an indicative model or provisional estimate cannot satisfy a case.
+`tests/trading/browserQuotes.ts` additionally opens the public App and enters
+both amount modes for each supported token/basket pair without interception or
+a wallet. It records the family actually selected by the unified form.
+
+Run public-origin read-only checks with the pinned Node/runtime/browser:
+
+```bash
+APP_BASE_URL=https://sandbox.cybergold.io npm run test:deployed -- \
+  --target sandbox --mode quotes --output-dir out/deployed-sandbox
+APP_BASE_URL=https://app.cybergold.io npm run test:deployed -- \
+  --target mainnet --mode quotes --output-dir out/deployed-mainnet
+```
+
+Use the actual configured public origins when they differ from these examples.
+No Backend bearer or wallet seed is required. Older releases may lack diagnostic
+headers; `observations.correlationAvailable` records whether they were observed.
+Missing routes/capabilities are explicit unavailable results, never passing
+execution coverage. `quotedOperation` describes quote construction; only
+`layer: execution` with a mined `actualOperation` establishes execution.
+
+Sandbox signing is separate and serial. Supply a dedicated disposable Sandbox
+wallet through the runner's private environment (`SYNPRESS_WALLET_SEED_PHRASE`,
+`SYNPRESS_WALLET_PASSWORD`, `NEXT_PUBLIC_WALLET_RPC_URL`) and invoke
+`--target sandbox --mode sandbox-execution`. That mode never signs chain 1.
+The runner funds that dedicated wallet through the existing public faucet after
+each fork refresh, sharing one request ID across both serial suites. Ambiguous
+funding results reuse that identity; the runner never resets the shared fork.
+Do not reuse a wallet that has held real assets. Mainnet execution uses
+`--target mainnet --mode fork-execution` on a host with Python, Docker and
+Foundry; provide `BACKEND_IMAGE`, `CONTRACTS_JSON`, `FUNDING_JSON` and the existing
+private tooling `MAINNET_RPC_URL`. This delegates to the canonical qualifier,
+which creates its own chain. An arbitrary origin is never relabeled a fork.
+
+The stable output is `report.json`, schema `cybergold.trade-regression.v1`, with
+per-case pass/fail/unavailable/skipped status, layer/family/mode, safe references,
+amount bounds, block context and receipt/authorization observations. Any failure
+or unavailable case gives exit code 1 after saving the report. Wallet runs keep
+trace, screenshot, video and write retries off; no raw HTTP bodies, signatures,
+onboarding or private provider URLs enter the regression report. Runtime output
+belongs in ignored `out/`; scheduled B2B execution and retention are owned by
+Ops and remain advisory rather than a new CI/release gate.
+`runnerOutcome` also retains a failed child process when completed scenarios
+passed; partial scenario evidence is preserved. Cancellation is forwarded to
+the qualifier so its owned child processes, containers and credentials are
+cleaned up. Optional release revisions are observations, never prerequisites.
 
 On Linux you may also need:
 

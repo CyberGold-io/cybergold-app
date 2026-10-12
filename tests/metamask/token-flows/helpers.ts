@@ -1,6 +1,5 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import type { MetaMask } from "@synthetixio/synpress-metamask/playwright";
-import { expect } from "../testWithMetaMask";
 
 type SwapSide = "sell" | "buy";
 

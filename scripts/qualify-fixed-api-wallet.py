@@ -14,6 +14,7 @@ import io
 import json
 import os
 import secrets
+import re
 import shutil
 import signal
 import socket
@@ -72,6 +73,9 @@ def main() -> None:
     parser.add_argument("--funding-json", required=True, type=Path)
     parser.add_argument("--output-dir", type=Path)
     args = parser.parse_args()
+    def stop_owned_fixture(signum, _frame):
+        raise SystemExit(128 + signum)
+    signal.signal(signal.SIGTERM, stop_owned_fixture)
     output = (args.output_dir or Path(tempfile.mkdtemp(prefix="cybergold-wallet-"))).resolve()
     output.mkdir(parents=True, exist_ok=True, mode=0o700)
     work = Path(tempfile.mkdtemp(prefix="source-", dir=output))
@@ -152,10 +156,14 @@ def main() -> None:
             "NEXT_PUBLIC_CORE_DIAMOND_ADDRESS": contracts["protocol"]["coreDiamond"],
             "NEXT_PUBLIC_HELPERS_DIAMOND_ADDRESS": contracts["helpers"]["diamond"],
             "NEXT_PUBLIC_UNISWAP_QUOTER_ADDRESS": "0x61fFE014bA17989E743c5F6cB21bF9697530B21e",
+            "NEXT_PUBLIC_UNISWAP_ADAPTER_ADDRESS": contracts["helpers"]["uniswapAdapter"],
         }
         environment.update(settings)
         environment.update({"PLAYWRIGHT_BASE_URL": settings["NEXT_PUBLIC_APP_ORIGIN"], "PLAYWRIGHT_EXTERNAL_SERVER": "1",
-                            "SYNPRESS_WALLET_SEED_PHRASE": wallet["mnemonic"], "SYNPRESS_WALLET_PASSWORD": password})
+                            "SYNPRESS_WALLET_SEED_PHRASE": wallet["mnemonic"], "SYNPRESS_WALLET_PASSWORD": password,
+                            "TRADE_REGRESSION_OUTPUT": str(output / "regression-execution.json"),
+                            "TRADE_REGRESSION_UI_OUTPUT": str(output / "regression-ui.json"),
+                            "TRADE_REGRESSION_MODE": "fork-execution", "TRADE_REGRESSION_TARGET": os.environ.get("TRADE_REGRESSION_TARGET", "mainnet")})
         database_password = secrets.token_urlsafe(24)
         private_env(work / "database.env", {"POSTGRES_USER": "fixture", "POSTGRES_PASSWORD": database_password, "POSTGRES_DB": "fixture"})
         backend_rpc = f"http://host.docker.internal:{fork_port}"
@@ -184,7 +192,7 @@ def main() -> None:
         run(["node", "scripts/cache-metamask-wallet.mjs"], "new-wallet-cache", timeout=300)
         start_block = int(rpc(fork, "eth_blockNumber", []), 16)
         run(["node", "node_modules/@playwright/test/cli.js", "test", "--config", "playwright.wallet.config.ts",
-             "fixed-api-roundtrips.spec.ts", "wallet-session.spec.ts"], "wallet-tests", timeout=1250)
+             "fixed-api-roundtrips.spec.ts", "wallet-session.spec.ts", "regression-execution.spec.ts"], "wallet-tests", timeout=4800)
         transactions = []
         for height in range(start_block + 1, int(rpc(fork, "eth_blockNumber", []), 16) + 1):
             for transaction in rpc(fork, "eth_getBlockByNumber", [hex(height), True])["transactions"]:
@@ -194,17 +202,23 @@ def main() -> None:
                                          "selector": transaction["input"][:10], "status": receipt["status"], "blockNumber": height})
         test_paths = ["scripts/qualify-fixed-api-wallet.py", "scripts/cache-metamask-wallet.mjs", "wallet-setup/metamask.setup.ts",
                       "tests/metamask/testWithMetaMask.ts", "tests/metamask/fixed-api-roundtrips.spec.ts",
-                      "tests/metamask/wallet-session.spec.ts", "tests/metamask/wallet-ui.ts", "tests/metamask/token-flows/helpers.ts"]
+                      "tests/metamask/wallet-session.spec.ts", "tests/metamask/wallet-ui.ts", "tests/metamask/token-flows/helpers.ts",
+                      "tests/metamask/regression-execution.spec.ts", "tests/trading/scenarios.ts", "tests/trading/regression.ts", "tests/trading/walletExecution.ts",
+                      "tests/trading/uiReceipt.ts", "tests/trading/sandboxFunding.ts"]
+        image_environment = json.loads(docker("image", "inspect", args.backend_image, "--format", "{{json .Config.Env}}"))
+        backend_commit = next((value.split("=", 1)[1] for value in image_environment if value.startswith("CYBERGOLD_BACKEND_COMMIT=")), None)
+        if backend_commit and not re.fullmatch(r"[0-9a-f]{40}", backend_commit):
+            backend_commit = None
         evidence = {
             "observedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(), "frontendCommit": source_commit,
             "backendImage": args.backend_image, "backendImageId": docker("image", "inspect", args.backend_image, "--format", "{{.Id}}"),
-            "backendCommit": docker("image", "inspect", args.backend_image, "--format", '{{index .Config.Labels "io.cybergold.backend.commit"}}'),
+            "backendCommit": backend_commit,
             "chainId": 31338, "forkBlock": block, "forkBlockHash": anchor["hash"], "result": "pass",
             "testInputSha256": {path: hashlib.sha256((work / path).read_bytes()).hexdigest() for path in test_paths},
             "contractsSha256": hashlib.sha256(args.contracts_json.read_bytes()).hexdigest(),
             "fundingSha256": hashlib.sha256(args.funding_json.read_bytes()).hexdigest(),
             "transactions": transactions,
-            "scope": "Eight funded issue/redeem flows, rejection and three session/network cases; actual Python API/native PG18/production Next.js; no product or receipt interception in funded flows; zero attempted App /api/rpc calls asserted",
+            "scope": "Sixteen UI-selected funded paths plus independent 20-case Core/market matrix with amount bounds, actual mined operation, authorization and receipts; rejection and three session/network cases; real Python API/native PG18/production Next.js; no product or receipt interception",
             "wallet": "New disposable seed/profile; no owner wallet or B2B/public-chain write",
         }
     finally:

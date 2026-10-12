@@ -34,6 +34,7 @@ export function useTradeFlow({ input, enabled, frozen, onNetworkFeeEstimate, onN
     requiresSwapAdapter: selected?.value.strategy === "market" || (core?.quotes.length ?? 0) + (core?.redemptionQuotes.length ?? 0) > 0,
     execution: selected, canSubmit: active && Boolean(selected), submit,
     quoteStatus: frozen ? "success" as const : quote.status, quoteError: frozen ? undefined : quote.error, quoteErrorCode: frozen ? undefined : quote.errorCode,
+    quoteFailure: frozen ? undefined : quote.failure,
     progressCounts: quote.progress, fees, maximumInputAmount: selected?.inputMaximum, minimumOutputAmount: selected?.outputMinimum,
     displayExpectedInputAmount: input.mode === "exact-out" ? expected : undefined,
     displayMaxInputAmount: selected?.inputMaximum,

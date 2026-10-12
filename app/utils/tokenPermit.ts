@@ -2,6 +2,7 @@ import { parseSignature, type Address, type Hex } from "viem";
 import type { components } from "../contracts/backend/http";
 import type { WalletTypedData } from "./walletBatch.ts";
 import { WalletSignatureBatchStoppedError } from "./metaMaskRequestBatch.ts";
+import { backendObservationError } from "./backendObservationError.ts";
 
 export type TokenPermitContext = components["schemas"]["TokenPermitContext"];
 
@@ -32,7 +33,7 @@ export function tokenPermitDomainTypes(domain: NonNullable<TokenPermitContext["a
 
 export async function fetchTokenPermit(token: Address, owner: Address, fetchImpl: typeof fetch = fetch): Promise<TokenPermitContext> {
   const response = await fetchImpl(`/api/account/token-permit?${new URLSearchParams({ token, owner })}`, { cache: "no-store" });
-  if (!response.ok) throw new Error("Token permit context is temporarily unavailable.");
+  if (!response.ok) throw await backendObservationError(response, "Token permit context is temporarily unavailable.");
   return response.json();
 }
 

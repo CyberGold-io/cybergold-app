@@ -20,13 +20,14 @@ export function useTokenPurchaseExecution(feeHandlers: FlowNetworkFeeEstimateHan
   const { estimateSignedContractFee } = useExecutionFeeEstimate(feeHandlers);
 
   const submitTokenPurchase = useCallback(async ({
-    owner, recipient, walletConfirmationTracker, walletBatch, feeEstimateSignal, deployment,
+    owner, recipient, walletConfirmationTracker, walletBatch, feeEstimateSignal, deployment, diagnosticStage,
     inputToken, maximumInputAmount, netCygldOut, expectedOrderedCoreAssets, quotes, nativeInput,
   }: SubmitBasketFlowParams & {
     inputToken: Address; maximumInputAmount: bigint; netCygldOut: bigint;
     expectedOrderedCoreAssets: readonly Address[]; quotes: readonly SwapToQuote[]; nativeInput: boolean;
   }) => {
     const helpers = requireProtocolAddress(deployment?.helpers ?? addresses.helpers, "Helpers");
+    diagnosticStage?.("authorization");
     const authorization = nativeInput ? undefined : await preparePurchaseAuthorization({ owner,
       permitted: [{ token: inputToken, amount: maximumInputAmount }],
       nativePermitsInstalled: fetchTokenPermitIssuanceInstalled, singlePermit2: true, spender: helpers, walletBatch, walletConfirmationTracker });
@@ -43,8 +44,10 @@ export function useTokenPurchaseExecution(feeHandlers: FlowNetworkFeeEstimateHan
       : permit2 ? "issueFromTokenExactOutWithPermit2" : "issueFromTokenExactOut";
     const args = nativeInput ? [{ maximumNativeIn: maximumInputAmount, netCygldOut }, execution, legs]
       : permit ? [params, execution, permit, legs] : permit2 ? [params, execution, permit2, legs] : [params, execution, legs];
+    diagnosticStage?.("simulation");
     if (!walletBatch?.approvals.length) await estimateSignedContractFee({ account: owner, helpers, functionName, args,
       signal: feeEstimateSignal, value: nativeInput ? maximumInputAmount : undefined });
+    diagnosticStage?.("submission");
     if (walletBatch?.mode !== "requests") walletConfirmationTracker?.requestNext("transaction", "Transaction confirmation");
     if (walletBatch)
       return walletBatch.submit(functionName, args, nativeInput ? maximumInputAmount : undefined, walletConfirmationTracker);

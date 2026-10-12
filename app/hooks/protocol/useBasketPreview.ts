@@ -11,6 +11,7 @@ import { useSandboxForkGeneration } from "@/app/context/sandboxForkContext";
 import { useTranslations } from "next-intl";
 import { QuotePreviewError, quoteErrorMessage } from "@/app/utils/quoteErrors";
 import { usePageVisible } from "@/app/hooks/usePageVisible";
+import { diagnosticReferences } from "@/app/utils/diagnosticReferences";
 
 export function useBasketPreview<M extends BasketPreviewRequest["mode"]>(
   request: Extract<BasketPreviewRequest, { mode: M }>, enabled: boolean, retry?: false,
@@ -31,6 +32,6 @@ export function useBasketPreview<M extends BasketPreviewRequest["mode"]>(
     if (!visible) void client.cancelQueries({ queryKey: JSON.parse(serializedKey), exact: true });
   }, [client, visible, serializedKey]);
   return { ...query, error: query.error instanceof QuotePreviewError
-    ? new QuotePreviewError(query.error.code, quoteErrorMessage(query.error, t))
+    ? new QuotePreviewError(query.error.code, quoteErrorMessage(query.error, t), diagnosticReferences(query.error))
     : query.error ? new Error(quoteErrorMessage(query.error, t)) : query.error };
 }

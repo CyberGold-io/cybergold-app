@@ -1,3 +1,5 @@
+import { diagnosticReferences, retainDiagnosticReferences, type DiagnosticReferences } from "./diagnosticReferences.ts";
+
 export const quoteErrorKeys = {
   "insufficient-protocol-supply": "quoteProtocolSupplyExceeded",
   "issuance-cap-exceeded": "quoteIssuanceCapExceeded",
@@ -18,14 +20,16 @@ type Code = keyof typeof quoteErrorKeys;
 
 export class QuotePreviewError extends Error {
   readonly code: Code;
-  constructor(code: Code, message: string) { super(message); this.code = code; }
+  constructor(code: Code, message: string, references?: DiagnosticReferences) {
+    super(message); this.code = code; retainDiagnosticReferences(this, references ?? {});
+  }
 }
 
 export function knownQuoteError(value: unknown): QuotePreviewError | undefined {
   const code = (value as { code?: unknown } | null)?.code;
-  if (code === "insufficient-protocol-supply") return new QuotePreviewError(code, "The redemption amount exceeds available CYGLD supply.");
-  if (code === "issuance-cap-exceeded") return new QuotePreviewError(code, "The issuance amount exceeds the CYGLD supply limit.");
-  if (typeof code === "string" && Object.hasOwn(quoteErrorKeys, code)) return new QuotePreviewError(code as Code, code);
+  if (code === "insufficient-protocol-supply") return new QuotePreviewError(code, "The redemption amount exceeds available CYGLD supply.", diagnosticReferences(value));
+  if (code === "issuance-cap-exceeded") return new QuotePreviewError(code, "The issuance amount exceeds the CYGLD supply limit.", diagnosticReferences(value));
+  if (typeof code === "string" && Object.hasOwn(quoteErrorKeys, code)) return new QuotePreviewError(code as Code, code, diagnosticReferences(value));
 }
 
 export function quoteErrorMessage(error: Error, translate: (key: typeof quoteErrorKeys[Code]) => string) {
@@ -33,9 +37,11 @@ export function quoteErrorMessage(error: Error, translate: (key: typeof quoteErr
 }
 
 export async function quoteResponseError(response: Response): Promise<QuotePreviewError> {
-  const known = knownQuoteError(await response.json().catch(() => null));
+  const body = await response.json().catch(() => null);
+  retainDiagnosticReferences(body, { requestId: response.headers.get("X-CyberGold-Request-Id") ?? undefined });
+  const known = knownQuoteError(body);
   if (known) return known;
   const code = response.status === 400 ? "quote-invalid-input" : response.status === 429 ? "quote-request-limit"
     : response.status === 504 ? "quote-timeout" : "quote-service-unavailable";
-  return new QuotePreviewError(code, code);
+  return new QuotePreviewError(code, code, diagnosticReferences(body));
 }

@@ -2,6 +2,7 @@ import type { components } from "../contracts/backend/http";
 import type { CoreTokenAmount, HelperFees } from "../types";
 import { receiveProtocolModel } from "./quoteModelStore.ts";
 import { quoteResponseError } from "./quoteErrors.ts";
+import { diagnosticAttemptId, diagnosticReferences, retainDiagnosticReferences } from "./diagnosticReferences.ts";
 
 export type BasketPreviewRequest = components["schemas"]["BasketPreviewRequest"];
 export type BasketPreview = components["schemas"]["BasketPreview"];
@@ -33,15 +34,19 @@ export function basketPreviewResult(value: BasketPreview): BasketPreviewResults[
 export async function fetchBasketPreview<M extends BasketPreviewRequest["mode"]>(
   request: Extract<BasketPreviewRequest, { mode: M }>, signal?: AbortSignal, fetchImpl: typeof fetch = fetch, modelScope = "",
 ): Promise<BasketPreviewResults[M]> {
+  const attemptId = diagnosticAttemptId();
   const response = await fetchImpl("/api/quotes/basket-preview", {
-    method: "POST", headers: { "Content-Type": "application/json" }, cache: "no-store", signal,
+    method: "POST", headers: { "Content-Type": "application/json", ...(attemptId ? { "X-CyberGold-Attempt-Id": attemptId } : {}) }, cache: "no-store", signal,
     body: JSON.stringify(request),
   });
   if (!response.ok) {
-    throw await quoteResponseError(response);
+    const error = await quoteResponseError(response); retainDiagnosticReferences(error, { attemptId }); throw error;
   }
   // The generated request/response contract binds each mode to its tuple.
   const value: BasketPreview = await response.json();
   if (!signal?.aborted) receiveProtocolModel(value.basketModel, modelScope);
-  return basketPreviewResult(value) as BasketPreviewResults[M];
+  const result = basketPreviewResult(value) as BasketPreviewResults[M];
+  retainDiagnosticReferences(result, { ...diagnosticReferences(value), attemptId,
+    requestId: response.headers.get("X-CyberGold-Request-Id") ?? undefined });
+  return result;
 }

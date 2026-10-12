@@ -90,6 +90,7 @@ export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retai
       : query.isFetching ? "loading" as const : query.isSuccess ? "success" as const : "loading" as const,
     error: query.isError && !incumbent ? quoteErrorMessage(query.error, t) : undefined,
     errorCode: query.isError && !incumbent && query.error instanceof QuotePreviewError ? query.error.code : undefined,
+    failure: query.isError && !incumbent ? query.error : undefined,
     estimate: enabled && !query.isError ? estimate : undefined, optimizing: enabled && !!incumbent && query.isFetching,
     progress: enabled ? progress : undefined };
 }
