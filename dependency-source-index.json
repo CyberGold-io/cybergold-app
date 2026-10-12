@@ -1,0 +1,90 @@
+{
+  "schema": "cybergold-dependency-source-offer-v1",
+  "repository": "cybergold-app",
+  "projectLicense": "AGPL-3.0-only",
+  "sourceGuideUrl": "https://github.com/CyberGold-io/cybergold-app/releases/download/dependency-source-2026-10-12/THIRD_PARTY_SOURCE.md",
+  "sourceIndexUrl": "https://github.com/CyberGold-io/cybergold-app/releases/download/dependency-source-2026-10-12/dependency-source-index.json",
+  "scope": "Finite selected preferred library source and build-control supplements. Preserve upstream grants and notices. Existing project lockfiles remain authoritative for installed versions. No bit-identical package/wheel/container or universal transitive-source audit asserted.",
+  "sources": [
+    {
+      "packages": [
+        {
+          "package": "next",
+          "version": "16.3.8",
+          "retainedSourceTreesUsingVersion": [
+            "0d39fb7d0ddc5700f9d029f7ac6c8b9adbea9ce8",
+            "9c22925f96df928c6b0ba422dfb7351b236fc62a",
+            "be3ce77a39a5c78dbc32df6b22920c3fffd82bcf"
+          ]
+        }
+      ],
+      "asset": "next-16.3.8-tag-source.tar.gz",
+      "downloadUrl": "https://github.com/CyberGold-io/cybergold-app/releases/download/dependency-source-2026-10-12/next-16.3.8-tag-source.tar.gz",
+      "sha256": "4d816a9a081f4c3984dd246724f2d50cd3efd53507c44a042c406db15c6c9a7f",
+      "bytes": 52231264,
+      "content": "complete unchanged public producer source archive",
+      "upstreamLicenseTreatment": "MIT; bundled third-party notices remain under their existing grants",
+      "producer": {
+        "repository": "https://github.com/vercel/next.js",
+        "tag": "v16.3.8",
+        "npmIntegrity": "sha512-U7QEZaTini6wKrb8A8hqLLqYQyCetegKjCpJOyxk642vWoMoU1x5PyZCJFvgYgiptA8xc5j/9xYlZFO7w9Sjmw=="
+      }
+    },
+    {
+      "packages": [
+        {
+          "package": "next",
+          "version": "16.3.8",
+          "retainedSourceTreesUsingVersion": [
+            "0d39fb7d0ddc5700f9d029f7ac6c8b9adbea9ce8",
+            "9c22925f96df928c6b0ba422dfb7351b236fc62a",
+            "be3ce77a39a5c78dbc32df6b22920c3fffd82bcf"
+          ]
+        }
+      ],
+      "asset": "next-16.3.8-published-sources.tar.gz",
+      "downloadUrl": "https://github.com/CyberGold-io/cybergold-app/releases/download/dependency-source-2026-10-12/next-16.3.8-published-sources.tar.gz",
+      "sha256": "7ebf84bf4afc4d9518653db7dd710d53649fd988ece8a81bf4293c943231c7a7",
+      "bytes": 4049126,
+      "content": "exact published authored source-map content with index and notices",
+      "upstreamLicenseTreatment": "Original Next/third-party notices included; retain their grants",
+      "producer": {
+        "repository": "https://github.com/vercel/next.js",
+        "tag": "v16.3.8",
+        "npmIntegrity": "sha512-U7QEZaTini6wKrb8A8hqLLqYQyCetegKjCpJOyxk642vWoMoU1x5PyZCJFvgYgiptA8xc5j/9xYlZFO7w9Sjmw=="
+      }
+    },
+    {
+      "packages": [
+        {
+          "package": "react",
+          "version": "19.3.0",
+          "retainedSourceTreesUsingVersion": [
+            "0d39fb7d0ddc5700f9d029f7ac6c8b9adbea9ce8",
+            "9c22925f96df928c6b0ba422dfb7351b236fc62a",
+            "be3ce77a39a5c78dbc32df6b22920c3fffd82bcf"
+          ]
+        },
+        {
+          "package": "react-dom",
+          "version": "19.3.0",
+          "retainedSourceTreesUsingVersion": [
+            "0d39fb7d0ddc5700f9d029f7ac6c8b9adbea9ce8",
+            "9c22925f96df928c6b0ba422dfb7351b236fc62a",
+            "be3ce77a39a5c78dbc32df6b22920c3fffd82bcf"
+          ]
+        }
+      ],
+      "asset": "react-ed4d487b6927.tar.gz",
+      "downloadUrl": "https://github.com/CyberGold-io/cybergold-app/releases/download/dependency-source-2026-10-12/react-ed4d487b6927.tar.gz",
+      "sha256": "ef34c2ad2fe4af769cdc8a067d827fbba8fde677d83f5befaa8a8cc5c3a8c6be",
+      "bytes": 10252630,
+      "content": "unchanged previously verified exact producer source archive",
+      "upstreamLicenseTreatment": "MIT; original producer workspace and notices preserved",
+      "producer": {
+        "repository": "https://github.com/react/react",
+        "commit": "1d34f91dfde6bba84d08b683aaba164c7194dacb"
+      }
+    }
+  ]
+}

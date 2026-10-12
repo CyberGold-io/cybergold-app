@@ -20,6 +20,7 @@ export function Footer() {
           <div className="space-y-2 text-slate-300">
             <p>{t("copyright")}</p>
             <p>{t("location")}</p>
+            <p><Link href="/source" prefetch={false} className="underline">Source code (AGPL-3.0)</Link></p>
           </div>
 
           <div className="space-y-2 text-slate-300">
