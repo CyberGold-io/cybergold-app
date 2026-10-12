@@ -1,10 +1,23 @@
 import { expect, test } from "./fixtures/app-test";
+import { context, install } from "./fixtures/token-quotes";
+import { selectBasket } from "./fixtures/swap-selection";
 
-test("a failed focused basket read reports availability without blaming Core configuration", async ({ page }) => {
-  await page.route("**/api/protocol/facts", route => route.fulfill({
-    status: 503, json: { error: "Protocol facts are temporarily unavailable." },
-  }));
+test("a failed focused read of the selected basket reports availability without blaming Core configuration", async ({ page }) => {
+  let head = { ...context }, unavailable = false, failedReads = 0;
+  await install(page, "", undefined, false, undefined, () => head);
+  await page.route("**/api/protocol/facts", route => {
+    if (!unavailable) return route.fallback();
+    failedReads++;
+    return route.fulfill({ status: 503, json: { error: "Protocol facts are temporarily unavailable." } });
+  });
   await page.goto("/en");
+  await selectBasket(page);
+  await expect(page.getByText("Basket data could not be loaded. Try again later.")).toHaveCount(0);
+  await page.clock.install();
+  unavailable = true;
+  head = { ...head, blockHash: `0x${"b".repeat(64)}` };
+  await page.clock.runFor(12_000);
+  await expect.poll(async () => { await page.clock.runFor(1_000); return failedReads; }).toBeGreaterThan(0);
   await expect(page.getByText("Basket data could not be loaded. Try again later.")).toBeVisible({ timeout: 20_000 });
   await expect(page.getByText("Check NEXT_PUBLIC_CORE_DIAMOND_ADDRESS", { exact: false })).toHaveCount(0);
   await expect(page.getByText("Basket is not available from the configured core address", { exact: false })).toHaveCount(0);

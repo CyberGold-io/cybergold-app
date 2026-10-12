@@ -95,11 +95,11 @@ function transportFailure(path: PublicBackendPath, error: unknown, elapsedMs: nu
   if (path === "/api/quotes/uniswap") {
     return Response.json({ error: "Uniswap quotes are temporarily unavailable." }, { status: 503, headers });
   }
-  if (path === "/api/quotes/intent/stream" || path === "/api/quotes/market/stream" || path === "/api/quotes/market") {
+  if (path === "/api/quotes/intent/stream" || path === "/api/quotes/market/stream" || path === "/api/quotes/market" || path === "/api/quotes/trade/stream") {
     return Response.json({ code: timedOut ? "quote-timeout" : "quote-service-unavailable",
       error: timedOut ? "Quote service request timed out." : "Quote service connection failed." }, { status: 503, headers });
   }
-  if (path === "/api/quotes/market/model") {
+  if (path === "/api/quotes/market/model" || path === "/api/quotes/trade/model") {
     return Response.json({ error: "Market estimates are temporarily unavailable." }, { status: 503, headers });
   }
   if (path === "/api/quotes/routes" || path === "/api/quotes/routes/stream") {
@@ -168,7 +168,7 @@ export function backendRoute(path: PublicBackendPath, fetchImpl: typeof fetch = 
         if (value !== null) responseHeaders.set(name, value);
       }
       return new Response(request.method === "HEAD" || response.status === 204 || response.status === 304
-        ? null : (path === "/api/quotes/routes/stream" || path === "/api/quotes/intent/stream" || path === "/api/quotes/market/stream") ? response.body : await response.arrayBuffer(), { status: response.status, headers: responseHeaders });
+        ? null : (path === "/api/quotes/routes/stream" || path === "/api/quotes/intent/stream" || path === "/api/quotes/market/stream" || path === "/api/quotes/trade/stream") ? response.body : await response.arrayBuffer(), { status: response.status, headers: responseHeaders });
     } catch (error) {
       if (request.signal.aborted) throw error;
       return transportFailure(path, error, Math.round(performance.now() - started));

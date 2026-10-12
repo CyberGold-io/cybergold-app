@@ -346,3 +346,15 @@ test("eligible MetaMask atomic accounts retain the SDK signature group and their
   await batch.signTypedData([f.payload(token), f.payload(helpers)]);
   assert.equal(f.outer.length, 1); assert.equal(f.inner.length, 2);
 });
+
+
+test("SDK confirmation keeps the final Helpers receipt logs from its existing wait", async () => {
+  const f = fixture(), logs = [{ address: helpers, data: "0xab" as const, topics: [`0x${"1".repeat(64)}` as Hex] }];
+  const waited: Hex[] = [];
+  const batch = createMetaMaskRequestBatch(f.client as never, owner, helpers, { ...f.options,
+    waitReceipt: async hash => { waited.push(hash); return { status: "success", ...(hash === swapHash ? { logs } : {}) }; } });
+  collectWalletApproval(batch, token, permit2);
+  const submission = await batch.submit("issueFromBasketExactOutWithPermit2", args);
+  assert.deepEqual((await submission.wait()).logs, logs);
+  assert.deepEqual(waited, [approvalHash, swapHash]);
+});

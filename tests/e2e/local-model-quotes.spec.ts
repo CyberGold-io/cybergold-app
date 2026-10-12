@@ -1,5 +1,8 @@
 import { expect, test } from "./fixtures/app-test";
-import { choose, install } from "./fixtures/token-quotes";
+import { choose, context, install } from "./fixtures/token-quotes";
+import { coreIntentRequest, tradeFixture } from "./fixtures/trade-core";
+import { intentFixture } from "./fixtures/quote-intent";
+import type { TradeModelRequest } from "../../app/utils/tradeQuote";
 
 for (const symbol of ["WETH", "USDC"] as const) {
   for (const mode of ["issue-in", "issue-out", "redeem-in", "redeem-out"] as const) {
@@ -46,6 +49,21 @@ for (const symbol of ["WETH", "USDC"] as const) {
     test(`${symbol} ${mode}: organic browser preview precedes debounce, stays approximate and clears invalid input`, async ({ page }) => {
       let pending = Promise.resolve(), finish!: () => void;
       const observed = await install(page, "", () => pending, false, undefined, undefined, undefined, true);
+      // The coordinator owns organic history and ranks the indicative value.
+      // Empty history stays unavailable; no App family ranking is synthesized.
+      await page.route("**/api/quotes/trade/model", async route => {
+        const request: TradeModelRequest = route.request().postDataJSON();
+        if (!observed.intents.length || BigInt(request.amount) <= 0n) {
+          await route.fulfill({ json: { namespace: "trade", intent: request, models: [] } }); return;
+        }
+        const providerRequest = coreIntentRequest({ ...request, recipient: `0x${"0".repeat(40)}`, deadline: "1900000000" });
+        const value = tradeFixture(intentFixture(providerRequest), providerRequest);
+        const amount = request.mode === "exact-in" ? value.quotedOutput : value.quotedInput;
+        await route.fulfill({ json: { namespace: "trade", intent: request,
+          models: [{ strategy: "core", value: { revision: 1, intent: { ...providerRequest, deadline: undefined },
+            protocol: null, routes: [], whole: [{ input: request.amount, display: amount, context, recordedAt: Date.now() / 1000 }] } }],
+          estimate: { strategy: "core", amount } } });
+      });
       await page.goto("/en"); await choose(page, symbol);
       if (mode.startsWith("redeem")) await page.getByRole("button", { name: "Reverse swap direction" }).click();
       const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)'), exactIn = mode.endsWith("-in");
@@ -73,13 +91,15 @@ for (const symbol of ["WETH", "USDC"] as const) {
         observer.observe(output, { attributes: true, attributeFilter: ["value"] });
       });
       await edited.fill("2");
-      await expect(quoted).not.toHaveValue("");
+      // The Backend-ranked model arrives asynchronously. Flush only immediate
+      // query notifications, leaving the exact-quote debounce clock unchanged.
+      await expect.poll(async () => { await page.clock.runFor(0); return quoted.inputValue(); }).not.toBe("");
       await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
       const timing = await page.evaluate(() => (window as unknown as { __modelTiming: { previewMs: number | null } }).__modelTiming);
       expect(timing.previewMs).not.toBeNull();
-      // No logical time has elapsed: a raw-input model must render before the
-      // existing typing timer can start the next exact request. Wall-time CPU
-      // scheduling on a busy CI runner is a measurement, not this invariant.
+      // No logical time has elapsed: the lightweight Backend model follows the
+      // raw amount before the typing timer starts the next exact request.
+      // Wall-time CPU scheduling is a measurement, not this invariant.
       expect(observed.intents.length).toBe(before);
       await page.clock.runFor(150);
       await expect.poll(() => observed.intents.length).toBe(before + 1);
