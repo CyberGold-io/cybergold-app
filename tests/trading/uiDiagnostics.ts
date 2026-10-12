@@ -1,7 +1,7 @@
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
 import { safeDiagnosticReferences } from "../../app/utils/diagnosticReferences.ts";
 import { knownQuoteError, type QuotePreviewError } from "../../app/utils/quoteErrors.ts";
-import { RegressionAssertionError, tokenRequest } from "./regression.ts";
+import { failureResult, RegressionAssertionError, tokenRequest, type ScenarioResult, type UiObservationPhase } from "./regression.ts";
 import { ScenarioUnavailableError, type Scenario } from "./scenarios.ts";
 
 /** Scope optional UI evidence to the latest original request for this case. */
@@ -55,4 +55,10 @@ export async function uiCompletionAssertion(assertion: () => Promise<unknown>, s
     }
     throw error;
   }
+}
+
+/** A constant caller phase fills only the missing context of a generic error. */
+export function uiObservationFailure(result: ScenarioResult, error: unknown, phase: UiObservationPhase) {
+  const failed = failureResult(result, error);
+  return failed.code === "unexpected-error" && !failed.reason ? { ...failed, reason: phase } : failed;
 }

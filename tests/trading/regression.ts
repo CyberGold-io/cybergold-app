@@ -10,11 +10,13 @@ import { QuotePreviewError, quoteResponseError } from "../../app/utils/quoteErro
 import { diagnosticReferences, retainDiagnosticReferences, type DiagnosticReferences } from "../../app/utils/diagnosticReferences.ts";
 import { basketFacts, configuredToken, coreIntentRequest, ScenarioUnavailableError, type Scenario } from "./scenarios.ts";
 
+export type UiObservationPhase = "ui-prepare" | "ui-facts" | "ui-balances" | "ui-submit" | "ui-confirmation"
+  | "ui-hash" | "ui-receipt-read" | "ui-transaction-read" | "ui-receipt-assertions" | "ui-balance-postchecks";
 export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "asset"> & {
   requestedStrategy: "core" | "market" | "auto";
   status: "pass" | "fail" | "unavailable" | "skipped"; actualStrategy: "core" | "market" | "unknown";
   actualOperation?: string; quotedOperation?: string; layer: "api" | "browser" | "execution"; durationMs?: number; firstExecutableMs?: number;
-  code?: string; reason?: QuotePreviewError["code"]; refs?: DiagnosticReferences; transactionHash?: string;
+  code?: string; reason?: QuotePreviewError["code"] | UiObservationPhase; refs?: DiagnosticReferences; transactionHash?: string;
   context?: { chainId: number; blockNumber: string; blockHash: string }; bounds?: Record<string, string | string[]>;
   receipt?: Record<string, string | string[]>; authorization?: string[];
 };

@@ -14,7 +14,7 @@ import { fetchQuoteStream } from "./quoteStream.ts";
 import { observeBrowserQuotes } from "../../tests/trading/browserQuotes.ts";
 import { protocolConfigurationFixture } from "../../tests/fixtures/protocol-configuration.ts";
 import { installQuoteObservation } from "../../tests/trading/quoteObservation.ts";
-import { createUiQuoteDiagnostics, uiCompletionAssertion, uiPreparationAssertion } from "../../tests/trading/uiDiagnostics.ts";
+import { createUiQuoteDiagnostics, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion } from "../../tests/trading/uiDiagnostics.ts";
 
 test("inventory includes every Core asset/direction/mode and four independent market modes", () => {
   assert.equal(tradeScenarios.length, 20);
@@ -198,6 +198,21 @@ test("UI completion deadline retains submission uncertainty and never masks an o
   assert.equal(unsubmitted.status, "fail"); assert.equal(unsubmitted.code, "ui-completion-not-observed");
   const observedRevert = new Error("private-revert-message");
   await assert.rejects(uiCompletionAssertion(() => playwrightExpect.poll(async () => { throw observedRevert; }, { timeout: 10 }).toBe(true), () => true), cause => cause === observedRevert);
+});
+
+test("generic UI observation failures retain only a constant phase and safe references", () => {
+  const requestId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e", transactionHash = `0x${"a".repeat(64)}`;
+  const result = { ...resultFor(tradeScenarios[0], "execution"), refs: { requestId }, transactionHash };
+  const privateFailure = new Error("https://private-rpc.example/gho-private-token signed-calldata");
+  for (const phase of ["ui-receipt-read", "ui-confirmation"] as const) {
+    const failure = uiObservationFailure(result, privateFailure, phase);
+    assert.equal(failure.status, "fail"); assert.equal(failure.code, "unexpected-error"); assert.equal(failure.reason, phase);
+    assert.equal(failure.transactionHash, transactionHash); assert.deepEqual(failure.refs, { requestId });
+    assert.doesNotMatch(JSON.stringify(failure), /private-rpc|gho-private-token|signed-calldata/);
+  }
+  assert.equal(uiObservationFailure({ ...result, reason: "quote-timeout" }, privateFailure, "ui-receipt-read").reason, "quote-timeout");
+  const specific = uiObservationFailure(result, new QuotePreviewError("rpc-timeout", "rpc-timeout"), "ui-receipt-read");
+  assert.equal(specific.code, "rpc-timeout"); assert.equal(specific.status, "unavailable"); assert.equal(specific.reason, undefined);
 });
 
 test("browser basket matching rejects warm vectors and validates current asset bounds", () => {
