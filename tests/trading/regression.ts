@@ -14,7 +14,7 @@ export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "ass
   requestedStrategy: "core" | "market" | "auto";
   status: "pass" | "fail" | "unavailable" | "skipped"; actualStrategy: "core" | "market" | "unknown";
   actualOperation?: string; quotedOperation?: string; layer: "api" | "browser" | "execution"; durationMs?: number; firstExecutableMs?: number;
-  code?: string; refs?: DiagnosticReferences; transactionHash?: string;
+  code?: string; reason?: QuotePreviewError["code"]; refs?: DiagnosticReferences; transactionHash?: string;
   context?: { chainId: number; blockNumber: string; blockHash: string }; bounds?: Record<string, string | string[]>;
   receipt?: Record<string, string | string[]>; authorization?: string[];
 };
@@ -24,7 +24,7 @@ export type RegressionReport = { schema: "cybergold.trade-regression.v1"; runId:
   context?: { appRevision?: string; backendRevision?: string; backendImageId?: string; blockNumber?: string; blockHash?: string };
   qualification?: { result?: "running" | "pass" | "fail"; stage?: string; errorClass?: string;
     cleanup?: Partial<Record<"processes" | "containers" | "network" | "source", "complete" | "failed">> };
-  runnerOutcome?: "pass" | "fail" | "unavailable"; runnerCode?: string; scenarios: ScenarioResult[] };
+  runnerOutcome?: "pass" | "fail" | "unavailable"; runnerCode?: string; scenarios: ScenarioResult[]; fixtures?: ScenarioResult[] };
 export type QuoteObservation = { scenario: Scenario; request: TradeQuoteRequest | BasketPreviewRequest;
   value: QuoteIntent | MarketQuote | BasketPreview; result: ScenarioResult };
 

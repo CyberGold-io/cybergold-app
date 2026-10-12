@@ -222,7 +222,7 @@ def main() -> None:
                       "tests/metamask/testWithMetaMask.ts", "tests/metamask/fixed-api-roundtrips.spec.ts",
                       "tests/metamask/wallet-session.spec.ts", "tests/metamask/wallet-ui.ts", "tests/metamask/token-flows/helpers.ts",
                       "tests/metamask/regression-execution.spec.ts", "tests/trading/scenarios.ts", "tests/trading/regression.ts", "tests/trading/walletExecution.ts",
-                      "tests/trading/uiReceipt.ts", "tests/trading/sandboxFunding.ts"]
+                      "tests/trading/uiReceipt.ts", "tests/trading/uiDiagnostics.ts", "tests/trading/sandboxFunding.ts"]
         try:
             image_environment = json.loads(docker("image", "inspect", args.backend_image, "--format", "{{json .Config.Env}}"))
             backend_commit = next((value.split("=", 1)[1] for value in image_environment if value.startswith("CYBERGOLD_BACKEND_COMMIT=")), None)

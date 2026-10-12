@@ -12,12 +12,13 @@ import { fetchTransactionReceipt } from "../../app/utils/transactionReceipt";
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration";
 import type { ProtocolFacts } from "../../app/utils/protocolFacts";
 import { safeDiagnosticReferences } from "../../app/utils/diagnosticReferences";
+import { createUiQuoteDiagnostics, uiCompletionAssertion, uiPreparationAssertion } from "../trading/uiDiagnostics";
 
-async function approveUntilMined(page: Page) {
+async function approveUntilMined(page: Page, submitted: () => boolean) {
   const success = page.getByText(/^Transaction confirmed$/i);
   const failure = page.getByText(/^Transaction failed$/i);
   let openedStep = "";
-  await expect.poll(async () => {
+  await uiCompletionAssertion(() => expect.poll(async () => {
     if (await failure.isVisible()) throw new Error((await page.locator("[data-sonner-toast]").allTextContents()).join(" | "));
     if (await success.isVisible()) return true;
     const step = await (await getSwapButton(page)).innerText();
@@ -39,7 +40,7 @@ async function approveUntilMined(page: Page) {
       }
     }
     return false;
-  }, { timeout: 90000, intervals: [250, 500, 1000] }).toBe(true);
+  }, { timeout: 90000, intervals: [250, 500, 1000] }).toBe(true), submitted);
 }
 
 async function balancesAfter(page: Page, ids: string[], accept: (value: Record<string, number>) => boolean) {
@@ -67,27 +68,42 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   let helpersHash: Hex | undefined;
   let activeSwapAttempt: string | undefined;
   let activeScenarioIndex: number | undefined;
+  let activeFixtureIndex: number | undefined;
+  let activeQuoteDiagnostics: ReturnType<typeof createUiQuoteDiagnostics> | undefined;
   let setupComplete = false;
   let setupRefs = {};
   const scenarios = tradeScenarios.filter(scenario => scenario.requestedStrategy === "core");
   const results: ScenarioResult[] = scenarios.map(scenario => ({ ...resultFor(scenario, "execution"), id: `ui-${scenario.id}`, requestedStrategy: "auto" }));
+  const fixtures: ScenarioResult[] = [];
+  const activeResult = () => activeScenarioIndex !== undefined ? results[activeScenarioIndex]
+    : activeFixtureIndex !== undefined ? fixtures[activeFixtureIndex] : undefined;
   async function persist() {
     if (!process.env.TRADE_REGRESSION_UI_OUTPUT) return;
     const path = process.env.TRADE_REGRESSION_UI_OUTPUT;
-    await writeFile(path + ".tmp", JSON.stringify({ schema: "cybergold.trade-regression.v1", scenarios: results }, null, 2) + "\n");
+    await writeFile(path + ".tmp", JSON.stringify({ schema: "cybergold.trade-regression.v1", scenarios: results, fixtures }, null, 2) + "\n");
     await rename(path + ".tmp", path);
   }
   await persist();
   try {
   const config = await readJson<ProtocolConfiguration>(fetcher, "/api/protocol/config");
   page.on("request", request => {
-    if (new URL(request.url()).pathname === "/api/rpc") genericRequests.push(request.url());
-    if (new URL(request.url()).pathname === "/api/diagnostics") {
+    const path = new URL(request.url()).pathname;
+    const current = activeResult();
+    if (path === "/api/rpc") genericRequests.push(request.url());
+    if (current && !activeSwapAttempt && path.startsWith("/api/quotes/")) {
+      try {
+        if (activeQuoteDiagnostics?.request(path, request.postDataJSON(), request.headers()["x-cybergold-attempt-id"]))
+          Object.assign(current, activeQuoteDiagnostics.snapshot());
+      } catch { /* Optional diagnostics never alter an ordinary quote request. */ }
+    }
+    if (path === "/api/diagnostics") {
       const event = request.postDataJSON();
       if (!setupComplete && ["quote", "swap"].includes(event?.operation)) setupRefs = { ...setupRefs, ...safeDiagnosticReferences(event) };
+      if (current && !activeSwapAttempt && activeQuoteDiagnostics?.diagnostic(event))
+        Object.assign(current, activeQuoteDiagnostics.snapshot());
       if (event?.operation === "swap" && event.outcome === "started") activeSwapAttempt = event.attemptId;
-      if (activeScenarioIndex !== undefined && event?.operation === "swap" && event.attemptId === activeSwapAttempt)
-        results[activeScenarioIndex].refs = { ...results[activeScenarioIndex].refs, ...safeDiagnosticReferences(event) };
+      if (current && event?.operation === "swap" && event.attemptId === activeSwapAttempt)
+        current.refs = { ...current.refs, ...safeDiagnosticReferences(event) };
       if (event?.operation === "swap" && ["submitted", "succeeded"].includes(event.outcome)
         && event.attemptId === activeSwapAttempt && /^0x[0-9a-f]{64}$/i.test(event.transactionHash ?? "")) helpersHash = event.transactionHash;
     }
@@ -127,16 +143,16 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       // buttons, while the editable token side retains its ordinary input.
       await expect(amounts).toHaveCount(2);
       for (const amount of await amounts.all()) {
-        await expect.poll(async () => parseAmount(await amount.innerText()), { timeout: 60000 }).toBeGreaterThan(0);
+        await uiPreparationAssertion("ui-quoted-amount-not-ready", () => expect.poll(async () => parseAmount(await amount.innerText()), { timeout: 60000 }).toBeGreaterThan(0));
       }
     } else {
-      await expect.poll(async () => Number(await getMainInput(page, quotedSide).inputValue()), { timeout: 60000 }).toBeGreaterThan(0);
+      await uiPreparationAssertion("ui-quoted-amount-not-ready", () => expect.poll(async () => Number(await getMainInput(page, quotedSide).inputValue()), { timeout: 60000 }).toBeGreaterThan(0));
     }
-    await expect(await getSwapButton(page)).toBeEnabled({ timeout: 60000 });
+    await uiPreparationAssertion("ui-swap-not-enabled", async () => expect(await getSwapButton(page)).toBeEnabled({ timeout: 60000 }));
   }
   async function submit() {
     await (await getSwapButton(page)).click();
-    await approveUntilMined(page);
+    await approveUntilMined(page, () => Boolean(helpersHash));
   }
 
   await prepare("ETH", "CYGLD", "0.25", "buy");
@@ -151,8 +167,35 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   expect((await readWalletBalances(page, ["cygld"])).cygld).toBe(beforeRejected.cygld);
   setupComplete = true;
 
+  // A real setup trade gives redemption cases inventory even when later issue
+  // quotes are unavailable. It is separate evidence, never a matrix pass.
+  const bootstrap = { ...scenarios.find(scenario => scenario.id === "core-issue-paxg-exact-out")!,
+    id: "fixture-cygld-bootstrap", displayAmount: "5" };
+  fixtures.push({ ...resultFor(bootstrap, "execution"), requestedStrategy: "auto" });
+  activeFixtureIndex = 0; helpersHash = undefined; activeSwapAttempt = undefined;
+  try { activeQuoteDiagnostics = createUiQuoteDiagnostics(bootstrap, config); } catch { /* Optional evidence cannot change setup. */ }
+  const bootstrapStarted = performance.now(); await persist();
+  try {
+    await prepare("PAXG", "CYGLD", bootstrap.displayAmount, "buy");
+    fixtures[0].code = "execution-not-completed"; await persist();
+    await submit();
+    await expect.poll(() => helpersHash, { timeout: 15000 }).toBeTruthy();
+    const receipt = await fetchTransactionReceipt(helpersHash!, undefined, fetcher);
+    requireInvariant(receipt, "receipt-unavailable");
+    const observed = await readJson<{ transaction: { input: Hex; to: string; from: string } | null }>(fetcher, `/api/transaction/wait/transaction?hash=${helpersHash}`);
+    requireInvariant(observed.transaction?.to.toLowerCase() === config.contracts.helpers!.toLowerCase()
+      && observed.transaction?.from.toLowerCase() === owner.toLowerCase(), "transaction-party-mismatch");
+    fixtures[0] = { ...uiReceiptResult(bootstrap, config, owner, observed.transaction!.input, receipt,
+      parseUnits(bootstrap.displayAmount, configuredToken(config, "CYGLD").decimals), []),
+      id: bootstrap.id, refs: fixtures[0].refs, reason: fixtures[0].reason };
+  } catch (error) { fixtures[0] = { ...failureResult(fixtures[0], error), ...(helpersHash ? { transactionHash: helpersHash } : {}) }; }
+  fixtures[0].durationMs = Math.round(performance.now() - bootstrapStarted); await persist();
+  activeFixtureIndex = undefined; activeQuoteDiagnostics = undefined; activeSwapAttempt = undefined;
+
   for (const [index, scenario] of scenarios.entries()) await test.step(`UI ${scenario.id}`, async () => {
-    const started = performance.now(); helpersHash = undefined;
+    const started = performance.now(); helpersHash = undefined; activeSwapAttempt = undefined;
+    activeScenarioIndex = index;
+    try { activeQuoteDiagnostics = createUiQuoteDiagnostics(scenario, config); } catch { /* Optional evidence cannot change preparation. */ }
     try {
       const side = scenario.inputMode === "exact-in" ? "sell" : "buy";
       await prepare(scenario.side === "buy" ? scenario.asset : "CYGLD", scenario.side === "buy" ? "CYGLD" : scenario.asset, scenario.displayAmount, side);
@@ -166,7 +209,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       const basketAmounts = await Promise.all(amounts.map(async (input, index) => parseUnits(await input.inputValue(), basketTokens[index].decimals)));
       const userToken = configuredToken(config, (scenario.side === "buy") !== (scenario.inputMode === "exact-in") ? "CYGLD" : scenario.asset === "BASKET" ? basketTokens[0].symbol : scenario.asset);
       const userAmount = parseUnits(scenario.displayAmount, userToken.decimals);
-      helpersHash = undefined; activeSwapAttempt = undefined; activeScenarioIndex = index;
+      helpersHash = undefined;
       results[index].code = "execution-not-completed"; await persist();
       await submit();
       await expect.poll(() => helpersHash, { timeout: 15000 }).toBeTruthy();
@@ -174,12 +217,12 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       requireInvariant(receipt, "receipt-unavailable");
       const observed = await readJson<{ transaction: { input: Hex; to: string; from: string } | null }>(fetcher, `/api/transaction/wait/transaction?hash=${helpersHash}`);
       requireInvariant(observed.transaction?.to.toLowerCase() === config.contracts.helpers!.toLowerCase() && observed.transaction?.from.toLowerCase() === owner.toLowerCase(), "transaction-party-mismatch");
-      results[index] = { ...uiReceiptResult(scenario, config, owner, observed.transaction!.input, receipt, userAmount, basketAmounts), refs: results[index].refs };
+      results[index] = { ...uiReceiptResult(scenario, config, owner, observed.transaction!.input, receipt, userAmount, basketAmounts), refs: results[index].refs, reason: results[index].reason };
       await balancesAfter(page, [...ids, "cygld"], after => scenario.side === "buy"
         ? after.cygld > before.cygld && ids.some(id => after[id] < before[id])
         : after.cygld < before.cygld && ids.some(id => after[id] > before[id]));
     } catch (error) { results[index] = { ...failureResult(results[index], error), ...(helpersHash ? { transactionHash: helpersHash } : {}) }; }
-    activeScenarioIndex = undefined;
+    activeScenarioIndex = undefined; activeQuoteDiagnostics = undefined; activeSwapAttempt = undefined;
     results[index].durationMs = Math.round(performance.now() - started); await persist();
   });
   expect(genericRequests).toEqual([]);

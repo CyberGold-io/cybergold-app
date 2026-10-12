@@ -21,8 +21,11 @@ const report = { schema: "cybergold.trade-regression.v1", runId: randomUUID(), t
 
 async function walletResults() {
   const independent = JSON.parse(await readFile(resolve(output, "regression-execution.json"), "utf8"));
-  report.scenarios = independent.scenarios; report.observations = independent.observations;
-  try { report.scenarios.push(...JSON.parse(await readFile(resolve(output, "regression-ui.json"), "utf8")).scenarios); }
+  report.scenarios = independent.scenarios; report.observations = independent.observations; report.fixtures = independent.fixtures ?? [];
+  try {
+    const ui = JSON.parse(await readFile(resolve(output, "regression-ui.json"), "utf8"));
+    report.scenarios.push(...ui.scenarios); report.fixtures.push(...ui.fixtures ?? []);
+  }
   catch { report.scenarios.push(...tradeScenarios.filter(s => s.requestedStrategy === "core").map(scenario => ({
     ...failureResult(resultFor(scenario, "execution"), new ScenarioUnavailableError("ui-results-unavailable")), id: `ui-${scenario.id}`, requestedStrategy: "auto" }))); }
 }

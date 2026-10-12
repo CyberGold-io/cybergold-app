@@ -4,9 +4,9 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { chromium, type Browser } from "@playwright/test";
+import { chromium, expect as playwrightExpect, type Browser } from "@playwright/test";
 import { coreIntentRequest, ScenarioUnavailableError, splitAmount, tradeScenarios } from "../../tests/trading/scenarios.ts";
-import { failureResult, matchesBasketIntent, resultFor, uint, validateBasket, validateTrade } from "../../tests/trading/regression.ts";
+import { failureResult, matchesBasketIntent, resultFor, tokenRequest, uint, validateBasket, validateTrade } from "../../tests/trading/regression.ts";
 import type { BasketPreview } from "./basketPreview.ts";
 import { QuotePreviewError } from "./quoteErrors.ts";
 import { diagnosticReferences } from "./diagnosticReferences.ts";
@@ -14,6 +14,7 @@ import { fetchQuoteStream } from "./quoteStream.ts";
 import { observeBrowserQuotes } from "../../tests/trading/browserQuotes.ts";
 import { protocolConfigurationFixture } from "../../tests/fixtures/protocol-configuration.ts";
 import { installQuoteObservation } from "../../tests/trading/quoteObservation.ts";
+import { createUiQuoteDiagnostics, uiCompletionAssertion, uiPreparationAssertion } from "../../tests/trading/uiDiagnostics.ts";
 
 test("inventory includes every Core asset/direction/mode and four independent market modes", () => {
   assert.equal(tradeScenarios.length, 20);
@@ -145,6 +146,58 @@ test("a quote runner startup failure retains all36 stable unavailable scenario r
     assert.equal(report.scenarios.filter((row: { layer: string }) => row.layer === "browser").length, 16);
     assert.ok(report.scenarios.every((row: { status: string; code: string }) => row.status === "unavailable" && row.code === "app-origin-unavailable"));
   } finally { rmSync(output, { recursive: true, force: true }); }
+});
+
+test("UI preparation references follow the latest matching quote attempt and reject stale or unrelated events", () => {
+  const scenario = tradeScenarios.find(row => row.id === "core-redeem-usdc-exact-in")!;
+  const request = tokenRequest(scenario, protocolConfigurationFixture, protocolConfigurationFixture.contracts.helpers!);
+  const first = "e9eb96b2-8ecf-429d-9e08-244f43257e8e", latest = "eb3e6932-a2af-4303-a09e-35831f864a1d";
+  const requestId = "32308717-eac6-4fbb-a685-b7a9a652c5f8";
+  const observer = createUiQuoteDiagnostics(scenario, protocolConfigurationFixture);
+  assert.equal(observer.request("/api/quotes/trade/stream", { ...request, amount: "0" }, first), false);
+  assert.equal(observer.request("/api/quotes/trade/stream", request, first), true);
+  assert.equal(observer.diagnostic({ operation: "quote", attemptId: first, requestId, outcome: "failed", errorClassification: "quote-timeout" }), true);
+  assert.deepEqual(observer.snapshot(), { refs: { attemptId: first, requestId }, reason: "quote-timeout" });
+  assert.equal(observer.request("/api/quotes/trade/stream", request, latest), true);
+  assert.deepEqual(observer.snapshot(), { refs: { attemptId: latest }, reason: undefined });
+  assert.equal(observer.diagnostic({ operation: "quote", attemptId: first, requestId, outcome: "failed", errorClassification: "rpc-timeout" }), false);
+  assert.equal(observer.diagnostic({ operation: "swap", attemptId: latest, requestId }), false);
+  assert.equal(observer.diagnostic({ operation: "quote", attemptId: latest, requestId, outcome: "failed", errorClassification: "gho-private-token" }), true);
+  assert.deepEqual(observer.snapshot(), { refs: { attemptId: latest, requestId }, reason: undefined });
+  assert.doesNotMatch(JSON.stringify(observer.snapshot()), /gho-private-token/);
+  assert.equal(createUiQuoteDiagnostics(scenario, protocolConfigurationFixture).diagnostic({ operation: "quote", attemptId: latest, requestId }), false);
+});
+
+test("an actual quoted-amount assertion remains fail with its precise preparation code and quote references", async () => {
+  const scenario = tradeScenarios.find(row => row.id === "core-issue-usdc-exact-in")!;
+  const observer = createUiQuoteDiagnostics(scenario, protocolConfigurationFixture);
+  const attemptId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e", requestId = "eb3e6932-a2af-4303-a09e-35831f864a1d";
+  observer.request("/api/quotes/trade/stream", tokenRequest(scenario, protocolConfigurationFixture, protocolConfigurationFixture.contracts.helpers!), attemptId);
+  observer.diagnostic({ operation: "quote", attemptId, requestId, outcome: "failed", errorClassification: "quote-timeout" });
+  let error: unknown;
+  try { await uiPreparationAssertion("ui-quoted-amount-not-ready", () => playwrightExpect.poll(async () => 0, { timeout: 10 }).toBeGreaterThan(0)); }
+  catch (cause) { error = cause; }
+  const result = failureResult({ ...resultFor(scenario, "execution"), ...observer.snapshot() }, error);
+  assert.equal(result.status, "fail"); assert.equal(result.code, "ui-quoted-amount-not-ready");
+  assert.equal(result.reason, "quote-timeout"); assert.deepEqual(result.refs, { attemptId, requestId });
+  const readFailure = new Error("private-read-token");
+  await assert.rejects(uiPreparationAssertion("ui-quoted-amount-not-ready", () => playwrightExpect.poll(async () => { throw readFailure; }, { timeout: 10 }).toBeGreaterThan(0)), cause => cause === readFailure);
+});
+
+test("UI completion deadline retains submission uncertainty and never masks an observed revert", async () => {
+  const assertion = () => playwrightExpect.poll(async () => false, { timeout: 10 }).toBe(true);
+  const transactionHash = `0x${"a".repeat(64)}`;
+  const result = { ...resultFor(tradeScenarios[0], "execution"), transactionHash };
+  let error: unknown;
+  try { await uiCompletionAssertion(assertion, () => true); } catch (cause) { error = cause; }
+  const uncertain = failureResult(result, error);
+  assert.equal(uncertain.status, "unavailable"); assert.equal(uncertain.code, "submitted-unconfirmed");
+  assert.equal(uncertain.transactionHash, transactionHash);
+  try { await uiCompletionAssertion(assertion, () => false); } catch (cause) { error = cause; }
+  const unsubmitted = failureResult(resultFor(tradeScenarios[0], "execution"), error);
+  assert.equal(unsubmitted.status, "fail"); assert.equal(unsubmitted.code, "ui-completion-not-observed");
+  const observedRevert = new Error("private-revert-message");
+  await assert.rejects(uiCompletionAssertion(() => playwrightExpect.poll(async () => { throw observedRevert; }, { timeout: 10 }).toBe(true), () => true), cause => cause === observedRevert);
 });
 
 test("browser basket matching rejects warm vectors and validates current asset bounds", () => {
