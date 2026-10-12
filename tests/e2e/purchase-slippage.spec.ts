@@ -1,3 +1,4 @@
+import { routeCoreIntent } from "./fixtures/trade-core";
 import { protocolAddresses } from "../fixtures/protocol-configuration";
 import { routeWalletBalances } from "./fixtures/wallet-balances";
 import { expect, test } from "./fixtures/app-test";
@@ -98,7 +99,7 @@ for (const operation of ["purchase", "redemption"] as const) {
         expect(route.request().postDataJSON()).toEqual({ owner, token: getAddress(weth), amount: String(input) });
         return route.fulfill({ json: { gas: "50000" } });
       });
-      await page.route("**/api/quotes/intent/stream", route => {
+      await routeCoreIntent(page, route => {
         const request = route.request().postDataJSON(), value = intentFixture(request);
         const fees = { protocolFeeCygld: String(input - net), helperFeeCygld: "0" };
         return route.fulfill({ contentType: "application/x-ndjson", body: JSON.stringify({ type: "complete", value: {

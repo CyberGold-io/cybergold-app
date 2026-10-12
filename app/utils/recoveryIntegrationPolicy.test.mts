@@ -18,25 +18,10 @@ test("swap submission uses bound current-state previews without a global recover
   const basketExactOutFlow = read(
     "../hooks/flows/useRedeemToBasketExactOutFlow.ts"
   );
-  const tokenExactOutFlow = read(
-    "../hooks/flows/useRedeemToTokenMinOutFlow.ts"
-  );
-  const tokenIssueExactInFlow = read(
-    "../hooks/flows/useIssueFromTokenExactInFlow.ts"
-  );
-  const tokenIssueExactOutFlow = read(
-    "../hooks/flows/useIssueFromTokenExactOutFlow.ts"
-  );
-  const tokenRedeemExactInFlow = read(
-    "../hooks/flows/useRedeemToTokenExactInFlow.ts"
-  );
-
-  assert.match(page, /enabled: isRedeemToTokenMinOut,/);
-  assert.match(
-    page,
-    /enabled: isRedeemToBasketExactOut && hasDerivedBasketAmounts/
-  );
-  assert.match(page, /isNativeOutputToken: isBuyTokenNative/);
+  const tokenFlow = read("../hooks/flows/useTradeFlow.ts");
+  const tokenExecution = read("./tradeExecution.ts");
+  assert.match(page, /enabled: isActiveTokenFlow && !quoteInputPending/);
+  assert.match(page, /enabled: isRedeemToBasketExactOut && hasDerivedBasketAmounts/);
   assert.doesNotMatch(
     page,
     /coreRecovery|isRecoveryMode|recoveryEpoch|assertFreshRecoveryRoute|recoveryExactOutUnavailable/
@@ -46,16 +31,11 @@ test("swap submission uses bound current-state previews without a global recover
   }
   assert.match(basketExactOutFlow, /usePreviewRedeemToBasketExactOut/);
   assert.match(basketExactOutFlow, /operation: "redeemToBasketExactIn"/);
-  assert.match(tokenExactOutFlow, /useRedeemToTokenExactInFlow/);
-  assert.match(tokenRedeemExactInFlow, /useQuoteIntent/);
-  assert.match(tokenRedeemExactInFlow, /"redeem-exact-out" : "redeem-exact-in"/);
-  for (const exactOutFlow of [basketExactOutFlow, tokenExactOutFlow]) assert.doesNotMatch(exactOutFlow, /recoveryMode|recoveryEpoch/);
+  assert.match(tokenFlow, /useTradeQuote/);
+  assert.match(tokenExecution, /operation: request.native \? "redeemToNativeExactIn" : "redeemToTokenExactIn"/);
+  for (const flow of [basketExactOutFlow, tokenFlow, tokenExecution]) assert.doesNotMatch(flow, /recoveryMode|recoveryEpoch/);
   assert.match(basketExactOutFlow, /recoveryAssetsRead\.isError\) return "failed"/);
-  for (const issueFlow of [tokenIssueExactInFlow, tokenIssueExactOutFlow]) {
-    assert.match(issueFlow, /useQuoteIntent/);
-    assert.doesNotMatch(issueFlow, /usePreviewCoreIssueFromBasketExactOut/);
-  }
-  assert.doesNotMatch(tokenRedeemExactInFlow, /usePreviewCoreRedeemExactIn/);
+  assert.doesNotMatch(tokenFlow, /usePreviewCoreIssueFromBasketExactOut|usePreviewCoreRedeemExactIn/);
   assert.equal(existsSync(url("../hooks/cybergold/useCoreRecoveryState.ts")), false);
   assert.equal(existsSync(url("../hooks/cybergold/useCoreBasketTransactions.ts")), false);
   assert.equal(
@@ -70,27 +50,17 @@ test("swap submission uses bound current-state previews without a global recover
 
 test("first-party redemption flows bind one complete mixed output vector", () => {
   const basketFlow = read("../hooks/flows/useRedeemToBasketExactInFlow.ts");
-  const tokenFlow = read("../hooks/flows/useRedeemToTokenExactInFlow.ts");
-
-  for (const flow of [basketFlow, tokenFlow]) {
-    assert.match(flow, /projectedCoreOutputs/);
-    assert.match(flow, /expectedCoreOutputs/);
-    assert.match(flow, /CORE_TOKEN_KIND\.ERC1155/);
-    assert.match(flow, /recoveryAssetForShareId\(output\.id\)/);
-    assert.doesNotMatch(
-      flow,
-      /expectedOrderedHealthyAssets|expectedOrderedRecoveryAssets|minimumRecoverySharesOut|expectedRecoveryEpoch|RecoveryBinding|recoveryBinding/
-    );
-  }
+  const tokenFlow = read("../hooks/flows/useTradeFlow.ts"), tokenExecution = read("./tradeExecution.ts");
+  assert.match(basketFlow, /projectedCoreOutputs/); assert.match(tokenFlow, /projectedCoreOutputs/);
+  assert.match(basketFlow, /expectedCoreOutputs/); assert.match(tokenExecution, /expectedCoreOutputs: result.expectedCoreOutputs/);
+  for (const flow of [basketFlow, tokenFlow]) assert.match(flow, /CORE_TOKEN_KIND\.ERC1155/);
+  for (const flow of [basketFlow, tokenFlow, tokenExecution]) assert.doesNotMatch(flow,
+    /expectedOrderedHealthyAssets|expectedOrderedRecoveryAssets|minimumRecoverySharesOut|expectedRecoveryEpoch|RecoveryBinding|recoveryBinding/);
   assert.match(basketFlow, /minimumAmount: applySlippageFloor\(output\.amount, slippageBps\)/);
-  assert.match(tokenFlow, /expectedCoreOutputs = result\?\.expectedCoreOutputs/);
   assert.match(basketFlow, /operation: "redeemToBasketExactIn"/);
-  assert.match(tokenFlow, /"redeemToTokenExactIn"/);
-  assert.match(
-    tokenFlow,
-    /execution\.quotes\.map\(quote => \(\{\s*adapter: quote\.adapter,\s*minimumAmountOut: quote\.minimumAmountOut,\s*data: quote\.data/s
-  );
-  assert.doesNotMatch(tokenFlow, /callValue|minAmountOut/);
+  assert.match(tokenExecution, /"redeemToTokenExactIn"/);
+  assert.match(tokenExecution, /redemptionQuotes\.map\(row => \({ adapter: row\.adapter, minimumAmountOut: row\.minimumAmountOut, data: row\.data \}\)/);
+  assert.doesNotMatch(tokenExecution, /callValue|minAmountOut/);
 });
 
 test("recovery UI presents current pool and lifecycle state without causes/history", () => {

@@ -1,6 +1,7 @@
 import { routeWalletBalances } from "./fixtures/wallet-balances";
 import { expect, test, type Page } from "./fixtures/app-test";
 import { choose, context, install } from "./fixtures/token-quotes";
+import type { TradeQuoteRequest } from "../../app/utils/tradeQuote";
 
 test("a long exact quote completes across head changes, then resumes refresh and cancels edited input", async ({ page }) => {
   let head = { ...context }, finish!: () => void;
@@ -32,16 +33,19 @@ test("a long exact quote completes across head changes, then resumes refresh and
   head = { ...head, blockNumber: "104", blockHash: `0x${"5".padStart(64, "0")}` };
   await page.clock.runFor(12_000);
   await expect.poll(() => observed.intents.length).toBe(pendingStarts + 1);
-  // A new head submits the browser's best accepted execution for selected-route
-  // checks. It does not ask the backend to enumerate every candidate again.
-  expect(observed.intents.at(-1)?.retainedPlan?.executionAmount).toBe("1000000000000000000");
-  expect(observed.intents.at(-1)?.retainedPlan?.quotes.length).toBeGreaterThan(0);
+  // Ordinary refresh competes across supported families at the new head while
+  // retaining the displayed incumbent. Explicit selected-plan revalidation is
+  // a separate API operation, rather than silently pinning this refresh to Core.
+  const refreshed = observed.rawIntents.at(-1) as TradeQuoteRequest;
+  expect(refreshed).toMatchObject({ side: "buy", mode: "exact-in", amount: "1000000000000000000" });
+  expect(refreshed.retainedPlan).toBeUndefined();
+  expect("orderedAssets" in refreshed).toBe(false);
   await expect(computed).toHaveValue("1");
   await edited.fill("2");
   await page.clock.runFor(150);
   await expect.poll(() => observed.intents.length).toBe(pendingStarts + 2);
   expect(observed.intents.at(-1)?.amount).toBe("2000000000000000000");
-  expect(observed.intents.at(-1)?.retainedPlan).toBeUndefined();
+  expect((observed.rawIntents.at(-1) as TradeQuoteRequest).retainedPlan).toBeUndefined();
   finish();
   await expect(computed).toBeEnabled();
   await test.info().attach("head-completion-measurement", { contentType: "application/json", body: JSON.stringify({

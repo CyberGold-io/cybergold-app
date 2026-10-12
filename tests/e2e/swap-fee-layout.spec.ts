@@ -1,3 +1,4 @@
+import { routeCoreIntent } from "./fixtures/trade-core";
 import { expect, test } from "./fixtures/app-test";
 import { choose, context, install } from "./fixtures/token-quotes";
 import { intentFixture } from "./fixtures/quote-intent";
@@ -26,7 +27,7 @@ for (const width of [1280, 390]) {
     await page.route("**/api/transaction/fees", route => route.fulfill({ json: {
       context, maxFeePerGas: "2000000000", maxPriorityFeePerGas: "1000000000",
     } }));
-    await page.route("**/api/quotes/intent/stream", async route => {
+    await routeCoreIntent(page, async route => {
       const request = route.request().postDataJSON();
       if (hold) { started = true; await pending; }
       const value = intentFixture(request);
@@ -71,8 +72,8 @@ for (const width of [1280, 390]) {
     expect(await protocol.evaluate(element => getComputedStyle(element).color)).toBe(completeColor);
     expect((await fees.boundingBox())?.height).toBe(before?.height);
     await sell.fill("");
-    await expect(protocol).toHaveText("—");
-    await expect(gas).toHaveText("—");
+    await expect(protocol).toHaveText("...");
+    await expect(gas).toHaveText("...");
   });
 }
 

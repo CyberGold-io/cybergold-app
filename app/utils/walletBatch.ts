@@ -8,7 +8,8 @@ export type WalletAtomicStatus = "supported" | "ready" | "unsupported" | "unavai
 export type WalletBatchCall = { to: Address; data: Hex; value?: bigint };
 export type WalletTypedData = TypedDataDefinition<TypedData, string> & { account: Address };
 export type WalletBatchTracker = { requestNext: (kind: "approval" | "signature" | "transaction", label: string) => void };
-export type WalletBatchConfirmation = { transactionHash?: Hex };
+export type WalletReceiptLog = { address: Address; data: Hex; topics: readonly Hex[] };
+export type WalletBatchConfirmation = { transactionHash?: Hex; logs?: readonly WalletReceiptLog[] };
 export type WalletBatchSubmission = {
   kind: "wallet-batch" | "wallet-request-batch";
   id: string;
@@ -74,7 +75,8 @@ export function createWalletSwapBatch(client: WalletClient, owner: Address, help
         error.name = "ReceiptUnavailableError";
         throw error;
       }
-      return { transactionHash: result.receipts?.at(-1)?.transactionHash };
+      const receipt = result.receipts?.at(-1);
+      return { transactionHash: receipt?.transactionHash, ...(receipt?.logs?.length ? { logs: receipt.logs } : {}) };
     } };
   } };
 }

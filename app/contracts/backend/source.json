@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "files": {
     "http.d.ts": {
-      "sha256": "a4cf275587ebee47c90fde472af78710f7ce838f5c2d61cfb51c8cacdfd935f9"
+      "sha256": "2777165bc9cf5dc47abf55bfc76f6403b842345d2330f7082b42a7ad9cf74d33"
     },
     "openapi.json": {
-      "sha256": "40a4771c5c99e86a377644960b247e207acffab21830c1943f3fe67b6f8ef4e6"
+      "sha256": "f1d4a6ed6cf1b896ad269a8ec66d713bb7c08ac243dda7ded019b11bb77899d7"
     }
   },
-  "commit": "76f815c8e052be85bd9e0745c7867f111d823a13"
+  "commit": "e1472f6a6d0bb6e9afe26124176d54225b5f2d99"
 }

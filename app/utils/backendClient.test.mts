@@ -76,7 +76,7 @@ test("faucet transport failures expose the same safe reference as their diagnost
 });
 
 test("all fixed API adapters attach only the server token, with no browser credential fallback", async () => {
-  const paths = ["/api/protocol/config", "/api/transaction/revert", "/api/account/ens-name", "/api/account/ens-avatar-record", "/api/account/native-balance", "/api/governance/target-code", "/api/protocol/recovery-share-precision", "/api/transaction/wait/head", "/api/transaction/wait/transaction", "/api/transaction/wait/receipt", "/api/transaction/wait/block", "/api/transaction/permit2-approval-gas", "/api/transaction/recovery-redemption", "/api/governance/authority", "/api/governance/roles", "/api/governance/safe-nonce", "/api/governance/safe-transaction-hash", "/api/transaction/receipt", "/api/account/transaction-nonce", "/api/account/permit2", "/api/transaction/fees", "/api/protocol/recovery-assets", "/api/account/core-permit", "/api/quotes/token-preview", "/api/quotes/uniswap", "/api/governance/safe-principal", "/api/governance/helpers-facts", "/api/governance/core-facts", "/api/account/wallet-balances", "/api/protocol/facts", "/api/pools/snapshot", "/api/quotes/basket-preview", "/api/gold", "/api/fx", "/api/dashboard/onchain-summary", "/api/recovery/shares",
+  const paths = ["/api/quotes/trade/model", "/api/protocol/config", "/api/transaction/revert", "/api/account/ens-name", "/api/account/ens-avatar-record", "/api/account/native-balance", "/api/governance/target-code", "/api/protocol/recovery-share-precision", "/api/transaction/wait/head", "/api/transaction/wait/transaction", "/api/transaction/wait/receipt", "/api/transaction/wait/block", "/api/transaction/permit2-approval-gas", "/api/transaction/recovery-redemption", "/api/governance/authority", "/api/governance/roles", "/api/governance/safe-nonce", "/api/governance/safe-transaction-hash", "/api/transaction/receipt", "/api/account/transaction-nonce", "/api/account/permit2", "/api/transaction/fees", "/api/protocol/recovery-assets", "/api/account/core-permit", "/api/quotes/token-preview", "/api/quotes/uniswap", "/api/governance/safe-principal", "/api/governance/helpers-facts", "/api/governance/core-facts", "/api/account/wallet-balances", "/api/protocol/facts", "/api/pools/snapshot", "/api/quotes/basket-preview", "/api/gold", "/api/fx", "/api/dashboard/onchain-summary", "/api/recovery/shares",
     "/api/account/token-permit", "/api/tokens/metadata", "/api/transaction/token-approval-gas", "/api/pools/catalog",
     "/api/governance/owner-aliases", "/api/quote-pool-cache", "/api/safe",
     "/api/safe/events", "/api/faucet", "/api/diagnostics"] as const;
@@ -170,7 +170,7 @@ test("cancellation propagates and backend error bytes/correlation IDs are unchan
   });
 });
 
-for (const path of ["/api/quotes/routes/stream", "/api/quotes/intent/stream", "/api/quotes/market/stream"] as const) test(`${path} forwards a chunk before upstream completion and preserves cancellation`, async () => {
+for (const path of ["/api/quotes/routes/stream", "/api/quotes/intent/stream", "/api/quotes/market/stream", "/api/quotes/trade/stream"] as const) test(`${path} forwards a chunk before upstream completion and preserves cancellation`, async () => {
   await withEnvironment({ CYBERGOLD_BACKEND_URL: "http://127.0.0.1:3210", CYBERGOLD_BACKEND_BEARER_TOKEN: "fixture-private" }, async () => {
     let writer!: ReadableStreamDefaultController<Uint8Array>;
     let cancelled = false;

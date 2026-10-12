@@ -1,3 +1,4 @@
+import { routeCoreIntent } from "./fixtures/trade-core";
 import { expect, test } from "./fixtures/app-test";
 import { choose, install } from "./fixtures/token-quotes";
 
@@ -38,7 +39,7 @@ test("a fresh disconnected form asks for a sell token and exposes all receive as
 for (const code of ["rpc-rate-limit", "rpc-timeout", "rpc-access-denied"] as const) {
   test(`French ${code} reports the specific RPC cause without raw English`, async ({ page }) => {
     await install(page);
-    await page.route("**/api/quotes/intent/stream", route => route.fulfill({
+    await routeCoreIntent(page, route => route.fulfill({
       contentType: "application/x-ndjson",
       body: JSON.stringify({ type: "error", code, error: "private provider failure", correlationId: "fixture" }) + "\n",
     }));

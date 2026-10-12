@@ -186,7 +186,10 @@
     "quoteStreamInterrupted": "Die Verbindung zum Kursdienst wurde unterbrochen. Versuchen Sie es erneut.",
     "quoteInvalidInput": "Die Kursanfrage ist ungültig. Ändern Sie den Betrag oder den Token.",
     "quoteRequestLimit": "Der Kursdienst erhält zu viele Anfragen. Versuchen Sie es gleich erneut.",
-    "quoteRpcAccessDenied": "RPC-Fehler: Der Anbieter hat den Zugriff verweigert. Versuchen Sie es später erneut."
+    "quoteRpcAccessDenied": "RPC-Fehler: Der Anbieter hat den Zugriff verweigert. Versuchen Sie es später erneut.",
+    "tradeActualInput": "Tatsächlich verwendete Eingabe",
+    "tradeActualOutput": "Tatsächlich erhaltene Ausgabe",
+    "applicationFee": "Frontend-Gebühr"
   },
 
   "WalletBalances": {
@@ -600,7 +603,7 @@
     "amount": "Betrag ({token})",
     "recipient": "Empfänger",
     "recipientHint": "Ohne andere Adresse erhält Ihre verbundene Wallet die Tokens.",
-    "fee": "Anwendungsgebühr ({rate} %)",
+    "fee": "Frontend-Gebühr ({rate} %)",
     "feeRecipient": "Gebührenempfänger",
     "minimum": "Mindestens erhalten",
     "maximum": "Höchstens zahlen",

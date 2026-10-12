@@ -5,6 +5,9 @@ import type { QuoteIntentRequest } from "../../app/utils/quoteIntent";
 import type { BasketPreviewRequest } from "../../app/utils/basketPreview";
 import { routeWalletBalances } from "./fixtures/wallet-balances";
 import { selectBasket } from "./fixtures/swap-selection";
+import { coreIntentRequest, routeCoreIntent } from "./fixtures/trade-core";
+import { marketTradeFixture } from "./fixtures/market-quotes";
+import { protocolAddresses } from "../fixtures/protocol-configuration";
 
 const success = <T,>(value: T) => ({ status: "success", value });
 const unit = 10n ** 18n;
@@ -32,7 +35,8 @@ async function installReadOnlyWallet(page: Page) {
   await routeWalletBalances(page, route => route.fulfill({ json: { context, holder: owner,
     native: { status: "success", value: String(1000n * unit) },
     tokens: [{ id: "weth", address: "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2",
-      balance: { status: "success", value: String(1000n * unit) } }],
+      balance: { status: "success", value: String(1000n * unit) } },
+      { id: "cygld", address: protocolAddresses.core, balance: success(String(1000n * unit)) }],
   } }));
 }
 function supplyState(supply: bigint) {
@@ -48,16 +52,21 @@ function cappedIntent(request: QuoteIntentRequest, remainingGross = 200n * unit)
   const gross = requestedNet === 0n ? 0n : requestedNet + (requestedNet - 1n) * 1000n / 999000n;
   const remainingNet = remainingGross - remainingGross / 1000n;
   const executedNet = requestedNet > remainingNet ? remainingNet : requestedNet;
-  return { ...value, executionAmount: String(executedNet), requestedNetCygldOut: String(requestedNet),
+  return { ...value, executionAmount: String(executedNet), expectedInputAmount: String(executedNet), requestedNetCygldOut: String(requestedNet),
     requestedGrossCygldOut: String(gross), remainingGrossCapacity: String(remainingGross), remainingNetCapacity: String(remainingNet) };
 }
 
 async function routeCapQuotes(page: Page, remainingGross = 200n * unit) {
   const requests: QuoteIntentRequest[] = [];
-  await page.route("**/api/quotes/intent/stream", route => {
-    const request = route.request().postDataJSON(); requests.push(request);
-    return route.fulfill({ contentType: "application/x-ndjson", body:
-      JSON.stringify({ type: "complete", value: cappedIntent(request, remainingGross) }) + "\n" });
+  await routeCoreIntent(page, route => {
+    const request = route.request().postDataJSON() as QuoteIntentRequest; requests.push(request);
+    const remainingNet = remainingGross - remainingGross / 1000n;
+    const unavailable = request.mode.startsWith("issue") && (remainingNet === 0n ||
+      (request.mode === "issue-exact-out" && BigInt(request.amount) > remainingNet));
+    const frame = unavailable ? { type: "error", code: "issuance-cap-exceeded",
+      error: "Private cap diagnostic", correlationId: "fixture" } : { type: "complete",
+      value: request.mode.startsWith("issue") ? cappedIntent(request, remainingGross) : intentFixture(request) };
+    return route.fulfill({ contentType: "application/x-ndjson", body: JSON.stringify(frame) + "\n" });
   });
   return requests;
 }
@@ -196,28 +205,27 @@ for (const scenario of [
   }
 }
 
-test("cold issuance facts show capacity and MAX before optional basket history exists", async ({ page }) => {
-  await installCapacity(page, 50n, false);
+test("cold optional Core capacity does not restrict trading and connected MAX uses the wallet budget", async ({ page }) => {
+  await installCapacity(page, 50n, false); await installReadOnlyWallet(page);
   const requests = await routeCapQuotes(page);
   await page.goto("/en");
-  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveText("Available: 199.8 CYGLD");
+  await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
   await choose(page, "WETH");
-  const inputMax = page.getByRole("button", { name: "Use maximum sell amount", exact: true });
-  const outputMax = page.getByRole("button", { name: "Use maximum purchase amount", exact: true });
-  await expect(inputMax).toBeEnabled(); await expect(outputMax).toBeEnabled();
+  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveCount(0);
   expect(requests).toHaveLength(0);
-  await outputMax.click();
+  await page.getByRole("button", { name: "Use maximum purchase amount", exact: true }).click();
+  await expect(page.locator("#sell-amount")).toHaveValue("1000");
   await expect(page.locator("#buy-amount")).toHaveValue("199.8");
-  await expect(page.locator("#sell-amount")).toHaveValue("199.8");
+  await expect.poll(() => requests.at(-1)).toMatchObject({ mode: "issue-exact-in", amount: String(1000n * unit) });
+  await expect(page.getByTestId("trade-mechanism")).toHaveCount(0);
   await expect(page.locator("#purchase-cap-warning")).toHaveCount(0);
-  expect(requests[0]).toMatchObject({ mode: "issue-exact-out", amount: "199800000000000000000" });
 });
 
 for (const width of [1280, 390]) {
-  test(`French purchase capacity stays compact at ${width}px`, async ({ page }) => {
+  test(`French specialized basket purchase capacity stays compact at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 920 });
     await installCapacity(page);
-    await page.goto("/fr");
+    await page.goto("/fr"); await selectBasket(page);
     const note = page.getByTestId("cygld-purchase-capacity");
     await expect(note).toHaveText("Disponible : 199,8 CYGLD");
     await expect(note).toHaveAttribute("title", /Plafond actuel : 250 CYGLD/);
@@ -226,64 +234,74 @@ for (const width of [1280, 390]) {
   });
 }
 
-test("a cap rejection refreshes capacity, retains the input and uses inline feedback", async ({ page }) => {
+test("a Core cap rejection retains the exact-output intent, refreshes facts and uses inline feedback", async ({ page }) => {
   const fixture = await installCapacity(page);
-  await page.route("**/api/quotes/intent/stream", async route => {
-    const request = route.request().postDataJSON();
+  await routeCoreIntent(page, async route => {
+    const request = route.request().postDataJSON() as QuoteIntentRequest;
     if (request.amount !== String(300n * unit)) return route.fallback();
     fixture.setSupply(100n);
     await route.fulfill({ contentType: "application/x-ndjson", body: JSON.stringify({ type: "error",
       code: "issuance-cap-exceeded", error: "private cap diagnostic", correlationId: "fixture" }) + "\n" });
   });
-  await page.goto("/en");
-  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveText("Available: 199.8 CYGLD");
-  const initialReads = fixture.reads();
-  await choose(page, "WETH");
-  const buy = page.locator("#buy-amount");
+  await page.goto("/en"); await choose(page, "WETH");
+  const initialReads = fixture.reads(), buy = page.locator("#buy-amount");
   await buy.click(); await buy.fill("300");
-  await expect(page.getByTestId("cygld-purchase-capacity")).toContainText("149.85");
+  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveText("Reduce the amount");
+  await expect(page.getByText("private cap diagnostic", { exact: true })).toHaveCount(0);
   await expect(buy).toHaveValue("300");
-  await expect(buy).toHaveAttribute("aria-invalid", "true");
-  await expect(page.locator("#sell-amount")).toHaveAttribute("aria-invalid", "true");
-  await expect(page.locator("#purchase-cap-warning")).toBeVisible();
+  await expect(buy).not.toHaveAttribute("aria-invalid", "true");
+  await expect(page.locator("#purchase-cap-warning")).toHaveCount(0);
   await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
-  expect(fixture.reads()).toBe(initialReads + 1);
-  await buy.fill("1");
-  await expect(page.locator("#sell-amount")).not.toHaveValue("");
-  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveText("Available: 149.85 CYGLD");
+  await expect.poll(() => fixture.reads()).toBe(initialReads + 1);
+  await buy.fill("1"); await expect(page.locator("#sell-amount")).toHaveValue("1");
+  await expect(page.getByTestId("trade-mechanism")).toHaveCount(0);
+  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveCount(0);
 });
 
-test("the exhausted cap leaves CYGLD redemption usable", async ({ page }) => {
-  const fixture = await installCapacity(page, 250n);
-  await installReadOnlyWallet(page);
-  await page.route("**/api/quotes/intent/stream", route => {
-    const request = route.request().postDataJSON();
-    if (!request.mode.startsWith("issue")) return route.fallback();
-    return route.fulfill({ contentType: "application/x-ndjson", body:
-      JSON.stringify({ type: "complete", value: cappedIntent(request, 0n) }) + "\n" });
-  });
+test("an exhausted Core cap leaves CYGLD redemption usable", async ({ page }) => {
+  await installCapacity(page, 250n); await installReadOnlyWallet(page);
+  const requests = await routeCapQuotes(page, 0n);
   await page.goto("/en");
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
-  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveText("Supply cap reached");
-  await choose(page, "WETH");
-  await page.locator("#sell-amount").fill("1");
-  for (const input of ["#sell-amount", "#buy-amount"]) {
-    await expect(page.locator(input)).toHaveAttribute("aria-invalid", "true");
-    await expect(page.locator(input)).toHaveClass(/text-red-500/);
-  }
-  await expect(page.locator("#purchase-cap-warning")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Supply cap reached", exact: true })).toBeDisabled();
+  await choose(page, "WETH"); await page.locator("#sell-amount").fill("1");
+  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveText("Reduce the amount");
+  await expect(page.getByText("private cap diagnostic", { exact: true })).toHaveCount(0);
+  await expect(page.locator("#purchase-cap-warning")).toHaveCount(0);
   await page.getByRole("button", { name: "Reverse swap direction", exact: true }).click();
-  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveCount(0);
-  await page.locator("#sell-amount").click();
-  await page.locator("#sell-amount").fill("3");
-  await expect.poll(() => fixture.observed.intents.some(intent => intent.mode === "redeem-exact-in")).toBe(true);
-  await expect(page.locator("#buy-amount")).not.toHaveValue("");
+  await page.locator("#sell-amount").click(); await page.locator("#sell-amount").fill("3");
+  await expect.poll(() => requests.at(-1)?.mode).toBe("redeem-exact-in");
+  await expect(page.locator("#buy-amount")).toHaveValue("3");
+  await expect(page.getByTestId("trade-mechanism")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
 });
 
-test("fresh quote models update purchase capacity without a separate supply request", async ({ page }) => {
+test("an exhausted Core model does not block a qualified market winner", async ({ page }) => {
+  await installCapacity(page, 250n);
+  await page.route("**/api/quotes/trade/stream", route => {
+    const request = route.request().postDataJSON();
+    return route.fulfill({ contentType: "application/x-ndjson", body: [
+      JSON.stringify({ type: "model", value: { namespace: "trade", intent: { ...request, deadline: undefined }, models: [
+        { strategy: "core", value: { revision: 1, intent: { ...coreIntentRequest(request), deadline: undefined }, protocol: { context, state: supplyState(250n) }, routes: [], whole: [] } },
+      ] } }),
+      JSON.stringify({ type: "provider-error", strategy: "core", code: "issuance-cap-exceeded", error: "Core is full" }),
+      JSON.stringify({ type: "complete", value: marketTradeFixture(request) }), "",
+    ].join("\n") });
+  });
+  await page.goto("/en");
+  await page.getByRole("button", { name: "Select token", exact: true }).first().click();
+  await page.getByPlaceholder("Search currency...").fill("PAXG");
+  await page.locator("#dropdown-from").getByRole("button").filter({ has: page.getByText("PAXG", { exact: true }) }).click();
+  await page.locator("#sell-amount").fill("300");
+  await expect(page.locator("#buy-amount")).toHaveValue("299.7");
+  await expect(page.getByTestId("trade-mechanism")).toHaveCount(0);
+  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveCount(0);
+  await expect(page.locator("#purchase-cap-warning")).toHaveCount(0);
+  await expect(page.locator("#buy-amount")).not.toHaveAttribute("aria-invalid", "true");
+});
+
+test("fresh Core model capacity remains advisory without a separate supply request", async ({ page }) => {
   const fixture = await installCapacity(page);
-  await page.route("**/api/quotes/intent/stream", route => {
+  await routeCoreIntent(page, route => {
     const request = route.request().postDataJSON();
     return route.fulfill({ contentType: "application/x-ndjson", body: [
       JSON.stringify({ type: "model", value: { revision: 1, intent: { ...request, deadline: undefined },
@@ -291,57 +309,56 @@ test("fresh quote models update purchase capacity without a separate supply requ
       JSON.stringify({ type: "complete", value: intentFixture(request) }), "",
     ].join("\n") });
   });
-  await page.goto("/en");
-  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveText("Available: 199.8 CYGLD");
+  await page.goto("/en"); await choose(page, "WETH");
   const initialReads = fixture.reads();
-  await choose(page, "WETH");
   await page.locator("#sell-amount").fill("1");
-  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveText("Available: 149.85 CYGLD");
+  await expect(page.locator("#buy-amount")).toHaveValue("1");
+  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveCount(0);
   expect(fixture.reads()).toBe(initialReads);
 });
 
-test("an oversized budget retains the requested output and displays the rounded capacity separately", async ({ page }) => {
+test("a capped Core quote displays its actual net execution and retains the funded budget", async ({ page }) => {
   await installCapacity(page);
   const capacity = 188768908336865677216n;
-  await page.route("**/api/quotes/intent/stream", route => {
+  await routeCoreIntent(page, route => {
     const request = route.request().postDataJSON(), value = intentFixture(request);
     return route.fulfill({ contentType: "application/x-ndjson", body: [
       JSON.stringify({ type: "model", value: { revision: 1, intent: { ...request, deadline: undefined },
         protocol: { context, state: { ...supplyState(50n), supply: "61042133796931254039" } }, routes: [], whole: [] } }),
-      JSON.stringify({ type: "complete", value: { ...value, executionAmount: String(capacity),
+      JSON.stringify({ type: "complete", value: { ...value, executionAmount: String(capacity), expectedInputAmount: String(capacity),
         requestedNetCygldOut: String(200n * unit), requestedGrossCygldOut: String(201n * unit),
         remainingGrossCapacity: String(250n * unit - 61042133796931254039n), remainingNetCapacity: String(capacity) } }), "",
     ].join("\n") });
   });
-  await page.goto("/en"); await choose(page, "WETH");
-  await page.locator("#sell-amount").fill("200");
-  await expect(page.locator("#buy-amount")).toHaveValue("200");
-  await expect(page.locator("#buy-amount")).toHaveAttribute("aria-invalid", "true");
-  await expect(page.getByTestId("cygld-purchase-capacity")).toContainText("188.769");
+  await page.goto("/en"); await choose(page, "WETH"); await page.locator("#sell-amount").fill("200");
+  await expect(page.locator("#buy-amount")).toHaveValue("188.769");
+  await expect(page.locator("#sell-amount")).toHaveValue("200");
+  await expect(page.locator("#buy-amount")).not.toHaveAttribute("aria-invalid", "true");
+  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveCount(0);
+  await page.getByRole("button", { name: /Total fee/ }).click();
+  await expect(page.getByTestId("swap-maximum-input")).toHaveCount(0);
+  await expect(page.getByTestId("swap-minimum-output")).toContainText("188.768908336865677216 CYGLD");
 });
 
 for (const width of [1280, 390]) {
-  test(`an oversized purchase shows red French feedback and stays blocked at ${width}px`, async ({ page }) => {
+  test(`a capped qualified Core result stays usable and compact in French at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 920 });
-    await installCapacity(page);
-    await installReadOnlyWallet(page);
-    await routeCapQuotes(page);
+    await installCapacity(page); await installReadOnlyWallet(page); await routeCapQuotes(page);
     await page.goto("/fr");
     await expect(page.getByRole("button", { name: "Ouvrir le menu du portefeuille" })).toBeVisible();
     await page.getByRole("button", { name: "Sélectionner un token", exact: true }).first().click();
     await page.getByPlaceholder("Rechercher une devise...").fill("WETH");
     await page.locator("#dropdown-from").getByRole("button", { name: "WETH Wrapped Ether WETH", exact: true }).click();
     await page.locator("#sell-amount").fill("200");
-    await expect(page.locator("#buy-amount")).toHaveValue("200");
+    await expect(page.locator("#buy-amount")).toHaveValue("199,8");
+    await expect(page.locator("#sell-amount")).toHaveValue("200");
     for (const input of ["#sell-amount", "#buy-amount"]) {
-      await expect(page.locator(input)).toHaveAttribute("aria-invalid", "true");
-      await expect(page.locator(input)).toHaveClass(/text-red-500/);
+      await expect(page.locator(input)).not.toHaveAttribute("aria-invalid", "true");
+      await expect(page.locator(input)).not.toHaveClass(/text-red-500/);
     }
-    const note = page.getByTestId("cygld-purchase-capacity");
-    await expect(note).toContainText("199,8");
-    await expect(page.locator("#purchase-cap-warning")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Réduisez le montant", exact: true })).toBeDisabled();
-    expect(await note.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
+    await expect(page.getByTestId("cygld-purchase-capacity")).toHaveCount(0);
+    await expect(page.locator("#purchase-cap-warning")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Échanger les devises", exact: true })).toBeEnabled();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
     await page.screenshot({ path: `out/audit/cygld-supply-cap/${width}-fr-capped.png`, fullPage: true });
@@ -349,93 +366,82 @@ for (const width of [1280, 390]) {
 }
 
 for (const side of ["sell", "buy"] as const) {
-  test(`${side} MAX replaces oversized terms with a valid cap-fitting quote`, async ({ page }) => {
-    await installCapacity(page);
+  test(`connected ${side} MAX uses the wallet budget while Core refunds the capped remainder`, async ({ page }) => {
+    await installCapacity(page); await installReadOnlyWallet(page);
     const requests = await routeCapQuotes(page);
-    await page.goto("/en"); await choose(page, "WETH");
-    await page.locator("#sell-amount").fill("300");
-    await expect(page.locator("#buy-amount")).toHaveValue("300");
-    await expect(page.locator("#purchase-cap-warning")).toBeVisible();
+    await page.goto("/en"); await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
+    await choose(page, "WETH"); await page.locator("#sell-amount").fill("300");
+    await expect(page.locator("#buy-amount")).toHaveValue("199.8");
     await page.getByRole("button", { name: side === "sell" ? "Use maximum sell amount" : "Use maximum purchase amount", exact: true }).click();
     await expect(page.locator("#buy-amount")).toHaveValue("199.8");
-    await expect(page.locator("#sell-amount")).toHaveValue("199.8");
-    for (const input of ["#sell-amount", "#buy-amount"]) {
-      await expect(page.locator(input)).not.toHaveAttribute("aria-invalid", "true");
-    }
+    await expect(page.locator("#sell-amount")).toHaveValue("1000");
+    await expect.poll(() => requests.at(-1)).toMatchObject({ mode: "issue-exact-in", amount: String(1000n * unit) });
+    for (const input of ["#sell-amount", "#buy-amount"]) await expect(page.locator(input)).not.toHaveAttribute("aria-invalid", "true");
     await expect(page.locator("#purchase-cap-warning")).toHaveCount(0);
-    await expect.poll(() => requests.at(-1)?.mode).toBe("issue-exact-out");
-    expect(requests.at(-1)?.amount).toBe(String(199800000000000000000n));
+    await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: /Total fee/ }).click();
-    await expect(page.getByTestId("swap-maximum-input")).toContainText("201.798 WETH");
+    await expect(page.getByTestId("swap-maximum-input")).toHaveCount(0);
+    await expect(page.getByTestId("swap-minimum-output")).toContainText("199.8 CYGLD");
   });
 }
 
 for (const side of ["sell", "buy"] as const) {
-  test(`disconnected ${side} MAX reduces the output to capacity when that DEX route is unavailable`, async ({ page }) => {
+  test(`disconnected ${side} MAX never substitutes Core capacity for an unknown wallet budget`, async ({ page }) => {
     await installCapacity(page);
     const requests: QuoteIntentRequest[] = [];
-    await page.route("**/api/quotes/intent/stream", route => {
+    await routeCoreIntent(page, route => {
       const request = route.request().postDataJSON(); requests.push(request);
-      const frame = request.mode === "issue-exact-in"
-        ? { type: "complete", value: cappedIntent(request) }
-        : { type: "error", code: "quote-no-route", error: "Fixture DEX route unavailable", correlationId: "fixture" };
-      return route.fulfill({ contentType: "application/x-ndjson", body: JSON.stringify(frame) + "\n" });
+      return route.fulfill({ contentType: "application/x-ndjson", body: JSON.stringify({ type: "error",
+        code: "quote-no-route", error: "Fixture DEX route unavailable", correlationId: "fixture" }) + "\n" });
     });
     await page.goto("/en"); await choose(page, "WETH");
-    const buy = page.locator("#buy-amount"), sell = page.locator("#sell-amount");
-    await sell.fill("300"); await expect(buy).toHaveValue("300");
-    await expect(page.locator("#purchase-cap-warning")).toBeVisible();
-    await page.getByRole("button", { name: side === "sell" ? "Use maximum sell amount" : "Use maximum purchase amount", exact: true }).click();
-    await expect(buy).toHaveValue("199.8");
-    await expect.poll(() => requests.at(-1)?.mode).toBe("issue-exact-out");
-    expect(requests.at(-1)?.amount).toBe("199800000000000000000");
+    const buy = page.locator("#buy-amount"); await buy.click(); await buy.fill("300");
     await expect(page.getByText("No exchange route is available for this amount.", { exact: true })).toBeVisible();
-    for (const input of [buy, sell]) {
-      await expect(input).not.toHaveAttribute("aria-invalid", "true");
-      await expect(input).not.toHaveClass(/text-red-500/);
-    }
+    await expect(page.getByRole("button", { name: side === "sell" ? "Use maximum sell amount" : "Use maximum purchase amount", exact: true })).toHaveCount(0);
+    await expect(buy).toHaveValue("300");
+    await expect(buy).not.toHaveAttribute("aria-invalid", "true");
     await expect(page.locator("#purchase-cap-warning")).toHaveCount(0);
-    await expect(page.getByTestId("cygld-purchase-capacity")).toHaveText("Available: 199.8 CYGLD");
+    expect(requests.at(-1)).toMatchObject({ mode: "issue-exact-out", amount: String(300n * unit) });
   });
 }
 
-test("input MAX also adapts both terms when connected and the output is editable", async ({ page }) => {
-  await installCapacity(page); await installReadOnlyWallet(page); await routeCapQuotes(page);
-  await page.goto("/en");
-  await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
+test("purchase MAX switches an editable output intent to the connected input wallet budget", async ({ page }) => {
+  await installCapacity(page); await installReadOnlyWallet(page);
+  const requests = await routeCapQuotes(page);
+  await page.goto("/en"); await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
   await choose(page, "WETH");
   const buy = page.locator("#buy-amount"), sell = page.locator("#sell-amount");
   await buy.click(); await buy.fill("300");
-  await expect(buy).toHaveAttribute("aria-invalid", "true");
-  await page.getByRole("button", { name: "Use maximum sell amount", exact: true }).click();
-  await expect(buy).toHaveValue("199.8"); await expect(sell).toHaveValue("199.8");
+  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveText("Reduce the amount");
+  await expect(page.getByText("private cap diagnostic", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Use maximum purchase amount", exact: true }).click();
+  await expect(buy).toHaveValue("199.8"); await expect(sell).toHaveValue("1000");
+  await expect.poll(() => requests.at(-1)).toMatchObject({ mode: "issue-exact-in", amount: String(1000n * unit) });
   await expect(buy).not.toHaveAttribute("aria-invalid", "true");
   await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
 });
 
-test("a late MAX quote cannot overwrite a newer manual output amount", async ({ page }) => {
+test("a late wallet-budget MAX quote cannot overwrite a newer manual input amount", async ({ page }) => {
   await installCapacity(page); await installReadOnlyWallet(page);
   let maxStarted = false, releaseMax!: () => void;
   const pendingMax = new Promise<void>(resolve => { releaseMax = resolve; });
-  await page.route("**/api/quotes/intent/stream", async route => {
+  await routeCoreIntent(page, async route => {
     const request = route.request().postDataJSON();
-    if (request.mode === "issue-exact-out" && request.amount === "199800000000000000000") {
+    if (request.mode === "issue-exact-in" && request.amount === String(1000n * unit)) {
       maxStarted = true; await pendingMax;
     }
     await route.fulfill({ contentType: "application/x-ndjson", body:
       JSON.stringify({ type: "complete", value: cappedIntent(request) }) + "\n" }).catch(() => {});
   });
-  await page.goto("/en");
-  await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
+  await page.goto("/en"); await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
   await choose(page, "WETH");
   const buy = page.locator("#buy-amount"), sell = page.locator("#sell-amount");
   await buy.click(); await buy.fill("1"); await expect(sell).toHaveValue("1");
   try {
-    await page.getByRole("button", { name: "Use maximum sell amount", exact: true }).click();
+    await page.getByRole("button", { name: "Use maximum purchase amount", exact: true }).click();
     await expect.poll(() => maxStarted).toBe(true);
-    await buy.fill("10"); await expect(sell).toHaveValue("10");
+    await sell.fill("10"); await expect(buy).toHaveValue("10");
     releaseMax();
-    await expect(page.getByRole("button", { name: "Use maximum sell amount", exact: true })).toBeEnabled();
     await expect(buy).toHaveValue("10"); await expect(sell).toHaveValue("10");
     await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
   } finally { releaseMax(); }

@@ -2,6 +2,7 @@ import { protocolAddresses } from "../../fixtures/protocol-configuration";
 import type { Page } from "@playwright/test";
 import type { MarketQuote, MarketQuoteRequest, MarketModelRequest, MarketQuoteModelPacket } from "../../../app/utils/marketQuote";
 import { marketModelFamily } from "../../../app/utils/marketQuote";
+import type { TradeQuote, TradeQuoteRequest, TradeModelRequest, TradeQuoteModelPacket } from "../../../app/utils/tradeQuote";
 import { install, context } from "./token-quotes";
 
 const core = protocolAddresses.core!, helpers = protocolAddresses.helpers!;
@@ -13,7 +14,8 @@ export function marketFixture(request: MarketQuoteRequest): MarketQuote {
   const fee = buy && !exactIn ? routed - amount : ceil(routed, 1000n);
   const net = buy && exactIn ? routed - fee : exactIn ? routed : amount;
   const total = buy ? routed : routed + fee;
-  const maximum = exactIn ? amount : ceil(total * 101n, 100n), minimum = exactIn ? net * 99n / 100n : net;
+  const bps = BigInt(request.slippageBps ?? 100);
+  const maximum = exactIn ? amount : ceil(total * (10_000n + bps), 10_000n), minimum = exactIn ? net * (10_000n - bps) / 10_000n : net;
   const feeFact = { asset: core, ratePpm: 1000, amount: String(fee), basis: "quoted" as const, notional: String(routed) };
   const tokenIn = buy ? counter : core, tokenOut = buy ? core : counter;
   const params = { side: buy ? 0 as const : 1 as const, counterToken: counter, amount: request.amount,
@@ -40,18 +42,45 @@ export function marketModelFixture(request: MarketModelRequest): MarketQuoteMode
       feeRetention: { numerator: "1", denominator: "1" }, localImpact: { numerator: "0", denominator: "1" } }] };
 }
 
-export async function installMarket(page: Page, waitForQuote?: () => Promise<void>) {
+export function marketRequest(request: TradeQuoteRequest | TradeModelRequest, adapter: string = protocolAddresses.adapter): MarketQuoteRequest {
+  return { side: request.side, mode: request.mode, counterToken: request.counterToken,
+    amount: request.amount, slippageBps: request.slippageBps ?? 100, adapter,
+    recipient: "recipient" in request ? request.recipient : helpers,
+    deadline: "deadline" in request ? request.deadline : "1900000000" };
+}
+
+export function marketTradeFixture(request: TradeQuoteRequest, current = context, adapter: string = protocolAddresses.adapter): Extract<TradeQuote, { strategy: "market" }> {
+  const providerRequest = marketRequest(request, adapter), providerQuote = { ...marketFixture(providerRequest), context: current };
+  return { strategy: "market", providerRequest, providerQuote, side: request.side, mode: request.mode,
+    tokenIn: providerQuote.tokenIn, tokenOut: providerQuote.tokenOut,
+    quotedInput: request.mode === "exact-in" ? request.amount : providerQuote.totalInput,
+    quotedOutput: providerQuote.netOutput, inputMaximum: providerQuote.inputMaximum,
+    outputMinimum: providerQuote.outputMinimum, context: current,
+    evaluation: { core: "complete", market: "complete" }, metrics: { totalMs: 1, targetReads: 0 } };
+}
+
+export function tradeMarketModelFixture(request: TradeModelRequest, adapter: string = protocolAddresses.adapter): TradeQuoteModelPacket {
+  const quote = marketTradeFixture({ ...request, recipient: helpers, deadline: "1900000000" }, context, adapter);
+  return { namespace: "trade", intent: request,
+    models: [{ strategy: "market", value: marketModelFixture(marketRequest(request, adapter)) }],
+    estimate: { strategy: "market", amount: request.mode === "exact-in" ? quote.quotedOutput : quote.quotedInput } };
+}
+
+export async function installMarket(page: Page, waitForQuote?: () => Promise<void>, adapterSource: () => string = () => protocolAddresses.adapter) {
   const coreObservations = await install(page);
-  const requests: MarketQuoteRequest[] = [], models: MarketModelRequest[] = [];
-  await page.route("**/api/quotes/market/**", async route => {
+  const requests: TradeQuoteRequest[] = [], models: TradeModelRequest[] = [], quotes: Extract<TradeQuote, { strategy: "market" }>[] = [];
+  await page.route("**/api/quotes/trade/**", async route => {
+    const request = route.request().postDataJSON();
+    if (request.native || request.counterToken.toLowerCase() !== counter.toLowerCase()) { await route.fallback(); return; }
     if (new URL(route.request().url()).pathname.endsWith("/model")) {
-      const request = route.request().postDataJSON(); models.push(request);
-      await route.fulfill({ json: marketModelFixture(request) }); return;
+      models.push(request);
+      await route.fulfill({ json: tradeMarketModelFixture(request, adapterSource()) }); return;
     }
-    const request = route.request().postDataJSON(); requests.push(request);
+    requests.push(request);
     await waitForQuote?.();
+    const value = marketTradeFixture(request, context, adapterSource()); quotes.push(value);
     await route.fulfill({ contentType: "application/x-ndjson", body:
-      JSON.stringify({ type: "complete", value: marketFixture(request) }) + "\n" });
+      JSON.stringify({ type: "complete", value }) + "\n" });
   });
-  return { requests, models, coreObservations };
+  return { requests, models, quotes, coreObservations };
 }

@@ -2,7 +2,7 @@ import { encodeFunctionData, getTypesForEIP712Domain, serializeTypedData, toHex,
 import { HELPERS_EXECUTION_ABI } from "../contracts/cybergold-helpers/execution.ts";
 import { assertWalletOnExpectedChain, EXPECTED_CHAIN_ID } from "./expectedChain.ts";
 import type { EthereumProvider, EthereumRequestArgs } from "./ethereumProvider.ts";
-import type { WalletAtomicStatus, WalletBatchSubmission, WalletSwapBatch } from "./walletBatch.ts";
+import type { WalletAtomicStatus, WalletBatchSubmission, WalletReceiptLog, WalletSwapBatch } from "./walletBatch.ts";
 import { createWalletSwapBatch, WalletBatchFailedError } from "./walletBatch.ts";
 
 export type MetaMaskBatchRequest = { method: "eth_sendTransaction"; params: [{
@@ -39,7 +39,7 @@ export function reportWalletRequestBatchDiagnostic(event: Record<string, unknown
 
 type RequestBatchOptions = {
   getProvider: () => Promise<EthereumProvider | undefined>;
-  waitReceipt: (hash: Hex) => Promise<{ status: "success" | "reverted" }>;
+  waitReceipt: (hash: Hex) => Promise<{ status: "success" | "reverted"; logs?: readonly WalletReceiptLog[] }>;
   loadSDKProvider?: () => Promise<BatchProvider>;
   report?: (event: Record<string, unknown>) => void;
 };
@@ -151,7 +151,8 @@ function requestBatchSubmission(hashes: readonly Hex[], waitReceipt: RequestBatc
   return { kind: "wallet-request-batch", id: hashes.at(-1)!, transactionHashes: [...hashes], async wait() {
     const receipts = await Promise.all(hashes.map(waitReceipt));
     if (receipts.some(receipt => receipt.status === "reverted")) throw new WalletBatchFailedError(true);
-    return { transactionHash: hashes.at(-1) };
+    const receipt = receipts.at(-1);
+    return { transactionHash: hashes.at(-1), ...(receipt?.logs?.length ? { logs: receipt.logs } : {}) };
   } };
 }
 

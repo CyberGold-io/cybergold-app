@@ -7,6 +7,8 @@ import {
   remainingMarketLifetime,
   type FxMarketDataPayload,
 } from "../utils/marketDataValidation";
+import { usePublicDisplayCache } from "./usePublicDisplayCache";
+import { fxDisplayCacheKey, writePublicDisplayCache } from "../utils/publicDisplayCache";
 
 export type DisplayCurrency = "USD" | "EUR" | "CHF" | "RUB";
 
@@ -26,11 +28,14 @@ const fetcher = async (url: string) => {
   if (!payload) {
     throw new Error("FX market data response was invalid");
   }
+  if (!payload.stale) writePublicDisplayCache(fxDisplayCacheKey, payload);
   return payload;
 };
 
 export function useFxRates() {
+  const fallbackData = usePublicDisplayCache(fxDisplayCacheKey, parseFxMarketDataPayload);
   const { data, error, isLoading } = useSWR<FxMarketDataPayload>("/api/fx", fetcher, {
+    fallbackData,
     refreshInterval: data => data?.stale ? 10_000 : Math.max(1_000, remainingMarketLifetime(data?.fetchedAt, 300_000)),
     dedupingInterval: 1_000,
     revalidateOnFocus: false,
@@ -42,7 +47,7 @@ export function useFxRates() {
     rates: data?.rates ?? DEFAULT_RATES,
     fetchedAt: data?.fetchedAt,
     isStale: expired || Boolean(error) || (data?.stale ?? true),
-    isLoading,
+    isLoading: isLoading && !data,
     isError: Boolean(error),
   };
 }

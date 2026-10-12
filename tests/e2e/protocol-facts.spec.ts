@@ -1,28 +1,42 @@
 import { expect, test, type Page } from './fixtures/app-test';
 import { encodeFunctionData, parseAbi } from 'viem';
 import type { ProtocolFacts } from '../../app/utils/protocolFacts';
+import { selectBasket } from './fixtures/swap-selection';
 
 const success=<T,>(value:T)=>({status:'success' as const,value});
 const failure={status:'failure' as const,error:'contract-read-failed' as const};
 const selectors=new Set(['basketAssets','basketTargetsPpm','basketGoldRefGramsFp18','basketCygldPerUnitFp18','cygldRefGramsFp18','issuanceFeePpm','paused','helperFeePpm'].map(name=>encodeFunctionData({abi:parseAbi([`function ${name}() view returns (uint256)`]),functionName:name}).slice(0,10)));
 function payload():ProtocolFacts{const asset='0x45804880de22913dafe09f4980848ece6ecbaf78';return {context:{chainId:31337,blockNumber:'100',blockHash:`0x${'a'.repeat(64)}`,blockTimestamp:'1790800000',observedAt:'2026-10-01T00:00:00Z'},core:'0x00000000000000000000000000000000000000a1',helpers:'0x00000000000000000000000000000000000000b2',basket:{assets:success([asset]),targetsPpm:success(['1000000']),goldRefGramsFp18:success(['31103476800000000000']),cygldPerUnitFp18:success(['15551738400000000000']),metadata:[{address:asset,decimals:success(18),name:success('PAX Gold'),symbol:success('PAXG')}]},reference:success('2000000000000000000'),fees:{issuancePpm:success('1000'),helpersPpm:success('1000')},pause:success(false)};}
 async function install(page:Page,mode:'success'|'partial'|'empty'|'unavailable'){
- const attempted:string[]=[];let factsRequests=0;
+ const attempted:string[]=[],rpcRequests:string[]=[];let factsRequests=0,head=payload().context;
  await page.route('**/api/**',async route=>{
   const url=new URL(route.request().url());
   if(url.pathname==='/api/protocol/config'){await route.fallback();return;}
   if(url.pathname==='/api/protocol/facts'){
-   factsRequests++;const facts=payload();
+   factsRequests++;const facts={...payload(),context:head};
    if(mode==='partial')facts.basket.targetsPpm=failure;
    if(mode==='empty'){facts.basket.assets=success([]);facts.basket.targetsPpm=success([]);facts.basket.goldRefGramsFp18=success([]);facts.basket.cygldPerUnitFp18=success([]);facts.basket.metadata=[];}
    await route.fulfill(mode==='unavailable'?{status:503,json:{error:'Protocol facts are temporarily unavailable.'}}:{json:facts});
-  }else if(url.pathname==='/api/gold')await route.fulfill({json:{price:3110.34768,fetchedAt:new Date().toISOString(),stale:false}});
+  }else if(url.pathname==='/api/transaction/wait/head')await route.fulfill({json:head});
+  else if(url.pathname==='/api/gold')await route.fulfill({json:{price:3110.34768,fetchedAt:new Date().toISOString(),stale:false}});
   else if(url.pathname==='/api/fx')await route.fulfill({json:{base:'USD',rates:{EUR:.9},fetchedAt:new Date().toISOString(),stale:false}});
   else if(url.pathname==='/api/rpc'){
+   rpcRequests.push(url.pathname);
    expect(url.pathname).not.toBe('/api/rpc');await route.continue();
   }else await route.fulfill({status:503,json:{error:'Unrelated fixture data unavailable'}});
  });
- return {attempted,count:()=>factsRequests};
+ return {attempted,rpcRequests,count:()=>factsRequests,setMode:(next:typeof mode)=>{
+  mode=next;head={...head,blockHash:`0x${'b'.repeat(64)}`};
+ }};
+}
+
+async function refreshSelectedBasket(page:Page,observed:Awaited<ReturnType<typeof install>>,
+ mode:'partial'|'empty'|'unavailable'){
+ await page.goto('/en');await selectBasket(page);
+ await expect(page.getByText('Basket data unavailable',{exact:true})).toHaveCount(0);
+ const initial=observed.count();await page.clock.install();observed.setMode(mode);
+ await page.clock.runFor(12_000);
+ await expect.poll(async()=>{await page.clock.runFor(1_000);return observed.count();}).toBeGreaterThan(initial);
 }
 
 test('Swap reads its basket, reference, fees and pause from one focused query',async({page})=>{
@@ -39,21 +53,24 @@ test('Swap reads its basket, reference, fees and pause from one focused query',a
  expect(observed.attempted.filter(selector=>selectors.has(selector))).toEqual([]);
 });
 test('partial basket read failures report availability, not a missing Core',async({page})=>{
- const observed=await install(page,'partial');await page.goto('/en');
+ const observed=await install(page,'success');await refreshSelectedBasket(page,observed,'partial');
  await expect(page.getByText('Basket data unavailable',{exact:true})).toBeVisible();
  await expect(page.getByText('Basket data could not be loaded. Try again later.',{exact:true})).toBeVisible();
  await expect(page.getByText('Check NEXT_PUBLIC_CORE_DIAMOND_ADDRESS',{exact:false})).toHaveCount(0);
  expect(observed.attempted.filter(selector=>selectors.has(selector))).toEqual([]);
+ expect(observed.rpcRequests).toEqual([]);
 });
 test('facts outage displays the existing error and never retries it through browser RPC',async({page})=>{
- const observed=await install(page,'unavailable');await page.goto('/en');
+ const observed=await install(page,'success');await refreshSelectedBasket(page,observed,'unavailable');
  await expect(page.getByText('Basket data unavailable',{exact:true})).toBeVisible({timeout:15_000});
  await expect(page.getByText('Basket data could not be loaded. Try again later.',{exact:true})).toBeVisible();
  expect(observed.attempted.filter(selector=>selectors.has(selector))).toEqual([]);
+ expect(observed.rpcRequests).toEqual([]);
 });
 
 test('a successful empty basket remains distinct from a failed read',async({page})=>{
- await install(page,'empty');await page.goto('/en');
+ const observed=await install(page,'success');await refreshSelectedBasket(page,observed,'empty');
  await expect(page.getByText("The basket is currently unavailable. Choose another token or try again later.",{exact:true})).toBeVisible();
  await expect(page.getByText('Basket data could not be loaded.',{exact:false})).toHaveCount(0);
+ expect(observed.rpcRequests).toEqual([]);
 });

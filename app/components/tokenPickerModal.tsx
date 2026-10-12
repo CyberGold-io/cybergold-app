@@ -18,6 +18,7 @@ type TokenPickerModalProps = {
     triggerRef: RefObject<HTMLButtonElement | null>;
     onImport?: (address: Address, signal: AbortSignal) => Promise<{ token: erc20Token | undefined; observation: TokenMetadata }>;
     walletOnly?: boolean;
+    isLoading?: boolean;
 };
 
 export function TokenPickerModal({ open, ...props }: TokenPickerModalProps) {
@@ -34,6 +35,7 @@ function TokenPickerModalContent({
     triggerRef,
     onImport,
     walletOnly = false,
+    isLoading = false,
 }: Omit<TokenPickerModalProps, "open">) {
     const [query, setQuery] = useState("");
     const [imported, setImported] = useState<{ token: erc20Token | undefined; observation: TokenMetadata }>();
@@ -135,7 +137,7 @@ function TokenPickerModalContent({
                         onChange={(e) => { setQuery(e.target.value); setImported(undefined); setImportError(false); setImportLoading(false); }}
                         aria-label={t("searchCurrency")}
                         placeholder={t("searchCurrency")}
-                        className="w-full px-4 py-2 bg-[var(--background)] border border-[var(--swap-container-border)] rounded-xl text-base focus:outline-none focus:ring-1 focus:ring-gold-cg"
+                        className="w-full px-4 py-2 bg-[var(--background)] text-[var(--text-input)] placeholder:text-[var(--text-muted)] border border-[var(--swap-container-border)] rounded-xl text-base focus:outline-none focus:ring-1 focus:ring-gold-cg"
                     />
                 </div>
             )} 
@@ -144,7 +146,7 @@ function TokenPickerModalContent({
           <div className="px-3 pb-4">
             <div className="max-h-[min(20rem,50dvh)] overflow-y-auto">
               {filtered.length === 0 ? (
-                <div role="status" className="px-4 py-6 text-sm text-[var(--text-muted)]">{t(importLoading ? "importTokenLoading" : importError ? "importTokenUnavailable" :
+                <div role="status" aria-busy={isLoading} className="px-4 py-6 text-sm text-[var(--text-muted)]">{isLoading ? "..." : t(importLoading ? "importTokenLoading" : importError ? "importTokenUnavailable" :
                   imported && !imported.token ? "importTokenPrecisionUnavailable" :
                   walletOnly && imported?.observation.balance?.status === "failure" ? "importTokenBalanceUnavailable" : "noTokensFound")}</div>
               ) : (

@@ -2,6 +2,7 @@ import { protocolAddresses } from "../../fixtures/protocol-configuration";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { intentFixture } from "./quote-intent";
+import { coreIntentRoute, tradeIntentBody, tradeIntentEvent } from "./trade-core";
 import type { QuoteIntentRequest } from "../../../app/utils/quoteIntent";
 import { expect, type Page } from "@playwright/test";
 import { toFunctionSelector } from "viem";
@@ -20,6 +21,7 @@ previewSelectors.add(toFunctionSelector("quoteExactOutput(bytes,uint256)"));
 export async function install(page: Page, unavailable = "", waitForFinalPreview?: () => Promise<void>, progressive: string | false = false, basketAssets = [asset], headSource: () => typeof context = () => context, nameSource: () => string = () => "PAX Gold", models = false, basketSymbols?: readonly string[]) {
   const previews: string[] = [], quotes: string[] = [], rpcSelectors: string[] = [], poolReads: string[] = [];
   const intents: QuoteIntentRequest[] = [];
+  const rawIntents: unknown[] = [];
   const modelFrame = (request: Parameters<typeof intentFixture>[0], current = context) => {
     const value = intentFixture(request, "complete", current);
     return JSON.stringify({ type: "model", value: { revision: 1,
@@ -38,15 +40,17 @@ export async function install(page: Page, unavailable = "", waitForFinalPreview?
       response.writeHead(200, { "content-type": "application/x-ndjson" });
       // The replacement-head case pauses before publishing a new estimate;
       // the page must retain its completed display without stale execution.
-      if (current.blockHash === context.blockHash) response.write(JSON.stringify({ type: "estimate", amount: value.mode === "issue-exact-in" ? "1000000000000000000" : intentFixture(value).displayAmount, context: current }) + "\n");
+      if (current.blockHash === context.blockHash) response.write(JSON.stringify(tradeIntentEvent({ type: "estimate", amount: value.mode === "issue-exact-in" ? "1000000000000000000" : intentFixture(value).displayAmount, context: current }, value)) + "\n");
       await waitForFinalPreview();
-      if (!response.destroyed) response.end((models ? modelFrame(value, current) : "") + JSON.stringify({ type: "complete", value: intentFixture(value, "complete", current) }) + "\n");
+      if (!response.destroyed) response.end(tradeIntentBody((models ? modelFrame(value, current) : "") + JSON.stringify({ type: "complete", value: intentFixture(value, "complete", current) }) + "\n", value));
     });
     await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
     finalStreamUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}/intent`;
     page.on("close", () => { server.closeAllConnections(); server.close(); });
   }
   await page.route("**/api/**", async route => {
+    if (new URL(route.request().url()).pathname === "/api/quotes/trade/stream") rawIntents.push(route.request().postDataJSON());
+    route = coreIntentRoute(route, basketAssets);
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/protocol/config") { await route.fallback(); return; }
     const currentContext = headSource();
@@ -56,8 +60,12 @@ export async function install(page: Page, unavailable = "", waitForFinalPreview?
       helpers: "0x00000000000000000000000000000000000000b2",
       basket: { assets: success(basketAssets), targetsPpm: success(basketAssets.map((_, index) => String(Math.floor(1000000 / basketAssets.length) + (index === 0 ? 1000000 % basketAssets.length : 0)))), goldRefGramsFp18: success(basketAssets.map(() => "31103476800000000000")),
         cygldPerUnitFp18: success(basketAssets.map(() => "15551738400000000000")), metadata: basketAssets.map((address, index) => ({ address, decimals: success(18), name: success(index === 0 ? nameSource() : "Second Gold"), symbol: success(basketSymbols?.[index] ?? (index === 0 ? "PAXG" : "GOLD2")) })) },
-      reference: success("2000000000000000000"), fees: { issuancePpm: success("1000"), helpersPpm: success("1000") }, pause: success(false),
+      reference: success("2000000000000000000"), fees: { issuancePpm: success("1000"), helpersPpm: success("0") }, pause: success(false),
     } });
+    else if (path === "/api/quotes/trade/model") {
+      const request = route.request().postDataJSON();
+      await route.fulfill({ json: { namespace: "trade", intent: request, models: [] } });
+    }
     else if (path === "/api/quotes/intent/stream") {
       const request = route.request().postDataJSON(); intents.push(request);
       quotes.push(request.mode.endsWith("exact-in") ? "exact-in" : "exact-out");
@@ -139,7 +147,7 @@ export async function install(page: Page, unavailable = "", waitForFinalPreview?
       await route.continue();
     } else await route.fulfill({ status: 503, json: { error: "Unrelated fixture data unavailable" } });
   });
-  return { previews, quotes, rpcSelectors, poolReads, intents };
+  return { previews, quotes, rpcSelectors, poolReads, intents, rawIntents };
 }
 
 export async function choose(page: Page, name: string) {

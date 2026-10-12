@@ -186,7 +186,10 @@
     "quoteStreamInterrupted": "La connexion au service de devis a été interrompue. Réessayez.",
     "quoteInvalidInput": "La demande de devis est invalide. Modifiez le montant ou le token.",
     "quoteRequestLimit": "Le service de devis reçoit trop de demandes. Réessayez dans un instant.",
-    "quoteRpcAccessDenied": "Erreur RPC : le fournisseur a refusé l’accès. Réessayez plus tard."
+    "quoteRpcAccessDenied": "Erreur RPC : le fournisseur a refusé l’accès. Réessayez plus tard.",
+    "tradeActualInput": "Entrée réellement utilisée",
+    "tradeActualOutput": "Sortie réellement reçue",
+    "applicationFee": "Frais d’interface"
   },
 
   "WalletBalances": {
