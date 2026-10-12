@@ -1,0 +1,42 @@
+[
+  {
+    "input": "coreDiamond.json",
+    "output": "app/contracts/generated/coreDiamond.ts",
+    "prefix": "CORE_DIAMOND",
+    "provenance": "Rendering fields deterministically reconstructed from unchanged generated module; not original compiler evidence",
+    "originalModuleSha256": "ccbe5b3dd333a2e048c8215c353725342d3509f687c36e3c614523b654b4820c",
+    "banner": "// Generated from the compiled release facets. Do not edit by hand.\n"
+  },
+  {
+    "input": "governanceDiamond.json",
+    "output": "app/contracts/generated/governanceDiamond.ts",
+    "prefix": "GOVERNANCE_DIAMOND",
+    "provenance": "Rendering fields deterministically reconstructed from unchanged generated module; not original compiler evidence",
+    "originalModuleSha256": "3e06010b6b5d4b38ac9a607ebb1052431c71da715c5493725ca65da4f036593c",
+    "banner": "// Generated from the compiled release facets. Do not edit by hand.\n"
+  },
+  {
+    "input": "helpersDiamond.json",
+    "output": "app/contracts/generated/helpersDiamond.ts",
+    "prefix": "HELPERS_DIAMOND",
+    "provenance": "Rendering fields deterministically reconstructed from unchanged generated module; not original compiler evidence",
+    "originalModuleSha256": "18c7d8f089d43e0023bea6e8348407a275b2d3b1100c95e30a198bd3694f673f",
+    "banner": "// Generated from the compiled release facets. Do not edit by hand.\n"
+  },
+  {
+    "input": "helpersMarket.json",
+    "output": "app/contracts/generated/helpersMarket.ts",
+    "prefix": "HELPERS_MARKET",
+    "provenance": "Rendering fields deterministically reconstructed from unchanged generated module; not original compiler evidence",
+    "originalModuleSha256": "8ce0191440cd29525049b63e895f86ff383a419175a8a3cc0d160dbc87b792fe",
+    "banner": "// Generated from the compiled release facets. Do not edit by hand.\n"
+  },
+  {
+    "input": "stakingDiamond.json",
+    "output": "app/contracts/generated/stakingDiamond.ts",
+    "prefix": "STAKING_DIAMOND",
+    "provenance": "Rendering fields deterministically reconstructed from unchanged generated module; not original compiler evidence",
+    "originalModuleSha256": "375f37dea41ef85ff863e64d3ef1a184cee3cb12803b1a15aeb4619e10bf3213",
+    "banner": "// Generated from the compiled release facets. Do not edit by hand.\n"
+  }
+]
