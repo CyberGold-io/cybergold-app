@@ -103,7 +103,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: CyberGold-io/cybergold-protocol
-          ref: f20d59460a0bf5a53f29f6168ff05e938e1e8447
+          ref: 16a66bd1276f3029888f03be144df632046ad93e
           path: cybergold-protocol
           persist-credentials: false
 
@@ -111,7 +111,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: CyberGold-io/cybergold-helpers
-          ref: d45ad48efaa2b45ff4087c81006888d6607f2d83
+          ref: b4345e47357ab413af71acfaea5bdfdb1d972d3f
           path: cybergold-helpers
           persist-credentials: false
 
