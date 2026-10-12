@@ -1,12 +1,13 @@
 import type { Address } from "viem";
 import type { components } from "../contracts/backend/http";
+import { backendObservationError } from "./backendObservationError.ts";
 
 export type CorePermitContext = components["schemas"]["CorePermit"];
 
 /** Fresh signing facts only. The App still chooses value/deadline and signs. */
 export async function fetchCorePermit(owner: Address, fetchImpl: typeof fetch = fetch): Promise<CorePermitContext> {
   const response = await fetchImpl(`/api/account/core-permit?${new URLSearchParams({ owner })}`, { cache: "no-store" });
-  if (!response.ok) throw new Error("Core permit context is temporarily unavailable.");
+  if (!response.ok) throw await backendObservationError(response, "Core permit context is temporarily unavailable.");
   return response.json();
 }
 

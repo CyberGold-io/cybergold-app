@@ -18,7 +18,7 @@ export async function submitTradeQuote(selected: TradeQuoteResult, params: Submi
   const accepted = captureTradeQuote(selected);
   if (accepted.value.strategy === "market") {
     return executors.market({ ...marketQuoteResult(accepted.value.providerQuote), deployment: accepted.deployment },
-      params.owner, params.walletConfirmationTracker, params.feeEstimateSignal);
+      params.owner, params.walletConfirmationTracker, params.feeEstimateSignal, params.diagnosticStage);
   }
   const request = accepted.value.providerRequest;
   const result = quoteIntentResult(accepted.value.providerQuote, request.slippageBps);

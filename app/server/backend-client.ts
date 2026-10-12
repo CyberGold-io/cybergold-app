@@ -1,13 +1,21 @@
 import "server-only";
 import type { paths } from "@/app/contracts/backend/http";
 import { serverEnv } from "./environment.ts";
+import { safeDiagnosticReferences } from "../utils/diagnosticReferences.ts";
 
 export type PublicBackendPath = Exclude<keyof paths, `/api/internal/${string}` | "/api/rpc">;
-const RESPONSE_HEADERS = ["content-type", "cache-control", "retry-after", "x-cybergold-faucet-request-id", "x-accel-buffering", "x-cybergold-market-fallback"];
+const RESPONSE_HEADERS = ["content-type", "cache-control", "retry-after", "x-cybergold-faucet-request-id", "x-accel-buffering", "x-cybergold-market-fallback", "x-cybergold-request-id", "x-cybergold-attempt-id", "x-cybergold-backend-revision"];
 
-function transportFailure(path: PublicBackendPath, error: unknown, elapsedMs: number) {
+function transportFailure(path: PublicBackendPath, error: unknown, elapsedMs: number, attemptId?: string) {
   const timedOut = error instanceof Error && error.name === "TimeoutError";
-  const headers = { "Cache-Control": "no-store" };
+  const requestId = crypto.randomUUID(), correlationId = requestId;
+  const references = { requestId, correlationId, ...(attemptId ? { attemptId } : {}) };
+  const headers = { "Cache-Control": "no-store", "X-CyberGold-Request-Id": requestId,
+    ...(attemptId ? { "X-CyberGold-Attempt-Id": attemptId } : {}) };
+  try { console.error("[backend-api] request failed", { ...references, operation: path, stage: "backend-http",
+    elapsedMs, failureType: timedOut ? "provider-timeout" : "transport-error",
+    ...(path === "/api/faucet" ? { code: timedOut ? "TIMEOUT" : "BAD_GATEWAY", httpStatus: timedOut ? 504 : 502 } : {}) }); }
+  catch { /* Reporting cannot alter the product response. */ }
   if (path === "/api/transaction/revert") {
     return Response.json({ error: "Transaction revert observations are temporarily unavailable." }, { status: 503, headers });
   }
@@ -97,7 +105,7 @@ function transportFailure(path: PublicBackendPath, error: unknown, elapsedMs: nu
   }
   if (path === "/api/quotes/intent/stream" || path === "/api/quotes/market/stream" || path === "/api/quotes/market" || path === "/api/quotes/trade/stream") {
     return Response.json({ code: timedOut ? "quote-timeout" : "quote-service-unavailable",
-      error: timedOut ? "Quote service request timed out." : "Quote service connection failed." }, { status: 503, headers });
+      error: timedOut ? "Quote service request timed out." : "Quote service connection failed.", ...references }, { status: 503, headers });
   }
   if (path === "/api/quotes/market/model" || path === "/api/quotes/trade/model") {
     return Response.json({ error: "Market estimates are temporarily unavailable." }, { status: 503, headers });
@@ -109,19 +117,11 @@ function transportFailure(path: PublicBackendPath, error: unknown, elapsedMs: nu
     return Response.json({ error: "Recovery-share RPC snapshot is unavailable" }, { status: 503, headers });
   }
   if (path === "/api/faucet") {
-    const correlationId = crypto.randomUUID();
     const code = timedOut ? "TIMEOUT" : "BAD_GATEWAY";
     const status = timedOut ? 504 : 502;
-    try {
-      console.error("[backend-api] request failed", { correlationId, operation: path,
-        stage: "backend-http", elapsedMs, code,
-        failureType: timedOut ? "provider-timeout" : "transport-error", httpStatus: status });
-    } catch { /* Reporting cannot change the funding response. */ }
     return Response.json({ error: timedOut ? "Fork faucet request timed out." : "Fork faucet is temporarily unavailable.",
-      code, correlationId }, { status, headers });
+      code, ...references }, { status, headers });
   }
-  const correlationId = crypto.randomUUID();
-  console.error("[backend-api] request failed", { correlationId, operation: path, errorClassification: "transport-error" });
   const messages: Partial<Record<PublicBackendPath, string>> = {
     "/api/dashboard/onchain-summary": "Failed to load on-chain dashboard summary.",
     "/api/governance/owner-aliases": "Failed to process governance owner aliases request.",
@@ -129,7 +129,7 @@ function transportFailure(path: PublicBackendPath, error: unknown, elapsedMs: nu
     "/api/safe": "Failed to process Safe request.",
     "/api/safe/events": "Failed to index Safe execution events.",
   };
-  return Response.json({ error: messages[path] ?? "Market data is temporarily unavailable.", correlationId }, {
+  return Response.json({ error: messages[path] ?? "Market data is temporarily unavailable.", ...references }, {
     status: ["/api/safe", "/api/gold", "/api/fx"].includes(path) ? 503 : 500, headers,
   });
 }
@@ -138,10 +138,12 @@ function transportFailure(path: PublicBackendPath, error: unknown, elapsedMs: nu
 export function backendRoute(path: PublicBackendPath, fetchImpl: typeof fetch = fetch) {
   return async (request: Request): Promise<Response> => {
     const started = performance.now();
+    const { attemptId } = safeDiagnosticReferences({ attemptId: request.headers.get("X-CyberGold-Attempt-Id") });
     try {
       const url = new URL(path, serverEnv.CYBERGOLD_BACKEND_URL);
       url.search = new URL(request.url).search;
       const headers = new Headers();
+      if (attemptId) headers.set("X-CyberGold-Attempt-Id", attemptId);
       // Retain Origin only for compatibility with a retained pre-migration backend;
       // the authenticated API entry and current faucet do not authorize by Origin.
       const forwardedHeaders = ["content-type", "content-length", ...(path === "/api/faucet" ? ["origin", "x-real-ip", "x-forwarded-for"] : [])];
@@ -171,7 +173,7 @@ export function backendRoute(path: PublicBackendPath, fetchImpl: typeof fetch = 
         ? null : (path === "/api/quotes/routes/stream" || path === "/api/quotes/intent/stream" || path === "/api/quotes/market/stream" || path === "/api/quotes/trade/stream") ? response.body : await response.arrayBuffer(), { status: response.status, headers: responseHeaders });
     } catch (error) {
       if (request.signal.aborted) throw error;
-      return transportFailure(path, error, Math.round(performance.now() - started));
+      return transportFailure(path, error, Math.round(performance.now() - started), attemptId);
     }
   };
 }

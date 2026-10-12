@@ -3,6 +3,7 @@ import type { components } from "../contracts/backend/http";
 import type { ProtocolDeployment } from "./protocolConfiguration";
 import { fetchQuoteStream } from "./quoteStream.ts";
 import { receiveMarketQuoteModel, receiveQuoteModel } from "./quoteModelStore.ts";
+import { diagnosticReferences, type DiagnosticReferences } from "./diagnosticReferences.ts";
 
 export type TradeQuoteRequest = components["schemas"]["TradeQuoteRequest"];
 export type TradeQuote = components["schemas"]["TradeQuote"];
@@ -11,11 +12,12 @@ export type TradeModelRequest = components["schemas"]["TradeModelRequest"];
 export type TradeQuoteModelPacket = components["schemas"]["TradeQuoteModelPacket"];
 export type TradeQuoteResult<Value extends TradeQuote = TradeQuote> = {
   value: Value; deployment?: ProtocolDeployment;
+  diagnostics?: DiagnosticReferences;
   quotedInput: bigint; quotedOutput: bigint; inputMaximum: bigint; outputMinimum: bigint;
 };
 
 export function tradeQuoteResult<Value extends TradeQuote>(value: Value): TradeQuoteResult<Value> {
-  return { value, quotedInput: BigInt(value.quotedInput), quotedOutput: BigInt(value.quotedOutput),
+  return { value, diagnostics: diagnosticReferences(value), quotedInput: BigInt(value.quotedInput), quotedOutput: BigInt(value.quotedOutput),
     inputMaximum: BigInt(value.inputMaximum), outputMinimum: BigInt(value.outputMinimum) };
 }
 
@@ -26,7 +28,7 @@ export function tradeAdapter(value: TradeQuote): Address | undefined {
 
 /** Capture the accepted complete plan before any wallet or other asynchronous work. */
 export function captureTradeQuote<Value extends TradeQuote>(value: TradeQuoteResult<Value>): TradeQuoteResult<Value> {
-  return { ...tradeQuoteResult(structuredClone(value.value)), deployment: value.deployment && { ...value.deployment } };
+  return { ...tradeQuoteResult(structuredClone(value.value)), diagnostics: value.diagnostics && { ...value.diagnostics }, deployment: value.deployment && { ...value.deployment } };
 }
 
 export function retainedTradePlan(value: TradeQuoteResult): NonNullable<TradeQuoteRequest["retainedPlan"]> {

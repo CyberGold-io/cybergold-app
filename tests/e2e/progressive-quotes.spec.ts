@@ -12,7 +12,7 @@ let phase: "partial" | "first" | "better" | "complete" | "error" | "preview-pend
 let streamUrl: string;
 const server = createServer(async (request, response) => {
   response.setHeader("Access-Control-Allow-Origin", "*");
-  response.setHeader("Access-Control-Allow-Headers", "content-type");
+  response.setHeader("Access-Control-Allow-Headers", "content-type,x-cybergold-attempt-id");
   if (request.method === "OPTIONS") { response.end(); return; }
   let body = ""; for await (const chunk of request) body += chunk;
   const intent = JSON.parse(body) as QuoteIntentRequest;

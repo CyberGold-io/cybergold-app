@@ -1,5 +1,4 @@
-import type { Page } from "@playwright/test";
-import { expect } from "./testWithMetaMask";
+import { expect, type Page } from "@playwright/test";
 
 export async function addLocalNetwork(page: Page, node: { rpcUrl: string; chainId: number }, name: string) {
   await page.bringToFront();

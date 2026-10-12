@@ -5,6 +5,7 @@ import { choose } from "./fixtures/token-quotes";
 import { routeWalletBalances } from "./fixtures/wallet-balances";
 import { tokenAddresses } from "../fixtures/protocol-configuration";
 import { LIQUIDITY_POOL } from "../../app/config/liquidityPool";
+import { openWalletBalanceModal } from "../metamask/token-flows/helpers";
 
 const ALICE = "0x00000000000000000000000000000000000000a1";
 const BOB = "0x00000000000000000000000000000000000000b2";
@@ -125,7 +126,7 @@ test("swap fields follow selected tokens and direction, retain zero and MAX, and
   await page.getByRole("button", { name: "Reverse swap direction", exact: true }).click();
   await expect(sellBalance).toHaveText("0 USDC");
   await expect(buyBalance).toHaveText("2 CYGLD");
-  await page.getByRole("button", { name: "Open wallet menu", exact: true }).click();
+  await openWalletBalanceModal(page);
   await page.getByTestId("wallet-balance-modal").getByRole("button", { name: "Disconnect wallet", exact: true }).click();
   await expect(sellBalance).toHaveCount(0);
   await expect(buyBalance).toHaveCount(0);

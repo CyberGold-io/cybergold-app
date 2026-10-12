@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createWalletClient, custom, encodeErrorResult, getContractError, InternalRpcError, parseAbi, RawContractError } from "viem";
 import { createQuoteDiagnostics, createSwapDiagnostics, diagnosticFailure, diagnosticReason, reportClientDiagnostic, type ClientDiagnostic } from "./clientDiagnostics.ts";
+import { QuotePreviewError } from "./quoteErrors.ts";
 
 const contractContext = {
   abi: [{ type: "function", name: "issue", inputs: [], outputs: [], stateMutability: "nonpayable" }],
@@ -130,4 +131,19 @@ test("a submitted wallet bundle remains submitted without inventing a transactio
   const hash = `0x${"b".repeat(64)}`;
   swap.confirmed(hash);
   assert.equal(events.at(-1)?.transactionHash, hash);
+});
+
+test("quote causes, Backend request references and preparation stages survive safely", () => {
+  const requestId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e", correlationId = "eb3e6932-a2af-4303-a09e-35831f864a1d";
+  const error = new QuotePreviewError("rpc-timeout", "https://private-provider", { requestId, correlationId });
+  const events: ClientDiagnostic[] = [], quotes = createQuoteDiagnostics(event => events.push(event));
+  quotes.observe({ direction: "issue", strategy: "core" }, "failed", error);
+  assert.equal(events[0].reason, "rpc_error"); assert.equal(events[0].errorClassification, "rpc-timeout");
+  assert.equal(events[0].requestId, requestId); assert.equal(events[0].correlationId, correlationId);
+  const swap = createSwapDiagnostics({ requestId }, quotes.id, event => events.push(event));
+  swap.stage("balance"); swap.failed(error);
+  assert.equal(events.at(-1)?.stage, "balance");
+  assert.doesNotMatch(JSON.stringify(events), /private-provider/);
+  assert.equal(diagnosticReason(new QuotePreviewError("quote-contract-reverted", "private")), "contract_reverted");
+  assert.equal(diagnosticReason(new QuotePreviewError("quote-no-route", "private")), "unknown");
 });

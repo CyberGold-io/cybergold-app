@@ -2,13 +2,14 @@
 
 import { useEffect, useRef } from "react";
 import { createQuoteDiagnostics, type DiagnosticContext } from "../utils/clientDiagnostics";
+import type { DiagnosticReferences } from "../utils/diagnosticReferences";
 
-export function useQuoteDiagnostics(context: DiagnosticContext | undefined, status: string | undefined) {
+export function useQuoteDiagnostics(context: DiagnosticContext | undefined, status: string | undefined, error?: unknown, metadata?: DiagnosticReferences) {
   const observer = useRef<ReturnType<typeof createQuoteDiagnostics> | null>(null);
   if (observer.current === null) observer.current = createQuoteDiagnostics();
-  const { direction, route, inputMode, chainId, assetCount } = context ?? {};
+  const serialized = JSON.stringify(context), references = JSON.stringify(metadata);
   useEffect(() => {
-    observer.current?.observe(direction ? { direction, route, inputMode, chainId, assetCount } : undefined, status);
-  }, [direction, route, inputMode, chainId, assetCount, status]);
+    observer.current?.observe(serialized ? JSON.parse(serialized) : undefined, status, error, references ? JSON.parse(references) : undefined);
+  }, [serialized, references, status, error]);
   return observer;
 }

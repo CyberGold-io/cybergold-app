@@ -4,7 +4,7 @@ doc_type: architecture
 status: active
 owner: app-maintainer
 created: 2026-07-11
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-12
 canonical_for: App preview and execution orchestration
 ---
 
@@ -25,6 +25,17 @@ the aggregation previews and mutators for the final route. This keeps Helpers'
 configurable fee in the same accounting domain throughout construction and
 execution. The user transaction targets the Helpers diamond with its
 authorization, recipient, ordering, and minimum bindings.
+
+Browser diagnostics are best effort and never affect quote/execution readiness.
+Quote calls carry an optional `X-CyberGold-Attempt-Id`; the fixed Next adapter
+forwards the Backend request reference and logs its own transport failures with
+safe linkage. Structured errors and accepted quote tuples retain those IDs.
+Swap attempts link to the quote and record balance, network, preparation,
+authorization, simulation, submission and confirmation stage context with the
+selected Core/market family and raw integer bounds. A failure may expose a
+copyable reference alongside the localized product message. Error/provider text,
+signatures, calldata and private URLs are excluded. Submitted-but-unconfirmed
+transactions retain their hash and are rechecked without resubmission.
 
 Issuance binds the current ordered Core input assets. Redemption has no
 healthy/recovery mode split: every Core preview returns one complete canonical

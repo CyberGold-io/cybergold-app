@@ -28,6 +28,8 @@ import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { useTransactionFees } from "@/app/hooks/useTransactionFees";
 import { useRetainedQuoteDisplay } from "@/app/hooks/flows/quotes/useRetainedQuoteDisplay";
 import { useQuoteDiagnostics } from "@/app/hooks/useQuoteDiagnostics";
+import { DiagnosticReference } from "@/app/components/diagnosticReference";
+import { diagnosticReference, diagnosticReferences } from "@/app/utils/diagnosticReferences";
 import { createSwapDiagnostics, diagnosticReason, swapFailureOutcome } from "@/app/utils/clientDiagnostics";
 import { useChainId, usePublicClient, useWalletClient } from "wagmi";
 import { useConnectModal } from "@rainbow-me/rainbowkit";
@@ -399,6 +401,7 @@ function TradingScreen() {
   const [displayedQuoteProgressPercent, setDisplayedQuoteProgressPercent] = useState(0);
   const [isSubmittingSwap, setIsSubmittingSwap] = useState(false);
   const [frozenTrade, setFrozenTrade] = useState<TradeQuoteResult>();
+  const [swapFailureReference, setSwapFailureReference] = useState<string>();
   const [isSubmittedSwapCleanupInProgress, setIsSubmittedSwapCleanupInProgress] = useState(false);
   const [transactionNotice, setTransactionNotice] = useState<SwapTransactionNoticeProps>();
   const [confirmedTrade, setConfirmedTrade] = useState<{ receipt: TradeReceipt; input: spendableToken; output: spendableToken }>();
@@ -909,9 +912,16 @@ function TradingScreen() {
   useEffect(() => {
     if (isIssuanceCapError) void refreshProtocolFacts();
   }, [isIssuanceCapError, refreshProtocolFacts]);
+  const activeQuoteFailure = isActiveTokenFlow ? tradeFlow.quoteFailure : activeFlow && "error" in activeFlow ? activeFlow.error : undefined;
+  const selectedQuote = isActiveTokenFlow ? tradeFlow.selected : undefined;
   const diagnosticContext = flowState ? { direction: flowState.direction, route: flowState.route,
-    inputMode: flowState.inputMode, chainId: EXPECTED_CHAIN_ID, assetCount: basketComponents.length } : undefined;
-  const quoteDiagnostics = useQuoteDiagnostics(diagnosticContext, activeQuoteStatus);
+    inputMode: flowState.inputMode, chainId: EXPECTED_CHAIN_ID, assetCount: basketComponents.length,
+    ...(isActiveTokenFlow ? { side: tradeInput.side, amount: tradeInput.amount, strategy: selectedQuote?.value.strategy,
+      tokenIn: selectedQuote?.value.tokenIn, tokenOut: selectedQuote?.value.tokenOut,
+      inputMaximum: selectedQuote?.inputMaximum.toString(), outputMinimum: selectedQuote?.outputMinimum.toString(),
+      blockNumber: selectedQuote?.value.context.blockNumber, blockHash: selectedQuote?.value.context.blockHash } : {}) } : undefined;
+  const activeQuoteReferences = selectedQuote?.diagnostics ?? diagnosticReferences(activeFlow && "quote" in activeFlow ? activeFlow.quote : undefined);
+  const quoteDiagnostics = useQuoteDiagnostics(diagnosticContext, activeQuoteStatus, activeQuoteFailure, activeQuoteReferences);
 
   const executionBoundsReady = activeQuoteStatus === "success" && !isPurchaseOverCap && !quoteInputPending;
   const formatBound = (amount: bigint, decimals: number, symbol: string) =>
@@ -2080,7 +2090,15 @@ const computedSellPrefill = useMemo(() : Prefill => {
     // Capture the execution closure and visible terms before the first await.
     const executionFlow = activeFlow;
     const selectedTrade = isActiveTokenFlow ? tradeFlow.selected : undefined;
-    const executionHelpers = requireProtocolAddress(selectedTrade?.deployment?.helpers ?? HELPERS_DIAMOND_ADDRESS, "Helpers");
+    const diagnostics = createSwapDiagnostics({ ...diagnosticContext, ...activeQuoteReferences },
+      activeQuoteReferences.attemptId ?? quoteDiagnostics.current?.id);
+    setSwapFailureReference(undefined);
+    let executionHelpers: Address;
+    try { executionHelpers = requireProtocolAddress(selectedTrade?.deployment?.helpers ?? HELPERS_DIAMOND_ADDRESS, "Helpers"); }
+    catch (error) {
+      diagnostics.failed(error); setSwapFailureReference(diagnosticReference(error) ?? diagnostics.id);
+      toast.error(t("transactionFailed"), { description: t("transactionFailedDescription") }); return;
+    }
     const receiptInput = isNativeOrErc20Token(sellToken) ? sellToken : undefined;
     const receiptOutput = isNativeOrErc20Token(buyToken) ? buyToken : undefined;
     setConfirmedTrade(undefined);
@@ -2103,12 +2121,14 @@ const computedSellPrefill = useMemo(() : Prefill => {
           amount: (isIssueFromBasketExactIn ? issueFromBasketExactInFlow.amountsInUsed : basketAmountsInRequired)?.[index] ?? 0n }))
       : [{ tokenId: sellTokenId, amount: isSellInputEnabled ? editedSellAmount : executionSpendAmount }];
     setIsSubmittingSwap(true);
+    diagnostics.stage("balance");
     try {
       // These fresh observations are independent. Both retain their existing
       // checks before any wallet prompt; neither waits for the other to start.
       const [snapshot, , preparedBatch] = await Promise.all([
-        readWalletBalancesForSwap(requiredBalances.map(row => row.tokenId)).catch(() => {
-          throw new Error(t("swapBalanceRefreshFailed"));
+        readWalletBalancesForSwap(requiredBalances.map(row => row.tokenId)).catch(error => {
+          diagnostics.stage("balance");
+          throw new Error(t("swapBalanceRefreshFailed"), { cause: error });
         }),
         (async () => {
           if (!requiresTokenFlowAdapter) return;
@@ -2130,20 +2150,23 @@ const computedSellPrefill = useMemo(() : Prefill => {
             catch { throw new Error(t("tokenSwapAdapterApprovalUnavailable")); }
           })();
           if (!codePresent) throw new Error(t("tokenSwapAdapterInvalid"));
-        })(),
+        })().catch(error => { diagnostics.stage("preparation"); throw error; }),
         walletClient ? prepareWalletSwapBatch(walletClient, address, executionHelpers, {
           chainId: targetChainId, atomicStatus,
           getProvider: () => resolveActiveProvider(connector ?? null),
           waitReceipt: hash => waitForAppTransactionReceipt(publicClient, { hash }),
-        }) : undefined,
+        }).catch(error => { diagnostics.stage("preparation"); throw error; }) : undefined,
       ]);
       walletBatch = preparedBatch;
+      diagnostics.stage("balance");
       const issue = checkSwapWalletBalances(snapshot, requiredBalances);
       if (issue) {
         const symbol = tokensListWithBasket.find(token => token.id === issue.tokenId)?.symbol ?? issue.tokenId.toUpperCase();
         throw new Error(t(issue.reason === "unavailable" ? "swapBalanceUnavailable" : "swapBalanceInsufficient", { symbol }));
       }
     } catch (error) {
+      diagnostics.failed(error);
+      setSwapFailureReference(diagnosticReference(error) ?? diagnostics.id);
       setIsSubmittingSwap(false);
       setFrozenTrade(undefined);
       toast.error(t("transactionFailed"), { description: error instanceof QuotePreviewError ? quoteErrorMessage(error, t)
@@ -2151,16 +2174,19 @@ const computedSellPrefill = useMemo(() : Prefill => {
       return;
     }
     try {
+      diagnostics.stage("network");
       // The wallet may have switched networks during the balance read.
       await assertWalletOnExpectedChain(walletClient);
-    } catch {
+    } catch (error) {
+      diagnostics.failed(error);
+      setSwapFailureReference(diagnosticReference(error) ?? diagnostics.id);
       setIsSubmittingSwap(false);
       setFrozenTrade(undefined);
       toast.error(t("wrongNetwork", { network: targetChainName }));
       return;
     }
 
-    const diagnostics = createSwapDiagnostics(diagnosticContext ?? {}, quoteDiagnostics.current?.id);
+    diagnostics.stage("preparation");
     let shouldCleanUpSubmittedSwap = false;
     let submittedHash: Hex | undefined;
     let submittedBatch: WalletBatchSubmission | undefined;
@@ -2188,6 +2214,7 @@ const computedSellPrefill = useMemo(() : Prefill => {
         recipient: address,
         feeEstimateSignal: feeEstimate.signal,
         walletBatch,
+        diagnosticStage: diagnostics.stage,
         walletConfirmationTracker: {
           setTotal: walletConfirmationTracker.setTotal,
           requestNext(kind, label) {
@@ -2220,6 +2247,7 @@ const computedSellPrefill = useMemo(() : Prefill => {
         if (error.transactionHashes.length) void refreshWalletBalances();
       }
       diagnostics.failed(error);
+      setSwapFailureReference(diagnosticReference(error) ?? diagnostics.id);
       const outcome = swapFailureOutcome(error, Boolean(submittedHash || submittedBatch));
       const reason = diagnosticReason(error);
       const knownRouteErrors = [t("tokenSwapAdapterInvalid"), t("tokenSwapAdapterApprovalUnavailable"), t("tokenSwapAdapterNotApproved")];
@@ -3209,6 +3237,9 @@ const computedSellPrefill = useMemo(() : Prefill => {
         {/* Swap submission */}
 
         {transactionNotice && <SwapTransactionNotice key={transactionNotice.hash ?? transactionNotice.batchId} {...transactionNotice} />}
+        {(swapFailureReference || activeQuoteStatus === "failed") && <div className="order-5">
+          <DiagnosticReference reference={swapFailureReference ?? diagnosticReference(activeQuoteFailure)} />
+        </div>}
 
         <button
             className={`order-4 w-full my-4 rounded-2xl bg-gold-cg p-3 text-sm font-semibold shadow-md transition-all ${

@@ -9,7 +9,7 @@ import type { QuoteIntentRequest } from "../../app/utils/quoteIntent";
 test("fee row stays visible, and qualified issuance uses execution fees without an output haircut", async ({ page }) => {
   let response: ServerResponse | undefined, input: QuoteIntentRequest | undefined, requests = 0;
   const server = createServer(async (request, reply) => {
-    reply.setHeader("Access-Control-Allow-Origin", "*"); reply.setHeader("Access-Control-Allow-Headers", "content-type");
+    reply.setHeader("Access-Control-Allow-Origin", "*"); reply.setHeader("Access-Control-Allow-Headers", "content-type,x-cybergold-attempt-id");
     if (request.method === "OPTIONS") { reply.end(); return; }
     let body = ""; for await (const chunk of request) body += chunk;
     input = JSON.parse(body); response = reply; requests++;

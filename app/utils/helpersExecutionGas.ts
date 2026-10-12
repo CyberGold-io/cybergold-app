@@ -1,6 +1,7 @@
 import type { Address } from "viem";
 import type { components } from "../contracts/backend/http";
 import { assertObservedAddress } from "./protocolConfiguration.ts";
+import { backendObservationError } from "./backendObservationError.ts";
 
 export type HelpersExecutionOperation = components["schemas"]["HelpersExecutionRequest"]["operation"];
 
@@ -12,7 +13,9 @@ export async function estimateHelpersExecutionGas(owner: Address, operation: Hel
     body: JSON.stringify({ owner, operation, args, ...(value === undefined ? {} : { value: value.toString() }) },
       (_, item) => typeof item === "bigint" ? item.toString() : item),
   });
-  if (!response.ok) throw new Error("Swap execution fee simulation is temporarily unavailable.");
+  if (!response.ok) {
+    throw await backendObservationError(response, "Swap execution fee simulation is temporarily unavailable.");
+  }
   const result: components["schemas"]["HelpersExecution"] = await response.json();
   if (expectedHelpers) assertObservedAddress(result.helpers, expectedHelpers, "Helpers simulation target");
   return BigInt(result.gas);
