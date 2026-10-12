@@ -6,6 +6,7 @@ export function sourceOffer(repository: Repository, version: string | null | und
   const base = `https://github.com/CyberGold-io/${repository}`;
   const retained = retainedSourceOffers.find((item) => item.repository === repository && item.version === version);
   return { repository: base, version: version ?? null,
+    dependencySourcesUrl: `${base}/releases/download/dependency-source-2026-10-12/dependency-source-index.json`,
     downloadUrl: retained?.downloadUrl ?? (version ? `${base}/archive/${encodeURIComponent(version)}.tar.gz` : null) };
 }
 
@@ -14,7 +15,7 @@ function escape(value: string) {
 }
 function row(repository: Repository, version: string | null | undefined) {
   const offer = sourceOffer(repository, version);
-  return `<tr><td>${repository}</td><td>${offer.version ? `<code>${escape(offer.version)}</code>` : "Local build"}</td><td><a href="${escape(offer.downloadUrl ?? offer.repository)}">${offer.downloadUrl ? "Download source" : "Source repository"}</a></td></tr>`;
+  return `<tr><td>${repository}</td><td>${offer.version ? `<code>${escape(offer.version)}</code>` : "Local build"}</td><td><a href="${escape(offer.downloadUrl ?? offer.repository)}">${offer.downloadUrl ? "Download source" : "Source repository"}</a> · <a href="${escape(offer.dependencySourcesUrl)}">Library source and build controls</a></td></tr>`;
 }
 
 export async function sourcePage(appVersion: string | undefined, readBackend: () => Promise<{ version?: unknown }>) {

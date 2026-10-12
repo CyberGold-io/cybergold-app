@@ -25,6 +25,9 @@ test("current App and Backend select their own exact retained offers", async () 
   assert.ok(page.includes(app.downloadUrl)); assert.ok(page.includes(backend.downloadUrl));
   assert.ok(page.includes(app.version)); assert.ok(page.includes(backend.version));
   assert.equal(sourceOffer("cybergold-app", app.version).downloadUrl, app.downloadUrl);
+  assert.ok(page.includes(sourceOffer("cybergold-app", app.version).dependencySourcesUrl));
+  assert.ok(page.includes(sourceOffer("cybergold-backend", backend.version).dependencySourcesUrl));
+  assert.ok(page.includes("Library source and build controls"));
 });
 
 test("Backend failure preserves the current App source and retained links", async () => {
@@ -33,6 +36,8 @@ test("Backend failure preserves the current App source and retained links", asyn
   assert.ok(page.includes(`/archive/${commit}.tar.gz`));
   assert.ok(page.includes("https://github.com/CyberGold-io/cybergold-backend"));
   assert.ok(!page.includes("fixture-private-value"));
+  assert.equal(sourceOffer("cybergold-app", commit).dependencySourcesUrl,
+    "https://github.com/CyberGold-io/cybergold-app/releases/download/dependency-source-2026-10-12/dependency-source-index.json");
 });
 
 test("only fixed GitHub URLs are rendered and release text is escaped", async () => {
