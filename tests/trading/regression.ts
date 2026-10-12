@@ -22,6 +22,8 @@ export type RegressionReport = { schema: "cybergold.trade-regression.v1"; runId:
   mode: "quotes" | "sandbox-execution" | "fork-execution"; startedAt: string; finishedAt?: string;
   observations?: { chainId?: number; forkGeneration?: string | null; correlationAvailable?: boolean };
   context?: { appRevision?: string; backendRevision?: string; backendImageId?: string; blockNumber?: string; blockHash?: string };
+  qualification?: { result?: "running" | "pass" | "fail"; stage?: string; errorClass?: string;
+    cleanup?: Partial<Record<"processes" | "containers" | "network" | "source", "complete" | "failed">> };
   runnerOutcome?: "pass" | "fail" | "unavailable"; runnerCode?: string; scenarios: ScenarioResult[] };
 export type QuoteObservation = { scenario: Scenario; request: TradeQuoteRequest | BasketPreviewRequest;
   value: QuoteIntent | MarketQuote | BasketPreview; result: ScenarioResult };
@@ -39,7 +41,7 @@ export function uint(value: string, name: string) {
 }
 export function resultFor(scenario: Scenario, layer: ScenarioResult["layer"]): ScenarioResult {
   return { id: scenario.id, family: scenario.family, inputMode: scenario.inputMode, requestedStrategy: scenario.requestedStrategy,
-    asset: scenario.asset, status: "unavailable", actualStrategy: "unknown", layer };
+    asset: scenario.asset, status: "unavailable", code: "not-exercised", actualStrategy: "unknown", layer };
 }
 export function failureResult(result: ScenarioResult, error: unknown) {
   const code = error instanceof QuotePreviewError || error instanceof RegressionAssertionError || error instanceof ScenarioUnavailableError
@@ -104,6 +106,56 @@ export function validateTrade(value: Pick<TradeQuote, "mode" | "side" | "quotedI
   return { quotedInput: value.quotedInput, quotedOutput: value.quotedOutput, inputMaximum: value.inputMaximum, outputMinimum: value.outputMinimum };
 }
 
+/** Match the edited basket amount, rather than an earlier empty warm request. */
+export function matchesBasketIntent(request: unknown, scenario: Scenario, amount: string, assets: readonly string[]) {
+  if (!request || typeof request !== "object") return false;
+  const value = request as BasketPreviewRequest;
+  if (value.mode !== `${scenario.side === "buy" ? "issue" : "redeem"}-${scenario.inputMode}`) return false;
+  if (value.mode === "issue-exact-out") return value.netCygldOut === amount;
+  if (value.mode === "redeem-exact-in") return value.grossCygldIn === amount;
+  const positive = (value: unknown) => typeof value === "string" && /^(0|[1-9][0-9]*)$/.test(value) && BigInt(value) > 0n;
+  if (value.mode === "issue-exact-in") return Array.isArray(value.maximumAmountsIn)
+    && value.maximumAmountsIn.length === assets.length && value.maximumAmountsIn[0] === amount && value.maximumAmountsIn.some(positive);
+  return Array.isArray(value.minimumOutputs) && value.minimumOutputs.some(row => row.kind === 0
+    && typeof row.token === "string" && row.token.toLowerCase() === assets[0]?.toLowerCase() && row.id === "0" && row.minimumAmount === amount)
+    && value.minimumOutputs.some(row => positive(row.minimumAmount));
+}
+
+export function validateBasket(value: BasketPreview, request: BasketPreviewRequest, assets: readonly string[]): Record<string, string | string[]> {
+  requireInvariant(value.mode === request.mode, "basket-mode-mismatch");
+  uint(value.result.fees.protocolFeeCygld, "protocol-fee"); uint(value.result.fees.helperFeeCygld, "helpers-fee");
+  if (value.mode === "issue-exact-in" || value.mode === "issue-exact-out") {
+    requireInvariant(value.result.amountsInExact.length === assets.length && value.result.orderedCoreAssets.length === assets.length
+      && value.result.orderedCoreAssets.every((token, index) => token.toLowerCase() === assets[index].toLowerCase()), "basket-order-mismatch");
+    requireInvariant(value.result.amountsInExact.some(amount => uint(amount, "basket-input") > 0n), "zero-executable-amount");
+    value.result.amountsInExact.forEach(amount => uint(amount, "basket-input"));
+    if (request.mode === "issue-exact-in") {
+      requireInvariant(request.maximumAmountsIn.length === assets.length, "basket-budget-vector-mismatch");
+      value.result.amountsInExact.forEach((amount, index) => requireInvariant(BigInt(amount) <= uint(request.maximumAmountsIn[index], "basket-budget"), "basket-budget-exceeded"));
+    }
+    const minimum = value.mode === "issue-exact-in" ? value.result.netCygldOut : request.mode === "issue-exact-out" ? request.netCygldOut : "0";
+    requireInvariant(uint(minimum, "basket-output") > 0n, "zero-executable-amount");
+    return { inputMaximum: request.mode === "issue-exact-in" ? request.maximumAmountsIn : value.result.amountsInExact, outputMinimum: minimum };
+  }
+  const outputs = value.result.projectedCoreOutputs, coreOutputs = outputs.filter(output => output.kind === 0);
+  requireInvariant(coreOutputs.length === assets.length && coreOutputs.every((output, index) => output.token.toLowerCase() === assets[index].toLowerCase()
+    && output.id === "0"), "basket-output-order-mismatch");
+  outputs.forEach(output => uint(output.amount, "basket-output"));
+  requireInvariant(coreOutputs.some(output => BigInt(output.amount) > 0n), "zero-executable-amount");
+  if (request.mode === "redeem-exact-out") {
+    requireInvariant(request.minimumOutputs.length === outputs.length, "basket-output-vector-mismatch");
+    request.minimumOutputs.forEach((minimum, index) => {
+      const output = outputs[index];
+      requireInvariant(output.kind === minimum.kind && output.token.toLowerCase() === minimum.token.toLowerCase() && output.id === minimum.id, "basket-output-order-mismatch");
+      requireInvariant(BigInt(output.amount) >= uint(minimum.minimumAmount, "basket-minimum"), "basket-output-target-not-protected");
+    });
+  }
+  const maximum = value.mode === "redeem-exact-out" ? value.result.grossCygldIn : request.mode === "redeem-exact-in" ? request.grossCygldIn : "0";
+  requireInvariant(uint(maximum, "basket-input") > 0n, "zero-executable-amount");
+  return { inputMaximum: maximum, outputMinimum: request.mode === "redeem-exact-out"
+    ? request.minimumOutputs.map(row => row.minimumAmount) : outputs.map(row => String(BigInt(row.amount) * 99n / 100n)) };
+}
+
 export function coreTrade(value: QuoteIntent, request: TradeQuoteRequest, config: ProtocolConfiguration): TradeQuote {
   const buy = request.side === "buy", exactIn = request.mode === "exact-in", cygld = config.contracts.core!;
   const counter = request.native ? zeroAddress : request.counterToken;
@@ -127,26 +179,10 @@ export async function observeScenario(scenario: Scenario, config: ProtocolConfig
     const basket = await basketRequest(scenario, config, facts, fetcher);
     const preview = await readJson<BasketPreview>(fetcher, "/api/quotes/basket-preview", basket);
     request = basket; value = preview;
-    requireInvariant(value.mode === request.mode, "basket-mode-mismatch");
-    const fees = value.result.fees; uint(fees.protocolFeeCygld, "protocol-fee"); uint(fees.helperFeeCygld, "helpers-fee");
+    result.bounds = validateBasket(preview, basket, basketFacts(facts).assets);
     if (value.mode === "issue-exact-in" || value.mode === "issue-exact-out") {
-      requireInvariant(value.result.amountsInExact.length === basketFacts(facts).assets.length, "basket-order-mismatch");
-      value.result.amountsInExact.forEach(amount => uint(amount, "basket-input"));
-      if (basket.mode === "issue-exact-in") value.result.amountsInExact.forEach((amount, index) => requireInvariant(BigInt(amount) <= BigInt(basket.maximumAmountsIn[index]), "basket-budget-exceeded"));
-      result.bounds = { inputMaximum: request.mode === "issue-exact-in" ? request.maximumAmountsIn : value.result.amountsInExact,
-        outputMinimum: value.mode === "issue-exact-in" ? value.result.netCygldOut : request.mode === "issue-exact-out" ? request.netCygldOut : "0" };
-      requireInvariant(BigInt(result.bounds.outputMinimum as string) > 0n, "zero-executable-amount");
       result.quotedOperation = value.mode === "issue-exact-in" ? "issueFromBasketExactIn" : "issueFromBasketExactOut";
     } else {
-      requireInvariant(value.result.projectedCoreOutputs.some(output => BigInt(output.amount) > 0n), "zero-executable-amount");
-      value.result.projectedCoreOutputs.forEach(output => uint(output.amount, "basket-output"));
-      if (basket.mode === "redeem-exact-out" && (preview.mode === "redeem-exact-in" || preview.mode === "redeem-exact-out")) basket.minimumOutputs.forEach((minimum, index) => {
-        const output = preview.result.projectedCoreOutputs[index];
-        requireInvariant(output?.kind === minimum.kind && output?.token.toLowerCase() === minimum.token.toLowerCase() && output?.id === minimum.id, "basket-output-order-mismatch");
-        requireInvariant(BigInt(output.amount) >= BigInt(minimum.minimumAmount), "basket-output-target-not-protected");
-      });
-      result.bounds = { inputMaximum: value.mode === "redeem-exact-out" ? value.result.grossCygldIn : request.mode === "redeem-exact-in" ? request.grossCygldIn : "0",
-        outputMinimum: request.mode === "redeem-exact-out" ? request.minimumOutputs.map(row => row.minimumAmount) : value.result.projectedCoreOutputs.map(row => String(BigInt(row.amount) * 99n / 100n)) };
       result.quotedOperation = "redeemToBasketExactIn";
     }
   } else {
@@ -176,7 +212,7 @@ export async function observeScenario(scenario: Scenario, config: ProtocolConfig
     const fees = "result" in value ? value.result.fees : "preview" in value ? value.preview.fees : undefined;
     if (fees) result.bounds = { ...result.bounds, protocolFeeCygld: fees.protocolFeeCygld, helperFeeCygld: fees.helperFeeCygld };
   }
-  result.status = "pass"; result.actualStrategy = scenario.requestedStrategy;
+  result.status = "pass"; delete result.code; result.actualStrategy = scenario.requestedStrategy;
   result.refs = diagnosticReferences(value); result.context = value.context;
   result.durationMs = Math.round(performance.now() - started);
   result.firstExecutableMs ??= result.durationMs;

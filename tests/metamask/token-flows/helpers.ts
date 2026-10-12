@@ -187,17 +187,8 @@ export function getSwapSection(page: Page) {
   return page.locator("#swapsection");
 }
 
-export function getSideSection(page: Page, side: SwapSide) {
-  const label = side === "sell" ? "You Sell" : "You Buy";
-  // A quoted basket renders a summary instead of an amount input. Its token
-  // picker remains present, so selecting BASKET must keep the same side scope.
-  return page
-    .locator("label", { hasText: label })
-    .locator('xpath=ancestor::div[.//button[contains(@class, "w-44")]][1]');
-}
-
 export function getMainInput(page: Page, side: SwapSide) {
-  return getSideSection(page, side).locator('input[type="text"]').first();
+  return page.locator(`#${side}-amount`);
 }
 
 export async function ensureMainInputEditable(page: Page, side: SwapSide) {
@@ -210,9 +201,9 @@ export async function ensureMainInputEditable(page: Page, side: SwapSide) {
 }
 
 export function getTokenButton(page: Page, side: SwapSide, symbol?: string) {
-  const buttons = getSideSection(page, side).locator('button[class*="w-44"]');
+  const buttons = page.getByRole("button").filter({ has: page.locator(`#${side}-token-label`) });
   if (symbol) return buttons.filter({ hasText: tokenSymbolPattern(symbol) }).first();
-  return buttons.filter({ hasText: /BASKET|CYGLD|USDC|USDT|ETH|WETH|PAXG|XAUt/i }).first();
+  return buttons.first();
 }
 
 export async function selectToken(page: Page, side: SwapSide, symbol: string) {
@@ -243,8 +234,9 @@ export async function selectTokenIfAvailable(page: Page, side: SwapSide, symbol:
 }
 
 export async function showAllSellTokens(page: Page) {
-  const walletOnlySwitch = page.getByRole("switch").first();
-  await expect(walletOnlySwitch).toBeVisible();
+  const walletOnlySwitch = page.locator("#wallet-only-tokens");
+  // Disconnected pages already list all tokens and omit the wallet filter.
+  if (!await walletOnlySwitch.isVisible()) return;
   const isChecked = await walletOnlySwitch.getAttribute("aria-checked");
   if (isChecked === "true") {
     await walletOnlySwitch.click();

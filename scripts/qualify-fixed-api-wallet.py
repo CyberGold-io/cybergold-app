@@ -84,10 +84,25 @@ def main() -> None:
     pg, api = f"{network}-pg", f"{network}-api"
     processes, containers = [], []
     network_created = False
-    evidence = None
+    evidence = {"observedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                "result": "running", "stage": "source", "transactions": []}
     environment = {key: os.environ[key] for key in
                    ("PATH", "HOME", "TMPDIR", "DISPLAY", "XAUTHORITY", "CI") if key in os.environ}
     environment["NEXT_TELEMETRY_DISABLED"] = "1"
+
+    def persist_evidence():
+        try:
+            temporary = output / "qualification.json.tmp"
+            temporary.write_text(json.dumps(evidence, indent=2) + "\n")
+            temporary.replace(output / "qualification.json")
+        except OSError:
+            # Evidence is best effort; it must not replace the original failure
+            # or prevent cleanup of the owned fixture.
+            print("Qualification evidence could not be written", flush=True)
+
+    def checkpoint(stage):
+        evidence["stage"] = stage
+        persist_evidence()
 
     def start(command, name, cwd=work):
         with (output / f"{name}.log").open("w") as stream:
@@ -105,11 +120,15 @@ def main() -> None:
 
     try:
         source_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=APP, text=True).strip()
+        evidence["frontendCommit"] = source_commit
         with tarfile.open(fileobj=io.BytesIO(subprocess.check_output(["git", "archive", "HEAD"], cwd=APP))) as archive:
             archive.extractall(work, filter="data")
         (work / "node_modules").symlink_to((APP / "node_modules").resolve(), target_is_directory=True)
+        checkpoint("fork")
         anchor = rpc(os.environ["MAINNET_RPC_URL"], "eth_getBlockByNumber", ["finalized", False])
         block = int(anchor["number"], 16)
+        evidence.update({"chainId": 31338, "forkBlock": block, "forkBlockHash": anchor["hash"]})
+        persist_evidence()
         fork_port, api_port, frontend_port = free_port(), free_port(), free_port()
         fork = f"http://127.0.0.1:{fork_port}"
         start(["anvil", "--fork-url", os.environ["MAINNET_RPC_URL"], "--fork-block-number", str(block),
@@ -128,6 +147,7 @@ def main() -> None:
             "console.log(JSON.stringify({mnemonic,address:mnemonicToAccount(mnemonic).address}));"], cwd=work, text=True))
         password = secrets.token_urlsafe(24)
         address = wallet["address"]
+        checkpoint("funding")
         rpc(fork, "anvil_setBalance", [address, hex(100 * 10**18)])
         funding = json.loads(args.funding_json.read_text())["fork"]["funding"]["tokenFunding"]
         for symbol, token, holder, amount in zip(funding["symbols"], funding["addresses"], funding["holders"], funding["perAddr"]):
@@ -141,6 +161,7 @@ def main() -> None:
         contracts = json.loads(args.contracts_json.read_text())
         safe = contracts["safe"]["safe"]
         core = contracts["protocol"]["coreDiamond"]
+        checkpoint("core-preparation")
         if subprocess.check_output(["cast", "call", "--rpc-url", fork, core, "paused()(bool)"], text=True).strip() == "true":
             rpc(fork, "anvil_setBalance", [safe, hex(10**18)])
             rpc(fork, "anvil_impersonateAccount", [safe])
@@ -172,6 +193,7 @@ def main() -> None:
         private_env(work / "backend.env", {**settings, **backend_settings, "CYBERGOLD_BACKEND_URL": "http://127.0.0.1:3000",
                     "DATABASE_URL": f"postgresql://fixture:{database_password}@pg:5432/fixture",
                     "NEXT_PUBLIC_RPC_URL": backend_rpc, "RPC_URL": backend_rpc, "HOST": "0.0.0.0", "PORT": "3000"})
+        checkpoint("backend")
         docker("network", "create", network)
         network_created = True
         containers.append(pg)
@@ -182,6 +204,11 @@ def main() -> None:
                "--add-host", "host.docker.internal:host-gateway", "--env-file", str(work / "backend.env"),
                "-p", f"127.0.0.1:{api_port}:3000", args.backend_image)
         wait_http(f"http://127.0.0.1:{api_port}/api/transaction/wait/head")
+        # This new empty database uses the image's existing canonical schema,
+        # including the retained sync-state table read by protocol facts.
+        run(["docker", "exec", api, "python", "-m", "alembic", "-c", "schema/alembic.ini", "upgrade", "head"],
+            "owned-database-schema", timeout=120)
+        checkpoint("frontend")
         run(["node", "node_modules/next/dist/bin/next", "build", "--webpack"], "frontend-build")
         start(["node", "node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", str(frontend_port)], "frontend")
         wait_http(settings["NEXT_PUBLIC_APP_ORIGIN"] + "/en")
@@ -191,39 +218,52 @@ def main() -> None:
             f"reporter:[['list'],['json',{{outputFile:{json.dumps(str(output / 'wallet-results.json'))}}}]],"
             f"use:{{baseURL:{json.dumps(settings['NEXT_PUBLIC_APP_ORIGIN'])},trace:'off'}},"
             "projects:[{name:'metamask',use:{...devices['Desktop Chrome'],browserName:'chromium',channel:'chromium',headless:false}}]});\n")
-        run(["node", "scripts/cache-metamask-wallet.mjs"], "new-wallet-cache", timeout=300)
-        start_block = int(rpc(fork, "eth_blockNumber", []), 16)
-        run(["node", "node_modules/@playwright/test/cli.js", "test", "--config", "playwright.wallet.config.ts",
-             "fixed-api-roundtrips.spec.ts", "wallet-session.spec.ts", "regression-execution.spec.ts"], "wallet-tests", timeout=4800)
-        transactions = []
-        for height in range(start_block + 1, int(rpc(fork, "eth_blockNumber", []), 16) + 1):
-            for transaction in rpc(fork, "eth_getBlockByNumber", [hex(height), True])["transactions"]:
-                if transaction["from"].lower() == address.lower():
-                    receipt = rpc(fork, "eth_getTransactionReceipt", [transaction["hash"]])
-                    transactions.append({"hash": transaction["hash"], "to": transaction["to"],
-                                         "selector": transaction["input"][:10], "status": receipt["status"], "blockNumber": height})
         test_paths = ["scripts/qualify-fixed-api-wallet.py", "scripts/cache-metamask-wallet.mjs", "wallet-setup/metamask.setup.ts",
                       "tests/metamask/testWithMetaMask.ts", "tests/metamask/fixed-api-roundtrips.spec.ts",
                       "tests/metamask/wallet-session.spec.ts", "tests/metamask/wallet-ui.ts", "tests/metamask/token-flows/helpers.ts",
                       "tests/metamask/regression-execution.spec.ts", "tests/trading/scenarios.ts", "tests/trading/regression.ts", "tests/trading/walletExecution.ts",
                       "tests/trading/uiReceipt.ts", "tests/trading/sandboxFunding.ts"]
-        image_environment = json.loads(docker("image", "inspect", args.backend_image, "--format", "{{json .Config.Env}}"))
-        backend_commit = next((value.split("=", 1)[1] for value in image_environment if value.startswith("CYBERGOLD_BACKEND_COMMIT=")), None)
-        if backend_commit and not re.fullmatch(r"[0-9a-f]{40}", backend_commit):
-            backend_commit = None
-        evidence = {
-            "observedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(), "frontendCommit": source_commit,
-            "backendImage": args.backend_image, "backendImageId": docker("image", "inspect", args.backend_image, "--format", "{{.Id}}"),
-            "backendCommit": backend_commit,
-            "chainId": 31338, "forkBlock": block, "forkBlockHash": anchor["hash"], "result": "pass",
+        try:
+            image_environment = json.loads(docker("image", "inspect", args.backend_image, "--format", "{{json .Config.Env}}"))
+            backend_commit = next((value.split("=", 1)[1] for value in image_environment if value.startswith("CYBERGOLD_BACKEND_COMMIT=")), None)
+            if backend_commit and re.fullmatch(r"[0-9a-f]{40}", backend_commit):
+                evidence["backendCommit"] = backend_commit
+            image_id = docker("image", "inspect", args.backend_image, "--format", "{{.Id}}")
+            if re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
+                evidence["backendImageId"] = image_id
+        except (OSError, subprocess.CalledProcessError, ValueError):
+            pass  # Optional image observations are not fixture requirements.
+        evidence.update({
             "testInputSha256": {path: hashlib.sha256((work / path).read_bytes()).hexdigest() for path in test_paths},
             "contractsSha256": hashlib.sha256(args.contracts_json.read_bytes()).hexdigest(),
             "fundingSha256": hashlib.sha256(args.funding_json.read_bytes()).hexdigest(),
-            "transactions": transactions,
             "scope": "Sixteen UI-selected funded paths plus independent 20-case Core/market matrix with amount bounds, actual mined operation, authorization and receipts; rejection and three session/network cases; real Python API/native PG18/production Next.js; no product or receipt interception",
             "wallet": "New disposable seed/profile; no owner wallet or B2B/public-chain write",
-        }
+        })
+        checkpoint("wallet-cache")
+        run(["node", "scripts/cache-metamask-wallet.mjs"], "new-wallet-cache", timeout=300)
+        start_block = int(rpc(fork, "eth_blockNumber", []), 16)
+        checkpoint("wallet-tests")
+        run(["node", "node_modules/@playwright/test/cli.js", "test", "--config", "playwright.wallet.config.ts",
+             "fixed-api-roundtrips.spec.ts", "wallet-session.spec.ts", "regression-execution.spec.ts"], "wallet-tests", timeout=4800)
+        checkpoint("receipts")
+        for height in range(start_block + 1, int(rpc(fork, "eth_blockNumber", []), 16) + 1):
+            for transaction in rpc(fork, "eth_getBlockByNumber", [hex(height), True])["transactions"]:
+                if transaction["from"].lower() == address.lower():
+                    receipt = rpc(fork, "eth_getTransactionReceipt", [transaction["hash"]])
+                    evidence["transactions"].append({"hash": transaction["hash"], "to": transaction["to"],
+                                         "selector": transaction["input"][:10], "status": receipt["status"], "blockNumber": height})
+        evidence["result"] = "pass"
+    except BaseException as error:
+        evidence["result"] = "fail"
+        evidence["errorClass"] = ("timeout" if isinstance(error, subprocess.TimeoutExpired)
+            else "interrupted" if isinstance(error, (SystemExit, KeyboardInterrupt))
+            else "command-failed" if isinstance(error, subprocess.CalledProcessError)
+            else "system-error" if isinstance(error, OSError)
+            else "operation-failed" if isinstance(error, RuntimeError) else "unexpected-error")
+        raise
     finally:
+        cleanup = {key: "complete" for key in ("processes", "containers", "network", "source")}
         for process in reversed(processes):
             try:
                 os.killpg(process.pid, signal.SIGTERM)
@@ -231,19 +271,38 @@ def main() -> None:
             except ProcessLookupError:
                 pass
             except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait()
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                    process.wait()
+                except OSError:
+                    cleanup["processes"] = "failed"
+            except OSError:
+                cleanup["processes"] = "failed"
         for name in reversed(containers):
-            with (output / f"{name}.log").open("w") as stream:
-                subprocess.run(["docker", "logs", "--tail", "100", name], stdout=stream, stderr=subprocess.STDOUT)
-            subprocess.run(["docker", "rm", "-f", "-v", name], stdout=subprocess.DEVNULL, check=False)
+            try:
+                with (output / f"{name}.log").open("w") as stream:
+                    subprocess.run(["docker", "logs", "--tail", "100", name], stdout=stream, stderr=subprocess.STDOUT)
+            except OSError:
+                pass  # A log write failure must not skip removal.
+            try:
+                if subprocess.run(["docker", "rm", "-f", "-v", name], stdout=subprocess.DEVNULL, check=False).returncode:
+                    cleanup["containers"] = "failed"
+            except OSError:
+                cleanup["containers"] = "failed"
         if network_created:
-            subprocess.run(["docker", "network", "rm", network], stdout=subprocess.DEVNULL, check=False)
-        shutil.rmtree(work)
-    if evidence is not None:
-        evidence["cleanup"] = "Owned child processes, containers, network, credentials, wallet cache and browser profiles discarded"
-        (output / "qualification.json").write_text(json.dumps(evidence, indent=2) + "\n")
-        print(f"PASS: fixed-API wallet qualification and cleanup completed; evidence: {output / 'qualification.json'}", flush=True)
+            try:
+                if subprocess.run(["docker", "network", "rm", network], stdout=subprocess.DEVNULL, check=False).returncode:
+                    cleanup["network"] = "failed"
+            except OSError:
+                cleanup["network"] = "failed"
+        try:
+            shutil.rmtree(work)
+        except OSError:
+            cleanup["source"] = "failed"
+        evidence["cleanup"] = cleanup
+        evidence["finishedAt"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        persist_evidence()
+    print(f"PASS: fixed-API wallet qualification completed; evidence: {output / 'qualification.json'}", flush=True)
 
 
 if __name__ == "__main__":

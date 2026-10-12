@@ -74,5 +74,5 @@ export function uiReceiptResult(scenario: Scenario, config: ProtocolConfiguratio
       outputRefund: String(measured.outputRefund), protocolFeeCygld: String(measured.protocolFeeCygld), helperFeeCygld: String(measured.helperFeeCygld),
       recoveryShareAmounts: measured.recoveryShareAmounts.map(String) };
   }
-  result.status = "pass"; return result;
+  result.status = "pass"; delete result.code; return result;
 }

@@ -28,14 +28,20 @@ export async function requestWallet(page: Page, request: { method: string; param
   const pending = page.evaluate(input => (window as unknown as { ethereum: { request: (input: unknown) => Promise<unknown> } }).ethereum.request(input), request)
     .then(value => { settled = true; return value; }, error => { settled = true; throw error; });
   void pending.catch(() => undefined);
-  await expect.poll(async () => {
-    if (settled) return true;
-    const popup = await notification(page);
-    const button = reject ? popup.getByTestId("confirm-footer-cancel-button")
-      : popup.getByTestId("confirm-footer-button").or(popup.getByTestId("confirm-btn"));
-    await button.click({ timeout: 1000 }).catch(() => undefined);
-    return settled;
-  }, { timeout: 90_000, intervals: [250, 500, 1000] }).toBe(true);
+  try {
+    await expect.poll(async () => {
+      if (settled) return true;
+      const popup = await notification(page);
+      const button = reject ? popup.getByTestId("confirm-footer-cancel-button")
+        : popup.getByTestId("confirm-footer-button").or(popup.getByTestId("confirm-btn"));
+      await button.click({ timeout: 1000 }).catch(() => undefined);
+      return settled;
+    }, { timeout: 90_000, intervals: [250, 500, 1000] }).toBe(true);
+  } catch (error) {
+    if (!settled) throw new ScenarioUnavailableError(request.method === "eth_signTypedData_v4"
+      ? "wallet-authorization-timeout" : "wallet-submission-timeout");
+    throw error;
+  }
   return pending;
 }
 
@@ -146,9 +152,12 @@ export async function executionPlan(observation: QuoteObservation, page: Page, o
       if (request.native) { operation = "issueFromNativeExactOut"; args = [{ maximumNativeIn: maximum, netCygldOut: BigInt(quote.executionAmount) }, execution, legs]; nativeValue = maximum; auth.push("native"); }
       else {
         const token = request.counterToken as Address, params = { inputToken: token, maximumInputAmount: maximum, netCygldOut: BigInt(quote.executionAmount) };
-        if (scenario.inputMode === "exact-out") {
+        // Keep native permit and Permit2 coverage on independent exact-output
+        // quotes, so an unavailable budget quote does not hide those fixtures.
+        if (scenario.inputMode === "exact-in") {
           await allowance(page, token, owner, maximum, config, fetcher); auth.push("allowance"); operation = "issueFromTokenExactOut"; args = [params, execution, legs];
-        } else if (scenario.asset === "USDC" && await fetchTokenPermitIssuanceInstalled(fetcher)) {
+        } else if (scenario.asset === "USDC") {
+          if (!await fetchTokenPermitIssuanceInstalled(fetcher)) throw new ScenarioUnavailableError("native-permit-unavailable");
           const signed = await nativePermit(page, token, owner, maximum, config, fetcher); auth.push("native-permit");
           operation = "issueFromTokenExactOutWithPermit"; args = [params, execution, signed, legs];
         } else {
@@ -173,7 +182,7 @@ export async function executionPlan(observation: QuoteObservation, page: Page, o
 }
 
 export async function executeScenario(observation: QuoteObservation, page: Page, owner: Address, config: ProtocolConfiguration, fetcher: typeof fetch): Promise<ScenarioResult> {
-  const result = observation.result; result.layer = "execution"; result.status = "unavailable";
+  const result = observation.result; result.layer = "execution"; result.status = "unavailable"; result.code = "execution-not-completed";
   const { operation, args, nativeValue } = await executionPlan(observation, page, owner, config, fetcher);
   const gas = await estimateHelpersExecutionGas(owner, operation, args, nativeValue, fetcher, undefined, config.contracts.helpers as Address);
   const data = encodeFunctionData({ abi: HELPERS_EXECUTION_ABI, functionName: operation, args: args as never });
@@ -223,5 +232,5 @@ export async function executeScenario(observation: QuoteObservation, page: Page,
       recoveryShareAmounts: measured.recoveryShareAmounts.map(String) };
   }
   result.context = { chainId: config.chainId, blockNumber: String(receipt.blockNumber), blockHash: receipt.blockHash };
-  result.status = "pass"; return result;
+  result.status = "pass"; delete result.code; return result;
 }

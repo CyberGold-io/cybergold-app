@@ -44,8 +44,9 @@ test("independent producer matrix signs with MetaMask and proves mined family an
       try {
         const facts = await readJson<ProtocolFacts>(fetcher, "/api/protocol/facts");
         const observation = await observeScenario(scenario, config, facts, fetcher, owner);
-        result = observation.result; result.layer = "execution"; result.status = "unavailable";
+        result = observation.result; result.layer = "execution"; result.status = "unavailable"; result.code = "execution-not-completed";
         report.scenarios[index] = result;
+        await persist();
         await executeScenario(observation, page, owner, config, fetcher);
       } catch (error) { report.scenarios[index] = failureResult(result, error); }
       report.scenarios[index].durationMs = Math.round(performance.now() - started);

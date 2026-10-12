@@ -64,10 +64,11 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   const genericRequests: string[] = [];
   const successfulReads = new Set<string>();
   const fetcher = originFetch(process.env.PLAYWRIGHT_BASE_URL!);
-  const config = await readJson<ProtocolConfiguration>(fetcher, "/api/protocol/config");
   let helpersHash: Hex | undefined;
   let activeSwapAttempt: string | undefined;
   let activeScenarioIndex: number | undefined;
+  let setupComplete = false;
+  let setupRefs = {};
   const scenarios = tradeScenarios.filter(scenario => scenario.requestedStrategy === "core");
   const results: ScenarioResult[] = scenarios.map(scenario => ({ ...resultFor(scenario, "execution"), id: `ui-${scenario.id}`, requestedStrategy: "auto" }));
   async function persist() {
@@ -77,10 +78,13 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     await rename(path + ".tmp", path);
   }
   await persist();
+  try {
+  const config = await readJson<ProtocolConfiguration>(fetcher, "/api/protocol/config");
   page.on("request", request => {
     if (new URL(request.url()).pathname === "/api/rpc") genericRequests.push(request.url());
     if (new URL(request.url()).pathname === "/api/diagnostics") {
       const event = request.postDataJSON();
+      if (!setupComplete && ["quote", "swap"].includes(event?.operation)) setupRefs = { ...setupRefs, ...safeDiagnosticReferences(event) };
       if (event?.operation === "swap" && event.outcome === "started") activeSwapAttempt = event.attemptId;
       if (activeScenarioIndex !== undefined && event?.operation === "swap" && event.attemptId === activeSwapAttempt)
         results[activeScenarioIndex].refs = { ...results[activeScenarioIndex].refs, ...safeDiagnosticReferences(event) };
@@ -135,7 +139,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     await approveUntilMined(page);
   }
 
-  await prepare("ETH", "CYGLD", "0.1");
+  await prepare("ETH", "CYGLD", "0.25", "buy");
   const beforeRejected = await readWalletBalances(page, ["cygld"]);
   await (await getSwapButton(page)).click();
   // Product preparation precedes the actual wallet request. Open the native
@@ -145,6 +149,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   await rejected.getByTestId("confirm-footer-cancel-button").click();
   await expect(page.getByText(/^Transaction failed$/i)).toBeVisible({ timeout: 20000 });
   expect((await readWalletBalances(page, ["cygld"])).cygld).toBe(beforeRejected.cygld);
+  setupComplete = true;
 
   for (const [index, scenario] of scenarios.entries()) await test.step(`UI ${scenario.id}`, async () => {
     const started = performance.now(); helpersHash = undefined;
@@ -162,6 +167,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       const userToken = configuredToken(config, (scenario.side === "buy") !== (scenario.inputMode === "exact-in") ? "CYGLD" : scenario.asset === "BASKET" ? basketTokens[0].symbol : scenario.asset);
       const userAmount = parseUnits(scenario.displayAmount, userToken.decimals);
       helpersHash = undefined; activeSwapAttempt = undefined; activeScenarioIndex = index;
+      results[index].code = "execution-not-completed"; await persist();
       await submit();
       await expect.poll(() => helpersHash, { timeout: 15000 }).toBeTruthy();
       const receipt = await fetchTransactionReceipt(helpersHash!, undefined, fetcher);
@@ -180,4 +186,12 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   expect(successfulReads.has("/api/account/wallet-balances")).toBe(true);
   console.log(JSON.stringify({ genericAppRpcRequests: genericRequests.length, successfulFixedApiPaths: [...successfulReads].sort() }));
   expect(results.filter(result => result.status !== "pass").map(result => ({ id: result.id, status: result.status, code: result.code }))).toEqual([]);
+  } catch (error) {
+    if (!setupComplete) for (const [index, result] of results.entries()) results[index] = {
+      ...failureResult({ ...result, refs: { ...result.refs, ...setupRefs } }, error),
+      code: error instanceof errors.TimeoutError ? "ui-setup-timeout" : "ui-setup-failed",
+    };
+    await persist();
+    throw error;
+  }
 });

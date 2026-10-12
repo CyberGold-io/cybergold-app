@@ -45,7 +45,6 @@ try {
     const code = await command("python3", ["scripts/qualify-fixed-api-wallet.py", "--backend-image", process.env.BACKEND_IMAGE,
       "--contracts-json", process.env.CONTRACTS_JSON, "--funding-json", process.env.FUNDING_JSON, "--output-dir", output],
       { TRADE_REGRESSION_TARGET: values.target });
-    await walletResults();
     try {
       const qualification = JSON.parse(await readFile(resolve(output, "qualification.json"), "utf8"));
       const context = {};
@@ -55,7 +54,18 @@ try {
       if (/^0x[0-9a-f]{64}$/i.test(qualification.forkBlockHash ?? "")) context.blockHash = qualification.forkBlockHash;
       if (/^sha256:[0-9a-f]{64}$/.test(qualification.backendImageId ?? "")) context.backendImageId = qualification.backendImageId;
       report.context = context;
+      const observation = {};
+      if (["running", "pass", "fail"].includes(qualification.result)) observation.result = qualification.result;
+      if (["source", "fork", "funding", "core-preparation", "backend", "frontend", "wallet-cache", "wallet-tests", "receipts"].includes(qualification.stage)) observation.stage = qualification.stage;
+      if (["timeout", "interrupted", "command-failed", "system-error", "operation-failed", "unexpected-error"].includes(qualification.errorClass)) observation.errorClass = qualification.errorClass;
+      if (qualification.cleanup && typeof qualification.cleanup === "object") {
+        observation.cleanup = {};
+        for (const key of ["processes", "containers", "network", "source"])
+          if (["complete", "failed"].includes(qualification.cleanup[key])) observation.cleanup[key] = qualification.cleanup[key];
+      }
+      report.qualification = observation;
     } catch { /* Optional release observations never admit or reject a run. */ }
+    await walletResults();
     if (code) { report.runnerOutcome = "fail"; report.runnerCode = "fork-qualification-failed"; }
   } else {
     const origin = values["base-url"] ?? process.env.APP_BASE_URL;
@@ -78,7 +88,7 @@ try {
         try { report.scenarios.push((await observeScenario(scenario, config, facts, fetcher)).result); }
         catch (error) { report.scenarios.push({ ...failureResult(resultFor(scenario, "api"), error), durationMs: Math.round(performance.now() - started) }); }
       }
-      try { report.scenarios.push(...await observeBrowserQuotes(origin, config)); }
+      try { report.scenarios.push(...await observeBrowserQuotes(origin, config, facts)); }
       catch (error) { for (const scenario of tradeScenarios.filter(s => s.requestedStrategy === "core"))
         report.scenarios.push({ ...failureResult(resultFor(scenario, "browser"), error), id: `ui-${scenario.id}`, requestedStrategy: "auto" }); }
       report.observations.correlationAvailable = report.scenarios.some(row => row.refs?.requestId);

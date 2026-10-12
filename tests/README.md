@@ -71,8 +71,9 @@ Native Linux is recommended for the MetaMask browser-extension tests. WSL is not
 
 The ordinary hosted browser-smoke job runs `tests/e2e` with Chromium fixtures.
 It does not run this MetaMask extension suite or prove real wallet signing.
-The extension suite requires its separate disposable funded chain/wallet setup;
-never point its mutating tests at the deployed App or a real-asset wallet.
+The extension suite requires its separate disposable funded chain/wallet setup.
+Never point its mutating tests at Mainnet or a real-asset wallet. The controlled
+deployed Sandbox mode below uses its dedicated disposable test wallet.
 
 ### Session-only extension qualification
 
@@ -143,6 +144,10 @@ they never force a route in the production UI. MetaMask signs the constructed
 operation, and the suite verifies the mined selector, Helpers operation event,
 integer input ceiling/output floor, fees/refunds and basket ordering. Native
 permit, Permit2, ordinary allowance and mixed-basket funding are recorded.
+Core exact-output USDC issuance uses native permit and PAXG issuance uses
+Permit2. Core exact-input token issuance uses ordinary allowances; basket
+exact-input issuance mixes an ordinary allowance with Permit2 inputs, while
+basket exact-output issuance uses existing ordinary allowances.
 Every scenario remains unavailable until its receipt assertions pass. The
 sixteen UI trades remain separate evidence of automatic route selection, with
 actual mined operation and bound assertions recorded in `regression-ui.json`.
@@ -159,9 +164,11 @@ before interacting. It uses native MetaMask 13.13.1 controls without modifying t
 its provider responses.
 The fixture closes and discards each private profile; the runner removes its own
 services, chain, credentials and cache even when a test fails. Nonsecret
-results/logs remain in the output directory. A successful `qualification.json`
-records the exact App commit, test file hashes, backend image, fork anchor and
-wallet transaction receipts. Hosted execution and GitHub required merge checks
+results/logs remain in the output directory. `qualification.json` records the
+available App/backend identities, test file hashes and fork anchor before wallet
+tests, then records pass/fail, the bounded failure stage/class and each owned
+cleanup outcome even after failures. Successful runs also record wallet
+transaction receipts. Hosted execution and GitHub required merge checks
 are separate workstreams; this command introduces no required CI job.
 
 ### Deployed regression runner

@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { coreIntentRequest, splitAmount, tradeScenarios } from "../../tests/trading/scenarios.ts";
-import { failureResult, resultFor, uint, validateTrade } from "../../tests/trading/regression.ts";
+import { failureResult, matchesBasketIntent, resultFor, uint, validateBasket, validateTrade } from "../../tests/trading/regression.ts";
+import type { BasketPreview } from "./basketPreview.ts";
 import { QuotePreviewError } from "./quoteErrors.ts";
 import { diagnosticReferences } from "./diagnosticReferences.ts";
 import { fetchQuoteStream } from "./quoteStream.ts";
@@ -12,6 +13,12 @@ test("inventory includes every Core asset/direction/mode and four independent ma
   for (const asset of ["PAXG", "USDC", "ETH", "BASKET"]) for (const side of ["buy", "sell"]) for (const mode of ["exact-in", "exact-out"])
     assert.equal(tradeScenarios.filter(scenario => scenario.requestedStrategy === "core" && scenario.asset === asset && scenario.side === side && scenario.inputMode === mode).length, 1);
   assert.equal(tradeScenarios.filter(scenario => scenario.requestedStrategy === "market").length, 4);
+});
+
+test("an initialized case is explicitly unexercised until an observation or failure replaces it", () => {
+  const result = resultFor(tradeScenarios[0], "execution");
+  assert.equal(result.status, "unavailable"); assert.equal(result.code, "not-exercised");
+  assert.equal(failureResult({ ...result, code: "execution-not-completed" }, new QuotePreviewError("rpc-timeout", "rpc-timeout")).code, "rpc-timeout");
 });
 
 test("Core provider seed preserves direct leg and full integer remainder beyond Number precision", () => {
@@ -60,4 +67,24 @@ test("wallet and receipt failures preserve quote linkage while adding failure re
   assert.deepEqual(failureResult(result, new Error("wallet failure")).refs, { requestId });
   assert.deepEqual(failureResult(result, new QuotePreviewError("rpc-timeout", "rpc-timeout", { correlationId })).refs,
     { requestId, correlationId });
+});
+
+test("browser basket matching rejects warm vectors and validates current asset bounds", () => {
+  const assets = [`0x${"a".repeat(40)}`, `0x${"b".repeat(40)}`];
+  const scenario = tradeScenarios.find(row => row.id === "core-issue-basket-exact-in")!;
+  assert.equal(matchesBasketIntent({ mode: "issue-exact-in", maximumAmountsIn: ["0", "0"] }, scenario, "100", assets), false);
+  assert.equal(matchesBasketIntent({ mode: "issue-exact-in", maximumAmountsIn: ["99", "100"] }, scenario, "100", assets), false);
+  const request = { mode: "issue-exact-in", maximumAmountsIn: ["100", "200"] } as const;
+  assert.equal(matchesBasketIntent(request, scenario, "100", assets), true);
+  const preview = { mode: "issue-exact-in", result: { amountsInExact: ["100", "200"], orderedCoreAssets: assets,
+    netCygldOut: "10", fees: { protocolFeeCygld: "0", helperFeeCygld: "0" } } } as BasketPreview;
+  assert.equal(validateBasket(preview, { ...request, maximumAmountsIn: [...request.maximumAmountsIn] }, assets).outputMinimum, "10");
+  assert.throws(() => validateBasket({ ...preview, result: { ...preview.result, netCygldOut: "0" } } as BasketPreview,
+    { ...request, maximumAmountsIn: [...request.maximumAmountsIn] }, assets), /zero-executable-amount/);
+  assert.throws(() => validateBasket(preview, { ...request, maximumAmountsIn: ["99", "200"] }, assets), /basket-budget-exceeded/);
+  assert.throws(() => validateBasket(preview, { ...request, maximumAmountsIn: [...request.maximumAmountsIn] }, [...assets].reverse()), /basket-order-mismatch/);
+  const redeem = tradeScenarios.find(row => row.id === "core-redeem-basket-exact-out")!;
+  const minimumOutputs = assets.map(token => ({ kind: 0, token, id: "0", minimumAmount: "100" }));
+  assert.equal(matchesBasketIntent({ mode: "redeem-exact-out", minimumOutputs }, redeem, "100", assets), true);
+  assert.equal(matchesBasketIntent({ mode: "redeem-exact-out", minimumOutputs }, redeem, "99", assets), false);
 });
