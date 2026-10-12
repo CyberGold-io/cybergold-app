@@ -53,3 +53,11 @@ test("regression reports never copy arbitrary provider error messages, even code
   for (const message of ["gho-private-token", "a-secret-bearer", "https://private@rpc.example", "0x1234signature"])
     assert.equal(failureResult(resultFor(tradeScenarios[0], "api"), new Error(message)).code, "unexpected-error");
 });
+
+test("wallet and receipt failures preserve quote linkage while adding failure references", () => {
+  const requestId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e", correlationId = "eb3e6932-a2af-4303-a09e-35831f864a1d";
+  const result = { ...resultFor(tradeScenarios[0], "execution"), refs: { requestId } };
+  assert.deepEqual(failureResult(result, new Error("wallet failure")).refs, { requestId });
+  assert.deepEqual(failureResult(result, new QuotePreviewError("rpc-timeout", "rpc-timeout", { correlationId })).refs,
+    { requestId, correlationId });
+});

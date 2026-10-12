@@ -46,7 +46,8 @@ export function failureResult(result: ScenarioResult, error: unknown) {
     ? error.code : "unexpected-error";
   const unavailable = error instanceof QuotePreviewError || error instanceof ScenarioUnavailableError || /Timeout|Abort/.test((error as Error)?.name ?? "");
   return { ...result, status: unavailable ? "unavailable" as const : "fail" as const,
-    code: unavailable && code === "unexpected-error" ? "service-unavailable" : code, refs: diagnosticReferences(error) };
+    code: unavailable && code === "unexpected-error" ? "service-unavailable" : code,
+    refs: { ...result.refs, ...diagnosticReferences(error) } };
 }
 
 export function originFetch(origin: string, observeResponse?: (response: Response) => void): typeof fetch {
@@ -162,6 +163,9 @@ export async function observeScenario(scenario: Scenario, config: ProtocolConfig
       const { native: _native, ...marketRequest } = request;
       void _native;
       value = await fetchQuoteStream<MarketQuote, { type: string }>("/api/quotes/market/stream", marketRequest, signal, events, fetcher);
+      const tokenIn = request.side === "buy" ? request.counterToken : config.contracts.core!, tokenOut = request.side === "buy" ? config.contracts.core! : request.counterToken;
+      requireInvariant(value.tokenIn.toLowerCase() === tokenIn.toLowerCase() && value.tokenOut.toLowerCase() === tokenOut.toLowerCase()
+        && value.params.counterToken.toLowerCase() === request.counterToken.toLowerCase(), "market-token-mismatch");
       result.bounds = validateTrade({ ...value, quotedInput: value.totalInput, quotedOutput: value.netOutput }, request);
       uint(value.fee.amount, "helpers-fee"); uint(value.refundDust, "refund");
       result.bounds = { ...result.bounds, protocolFeeCygld: "0", helperFeeCygld: value.fee.amount, refundDust: value.refundDust };

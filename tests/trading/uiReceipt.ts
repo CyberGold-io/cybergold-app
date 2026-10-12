@@ -1,6 +1,7 @@
 import { decodeEventLog, decodeFunctionData, zeroAddress, type Address, type Hex } from "viem";
 import { HELPERS_EXECUTION_ABI } from "../../app/contracts/cybergold-helpers/execution.ts";
 import { tradeReceipt } from "../../app/utils/tradeReceipt.ts";
+import { marketSwapReceipt } from "../../app/utils/marketSwap.ts";
 import { configuredToken, type Scenario } from "./scenarios.ts";
 import { requireInvariant, resultFor, type ScenarioResult } from "./regression.ts";
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
@@ -51,6 +52,12 @@ export function uiReceiptResult(scenario: Scenario, config: ProtocolConfiguratio
     }
   } else {
     const token = configuredToken(config, scenario.asset);
+    if (strategy === "market") {
+      const market = marketSwapReceipt(receipt.logs, config.contracts.helpers as Address, owner);
+      requireInvariant(token.type === "erc20" && market?.counterToken.toLowerCase() === token.address.toLowerCase()
+        && market.recipient.toLowerCase() === owner.toLowerCase() && market.side === (scenario.side === "buy" ? 0 : 1)
+        && market.exactInput === (scenario.inputMode === "exact-in"), "market-receipt-intent-mismatch");
+    } else requireInvariant(operation.startsWith(scenario.side === "buy" ? "issueFrom" : "redeemTo"), "core-receipt-direction-mismatch");
     const measured = tradeReceipt(receipt.logs, config.contracts.helpers as Address, owner, strategy,
       (scenario.side === "sell" ? config.contracts.core : token.type === "native" ? zeroAddress : token.address) as Address);
     requireInvariant(measured?.operation === (strategy === "market" ? "swap" : scenario.side === "buy" ? "issue" : "redeem"), "operation-event-missing");

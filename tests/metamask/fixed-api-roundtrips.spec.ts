@@ -11,6 +11,7 @@ import { fundSandboxWallet } from "../trading/sandboxFunding";
 import { fetchTransactionReceipt } from "../../app/utils/transactionReceipt";
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration";
 import type { ProtocolFacts } from "../../app/utils/protocolFacts";
+import { safeDiagnosticReferences } from "../../app/utils/diagnosticReferences";
 
 async function approveUntilMined(page: Page) {
   const success = page.getByText(/The transaction was mined successfully/i);
@@ -66,6 +67,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   const config = await readJson<ProtocolConfiguration>(fetcher, "/api/protocol/config");
   let helpersHash: Hex | undefined;
   let activeSwapAttempt: string | undefined;
+  let activeScenarioIndex: number | undefined;
   const scenarios = tradeScenarios.filter(scenario => scenario.requestedStrategy === "core");
   const results: ScenarioResult[] = scenarios.map(scenario => ({ ...resultFor(scenario, "execution"), id: `ui-${scenario.id}`, requestedStrategy: "auto" }));
   async function persist() {
@@ -80,6 +82,8 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     if (new URL(request.url()).pathname === "/api/diagnostics") {
       const event = request.postDataJSON();
       if (event?.operation === "swap" && event.outcome === "started") activeSwapAttempt = event.attemptId;
+      if (activeScenarioIndex !== undefined && event?.operation === "swap" && event.attemptId === activeSwapAttempt)
+        results[activeScenarioIndex].refs = { ...results[activeScenarioIndex].refs, ...safeDiagnosticReferences(event) };
       if (event?.operation === "swap" && ["submitted", "succeeded"].includes(event.outcome)
         && event.attemptId === activeSwapAttempt && /^0x[0-9a-f]{64}$/i.test(event.transactionHash ?? "")) helpersHash = event.transactionHash;
     }
@@ -157,18 +161,19 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       const basketAmounts = await Promise.all(amounts.map(async (input, index) => parseUnits(await input.inputValue(), basketTokens[index].decimals)));
       const userToken = configuredToken(config, (scenario.side === "buy") !== (scenario.inputMode === "exact-in") ? "CYGLD" : scenario.asset === "BASKET" ? basketTokens[0].symbol : scenario.asset);
       const userAmount = parseUnits(scenario.displayAmount, userToken.decimals);
-      helpersHash = undefined; activeSwapAttempt = undefined;
+      helpersHash = undefined; activeSwapAttempt = undefined; activeScenarioIndex = index;
       await submit();
       await expect.poll(() => helpersHash, { timeout: 15000 }).toBeTruthy();
       const receipt = await fetchTransactionReceipt(helpersHash!, undefined, fetcher);
       requireInvariant(receipt, "receipt-unavailable");
       const observed = await readJson<{ transaction: { input: Hex; to: string; from: string } | null }>(fetcher, `/api/transaction/wait/transaction?hash=${helpersHash}`);
       requireInvariant(observed.transaction?.to.toLowerCase() === config.contracts.helpers!.toLowerCase() && observed.transaction?.from.toLowerCase() === owner.toLowerCase(), "transaction-party-mismatch");
-      results[index] = uiReceiptResult(scenario, config, owner, observed.transaction!.input, receipt, userAmount, basketAmounts);
+      results[index] = { ...uiReceiptResult(scenario, config, owner, observed.transaction!.input, receipt, userAmount, basketAmounts), refs: results[index].refs };
       await balancesAfter(page, [...ids, "cygld"], after => scenario.side === "buy"
         ? after.cygld > before.cygld && ids.some(id => after[id] < before[id])
         : after.cygld < before.cygld && ids.some(id => after[id] > before[id]));
     } catch (error) { results[index] = { ...failureResult(results[index], error), ...(helpersHash ? { transactionHash: helpersHash } : {}) }; }
+    activeScenarioIndex = undefined;
     results[index].durationMs = Math.round(performance.now() - started); await persist();
   });
   expect(genericRequests).toEqual([]);

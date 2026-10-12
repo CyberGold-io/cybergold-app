@@ -140,13 +140,15 @@ def main() -> None:
                 rpc(fork, "anvil_stopImpersonatingAccount", [holder])
         contracts = json.loads(args.contracts_json.read_text())
         safe = contracts["safe"]["safe"]
-        rpc(fork, "anvil_setBalance", [safe, hex(10**18)])
-        rpc(fork, "anvil_impersonateAccount", [safe])
-        try:
-            run(["cast", "send", "--rpc-url", fork, "--from", safe, "--unlocked",
-                 contracts["protocol"]["coreDiamond"], "unpause()"], "unpause-owned-Core", timeout=120)
-        finally:
-            rpc(fork, "anvil_stopImpersonatingAccount", [safe])
+        core = contracts["protocol"]["coreDiamond"]
+        if subprocess.check_output(["cast", "call", "--rpc-url", fork, core, "paused()(bool)"], text=True).strip() == "true":
+            rpc(fork, "anvil_setBalance", [safe, hex(10**18)])
+            rpc(fork, "anvil_impersonateAccount", [safe])
+            try:
+                run(["cast", "send", "--rpc-url", fork, "--from", safe, "--unlocked",
+                     core, "unpause()"], "unpause-owned-Core", timeout=120)
+            finally:
+                rpc(fork, "anvil_stopImpersonatingAccount", [safe])
         settings = {
             "NEXT_PUBLIC_CHAIN_ID": "31338", "NEXT_PUBLIC_CHAIN_NAME": "CyberGold Disposable Wallet Fork",
             "NEXT_PUBLIC_APP_ORIGIN": f"http://127.0.0.1:{frontend_port}", "NEXT_PUBLIC_WALLET_RPC_URL": fork,
