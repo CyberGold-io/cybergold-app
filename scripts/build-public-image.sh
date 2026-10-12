@@ -5,7 +5,7 @@ source_dir="${1:?source directory}"
 image_tag="${2:?local image tag}"
 target="${3:-runner}"
 public_env="${4:?public build environment file}"
-source_commit="${CG_SOURCE_COMMIT:-}"
+source_commit="${CYBERGOLD_SOURCE_COMMIT:-}"
 if [[ -z "$source_commit" ]]; then
   source_commit="$(python3 - "$source_dir" <<'SOURCE_ID'
 import json, os, pathlib, subprocess, sys

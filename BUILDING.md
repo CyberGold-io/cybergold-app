@@ -45,7 +45,7 @@ docker run --rm --add-host host.docker.internal:host-gateway -p 127.0.0.1:3000:3
 ```
 
 The wrapper uses the checkout commit as its build identity. For an extracted
-retained package, `CG_SOURCE_COMMIT=<listed version>` selects the original
+retained package, `CYBERGOLD_SOURCE_COMMIT=<listed version>` selects the original
 version recorded in `source-info.json`; this does not create Git history. For direct local development, use Node from `.nvmrc`, `npm ci`, copy
 the public and runtime examples into `.env.local`, then run `npm run dev`.
 
