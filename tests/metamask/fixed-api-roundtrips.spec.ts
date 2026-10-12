@@ -1,7 +1,7 @@
 import { errors, type Page } from "@playwright/test";
 import { expect, test } from "./testWithMetaMask";
 import { addLocalNetwork, connectWallet, notification, requestConnection, switchLocalNetwork } from "./wallet-ui";
-import { getMainInput, getSwapButton, parseAmount, readWalletBalances, selectToken, showAllSellTokens } from "./token-flows/helpers";
+import { ensureBasketInputEditable, getMainInput, getSwapButton, parseAmount, readWalletBalances, selectToken, showAllSellTokens } from "./token-flows/helpers";
 import { writeFile, rename } from "node:fs/promises";
 import { parseUnits, type Address, type Hex } from "viem";
 import { tradeScenarios, configuredToken, basketFacts } from "../trading/scenarios";
@@ -14,7 +14,7 @@ import type { ProtocolFacts } from "../../app/utils/protocolFacts";
 import { safeDiagnosticReferences } from "../../app/utils/diagnosticReferences";
 
 async function approveUntilMined(page: Page) {
-  const success = page.getByText(/The transaction was mined successfully/i);
+  const success = page.getByText(/^Transaction confirmed$/i);
   const failure = page.getByText(/^Transaction failed$/i);
   let openedStep = "";
   await expect.poll(async () => {
@@ -116,13 +116,13 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     await selectToken(page, "sell", sell);
     await selectToken(page, "buy", buy);
     const editedToken = side === "sell" ? sell : buy;
-    const input = editedToken === "BASKET" ? page.locator(`#${side}-basket-composition input`).first() : getMainInput(page, side);
+    const input = editedToken === "BASKET" ? await ensureBasketInputEditable(page, side) : getMainInput(page, side);
     await input.click();
     await input.fill(amount);
     const quotedSide = side === "sell" ? "buy" : "sell";
     const quotedToken = quotedSide === "buy" ? buy : sell;
     if (quotedToken === "BASKET") {
-      const amounts = page.locator(`#${quotedSide}-basket-composition`).getByRole("button");
+      const amounts = page.locator(`#${quotedSide}-basket-composition`).getByRole("button", { name: new RegExp(`^Edit ${quotedSide} amount \\(`) });
       // The funded fixture contains PAXG and XAUt. Quoted basket amounts are
       // buttons, while the editable token side retains its ordinary input.
       await expect(amounts).toHaveCount(2);
@@ -147,7 +147,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   await expect(await getSwapButton(page)).toHaveText(/^MetaMask \d+ of \d+:/, { timeout: 60000 });
   const rejected = await notification(page);
   await rejected.getByTestId("confirm-footer-cancel-button").click();
-  await expect(page.getByText(/^Transaction failed$/i)).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(/^Wallet request cancelled$/i)).toBeVisible({ timeout: 20000 });
   expect((await readWalletBalances(page, ["cygld"])).cygld).toBe(beforeRejected.cygld);
   setupComplete = true;
 

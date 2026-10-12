@@ -1,11 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { chromium, type Browser } from "@playwright/test";
 import { coreIntentRequest, ScenarioUnavailableError, splitAmount, tradeScenarios } from "../../tests/trading/scenarios.ts";
 import { failureResult, matchesBasketIntent, resultFor, uint, validateBasket, validateTrade } from "../../tests/trading/regression.ts";
 import type { BasketPreview } from "./basketPreview.ts";
 import { QuotePreviewError } from "./quoteErrors.ts";
 import { diagnosticReferences } from "./diagnosticReferences.ts";
 import { fetchQuoteStream } from "./quoteStream.ts";
+import { observeBrowserQuotes } from "../../tests/trading/browserQuotes.ts";
+import { protocolConfigurationFixture } from "../../tests/fixtures/protocol-configuration.ts";
+import { installQuoteObservation } from "../../tests/trading/quoteObservation.ts";
 
 test("inventory includes every Core asset/direction/mode and four independent market modes", () => {
   assert.equal(tradeScenarios.length, 20);
@@ -76,6 +84,67 @@ test("a submitted confirmation timeout stays unavailable with its transaction ha
     new ScenarioUnavailableError("submitted-unconfirmed"));
   assert.equal(result.status, "unavailable"); assert.equal(result.code, "submitted-unconfirmed");
   assert.equal(result.transactionHash, transactionHash); assert.deepEqual(result.refs, { requestId });
+});
+
+test("browser launch failure is unavailable without exposing the launch error", async (t) => {
+  t.mock.method(chromium, "launch", async () => { throw new Error("private-browser-provider-token"); });
+  let failure: unknown;
+  try { await observeBrowserQuotes("http://app.test", protocolConfigurationFixture, {} as never); }
+  catch (error) { failure = error; }
+  const result = failureResult(resultFor(tradeScenarios[0], "browser"), failure);
+  assert.equal(result.status, "unavailable"); assert.equal(result.code, "browser-unavailable");
+  assert.doesNotMatch(JSON.stringify(result), /private-browser-provider-token/);
+});
+
+test("browser page setup failure is unavailable and closes the owned browser", async (t) => {
+  let closed = false;
+  t.mock.method(chromium, "launch", async () => ({ newPage: async () => { throw new Error("private-browser-provider-token"); },
+    close: async () => { closed = true; } } as unknown as Browser));
+  await assert.rejects(observeBrowserQuotes("http://app.test", protocolConfigurationFixture, {} as never),
+    error => error instanceof ScenarioUnavailableError && error.code === "browser-unavailable");
+  assert.equal(closed, true);
+});
+
+test("browser observer captures the emitted terminal before App cancellation without making another request", { timeout: 2_000 }, async () => {
+  const requestId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e";
+  const terminal = { type: "complete", value: { strategy: "core", quotedOutput: "10" }, requestId };
+  let calls = 0, cancelled = 0;
+  const encoder = new TextEncoder();
+  const response = new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(encoder.encode(JSON.stringify({ type: "progress", strategy: "core" }) + "\n"));
+      setTimeout(() => controller.enqueue(encoder.encode(JSON.stringify(terminal) + "\n")), 10);
+    },
+    cancel() { cancelled += 1; },
+  }), { headers: { "X-CyberGold-Request-Id": requestId } });
+  const scope = { location: { href: "https://app.test/en" }, fetch: async (_input: unknown, init?: RequestInit) => {
+    calls += 1; assert.equal(init?.body, JSON.stringify({ mode: "exact-out", amount: "10" })); return response;
+  } } as unknown as NonNullable<Parameters<typeof installQuoteObservation>[0]>;
+  installQuoteObservation(scope);
+  const value = await fetchQuoteStream("/api/quotes/trade/stream", { mode: "exact-out", amount: "10" },
+    new AbortController().signal, () => {}, scope.fetch);
+  assert.deepEqual(value, terminal.value);
+  assert.equal(calls, 1); assert.equal(cancelled, 1);
+  assert.deepEqual(scope.__cybergoldTradeObservations?.[0]?.terminal, terminal);
+  assert.equal(scope.__cybergoldTradeObservations?.[0]?.requestId, requestId);
+  assert.deepEqual(scope.__cybergoldTradeObservations?.[0]?.request, { mode: "exact-out", amount: "10" });
+});
+
+test("a quote runner startup failure retains all36 stable unavailable scenario rows", () => {
+  const output = mkdtempSync(join(tmpdir(), "cybergold-trade-regression-"));
+  const env = { ...process.env }; delete env.APP_BASE_URL;
+  try {
+    const child = spawnSync(process.execPath, ["scripts/run-trade-regression.mjs", "--target", "mainnet", "--mode", "quotes", "--output-dir", output],
+      { cwd: new URL("../../", import.meta.url), env, stdio: "ignore" });
+    assert.equal(child.status, 1);
+    const report = JSON.parse(readFileSync(join(output, "report.json"), "utf8"));
+    assert.equal(report.runnerCode, "app-origin-unavailable");
+    assert.equal(report.scenarios.length, 36);
+    assert.equal(new Set(report.scenarios.map((row: { id: string }) => row.id)).size, 36);
+    assert.equal(report.scenarios.filter((row: { layer: string }) => row.layer === "api").length, 20);
+    assert.equal(report.scenarios.filter((row: { layer: string }) => row.layer === "browser").length, 16);
+    assert.ok(report.scenarios.every((row: { status: string; code: string }) => row.status === "unavailable" && row.code === "app-origin-unavailable"));
+  } finally { rmSync(output, { recursive: true, force: true }); }
 });
 
 test("browser basket matching rejects warm vectors and validates current asset bounds", () => {

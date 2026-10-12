@@ -146,7 +146,7 @@ export async function approveMetaMaskPrompts(page: Page, password: string) {
     const handledPrompt = await handleMetaMaskPrompt(page, password);
     if (handledPrompt) continue;
 
-    const successToast = page.getByText(/The transaction was mined successfully/i);
+    const successToast = page.getByText(/^Transaction confirmed$/i);
     if (await successToast.isVisible().catch(() => false)) return;
 
     await page.waitForTimeout(500);
@@ -188,6 +188,16 @@ export function getSwapSection(page: Page) {
 
 export function getMainInput(page: Page, side: SwapSide) {
   return page.locator(`#${side}-amount`);
+}
+
+export async function ensureBasketInputEditable(page: Page, side: SwapSide) {
+  const composition = page.locator(`#${side}-basket-composition`);
+  // Quoted basket components are edit buttons until their side is activated.
+  const edit = composition.getByRole("button", { name: new RegExp(`^Edit ${side} amount \\(`) }).first();
+  await composition.getByRole("textbox").first().or(edit).first().click();
+  const input = composition.locator("input").first();
+  await expect(input).toBeEditable();
+  return input;
 }
 
 export async function ensureMainInputEditable(page: Page, side: SwapSide) {
@@ -317,7 +327,7 @@ export async function submitSwapAndExpectSuccess(page: Page, metamask: MetaMask)
   await swapButton.click();
   await expect(swapButton).toHaveText(/Processing|MetaMask|Quote processing/i, { timeout: 15_000 });
   await approveMetaMaskPrompts(page, metamask.password);
-  await expect(page.getByText(/The transaction was mined successfully/i)).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText(/^Transaction confirmed$/i)).toBeVisible({ timeout: 60_000 });
 }
 
 export async function expectSwapDisabled(page: Page, label?: RegExp) {

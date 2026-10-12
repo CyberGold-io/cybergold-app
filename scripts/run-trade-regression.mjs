@@ -89,8 +89,13 @@ try {
         catch (error) { report.scenarios.push({ ...failureResult(resultFor(scenario, "api"), error), durationMs: Math.round(performance.now() - started) }); }
       }
       try { report.scenarios.push(...await observeBrowserQuotes(origin, config, facts)); }
-      catch (error) { for (const scenario of tradeScenarios.filter(s => s.requestedStrategy === "core"))
-        report.scenarios.push({ ...failureResult(resultFor(scenario, "browser"), error), id: `ui-${scenario.id}`, requestedStrategy: "auto" }); }
+      catch (error) {
+        if (error instanceof ScenarioUnavailableError && error.code === "browser-unavailable") {
+          report.runnerOutcome = "unavailable"; report.runnerCode = error.code;
+        }
+        for (const scenario of tradeScenarios.filter(s => s.requestedStrategy === "core"))
+          report.scenarios.push({ ...failureResult(resultFor(scenario, "browser"), error), id: `ui-${scenario.id}`, requestedStrategy: "auto" });
+      }
       report.observations.correlationAvailable = report.scenarios.some(row => row.refs?.requestId);
     } else {
       // This specific command signs only the dedicated Sandbox fork. Mainnet
@@ -108,7 +113,13 @@ try {
   }
 } catch (error) {
   report.runnerOutcome = "unavailable"; report.runnerCode = failureResult(resultFor(tradeScenarios[0], "api"), error).code;
-  if (!report.scenarios.length) report.scenarios = tradeScenarios.map(scenario => failureResult(resultFor(scenario, values.mode === "quotes" ? "api" : "execution"), error));
+  if (values.mode === "quotes") {
+    const observed = new Set(report.scenarios.map(row => row.id));
+    for (const scenario of tradeScenarios) if (!observed.has(scenario.id))
+      report.scenarios.push({ ...failureResult(resultFor(scenario, "api"), error), status: "unavailable" });
+    for (const scenario of tradeScenarios.filter(row => row.requestedStrategy === "core")) if (!observed.has(`ui-${scenario.id}`))
+      report.scenarios.push({ ...failureResult(resultFor(scenario, "browser"), error), id: `ui-${scenario.id}`, requestedStrategy: "auto", status: "unavailable" });
+  } else if (!report.scenarios.length) report.scenarios = tradeScenarios.map(scenario => failureResult(resultFor(scenario, "execution"), error));
 }
 report.finishedAt = new Date().toISOString();
 await writeFile(resolve(output, "report.json.tmp"), JSON.stringify(report, null, 2) + "\n");
