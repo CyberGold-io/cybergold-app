@@ -1,3 +1,4 @@
+import { tradeIntentEvent } from "./fixtures/trade-core";
 import { expect, test } from "./fixtures/app-test";
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -13,7 +14,7 @@ test("fee row stays visible, and qualified issuance uses execution fees without 
     let body = ""; for await (const chunk of request) body += chunk;
     input = JSON.parse(body); response = reply; requests++;
     reply.writeHead(200, { "content-type": "application/x-ndjson" });
-    reply.write(JSON.stringify({ type: "estimate", amount: intentFixture(input!).displayAmount, context }) + "\n");
+    reply.write(JSON.stringify(tradeIntentEvent({ type: "estimate", amount: intentFixture(input!).displayAmount, context }, input!)) + "\n");
   });
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   try {
@@ -30,12 +31,12 @@ test("fee row stays visible, and qualified issuance uses execution fees without 
     const value = intentFixture(input!);
     value.initialPreview!.fees = { protocolFeeCygld: "10000000000000000", helperFeeCygld: "0" };
     value.preview.fees = { protocolFeeCygld: "1000000000000000", helperFeeCygld: "0" };
-    response!.write(JSON.stringify({ type: "qualified", value }) + "\n");
+    response!.write(JSON.stringify(tradeIntentEvent({ type: "qualified", value }, input!)) + "\n");
     await expect(quoted).toBeEnabled(); await expect(quoted).toHaveValue("3");
     await expect(page.getByText(/^0\.001 CYGLD/)).toBeVisible();
     await expect(page.getByText(/^0\.01 CYGLD/)).toHaveCount(0);
     await expect(page.getByTestId("quote-estimate-description")).not.toBeAttached();
-    response!.end(JSON.stringify({ type: "complete", value }) + "\n");
+    response!.end(JSON.stringify(tradeIntentEvent({ type: "complete", value }, input!)) + "\n");
     await expect(feeRow).toBeVisible(); expect(requests).toBe(1);
     await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("");
     await expect(quoted).toHaveValue(""); await expect(feeRow).toBeVisible();

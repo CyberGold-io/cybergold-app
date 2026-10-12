@@ -198,6 +198,12 @@ test("fees accordion owns tolerance, retains its value and shows only the active
 
 for (const side of ["issue", "redeem"] as const) test(`${side}: a Backend default adapter omitted from configuration stays concrete in Core execution and its existing approval check`, async ({ page }) => {
   const observed = await installSyntheticWallet(page);
+  const approvalAdapters: string[] = [];
+  await page.route("**/api/governance/helpers-facts**", async route => {
+    const adapter = new URL(route.request().url()).searchParams.get("adapter");
+    if (adapter) approvalAdapters.push(adapter.toLowerCase());
+    await route.fallback();
+  });
   await page.route("**/api/protocol/config", route => route.fulfill({ json: {
     ...protocolConfigurationFixture, contracts: { ...protocolConfigurationFixture.contracts, uniswapAdapter: null },
     adapter: { status: "unavailable", encoding: null, observation: null },
@@ -210,11 +216,18 @@ for (const side of ["issue", "redeem"] as const) test(`${side}: a Backend defaul
   await edited.click(); await edited.fill("1");
   await expect(page.locator(side === "issue" ? "#sell-amount" : "#buy-amount")).toHaveValue("1");
   await expect.poll(() => observed.intents.length).toBeGreaterThan(0);
-  expect(observed.intents.every(request => request.adapter === undefined)).toBe(true);
+  // App sends only an economic trade intent. The Backend fixture resolves its
+  // concrete Core adapter, which the existing approval read and calldata use.
+  expect(observed.rawIntents).toHaveLength(observed.intents.length);
+  expect(observed.rawIntents.every(request => !("adapter" in (request as object)))).toBe(true);
+  expect(observed.intents.every(request => request.adapter?.toLowerCase() === protocolAddresses.adapter)).toBe(true);
   const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
   await expect(swap).toBeEnabled(); await swap.click();
   const transactions = () => page.evaluate(() => (window as unknown as { __toleranceTransactions: Submitted[] }).__toleranceTransactions);
   await expect.poll(async () => (await transactions()).length).toBe(1);
+  // This existing code/approval check happens after Swap captures the winner,
+  // before wallet submission, and uses that winner's concrete adapter.
+  expect(approvalAdapters).toContain(protocolAddresses.adapter);
   const decoded = decodeFunctionData({ abi: HELPERS_ABI_ISSUE_FROM_TOKEN, data: (await transactions())[0].data });
   expect(decoded.functionName).toBe(side === "issue" ? "issueFromNativeExactOut" : "redeemToNativeExactIn");
   const legs = decoded.args![side === "issue" ? 2 : 1] as readonly { adapter: string }[];

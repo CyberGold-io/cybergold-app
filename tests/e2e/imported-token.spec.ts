@@ -1,3 +1,4 @@
+import { routeCoreIntent } from "./fixtures/trade-core";
 import { expect, test, type Page } from "./fixtures/app-test";
 import { install, context } from "./fixtures/token-quotes";
 
@@ -64,7 +65,7 @@ test("import unavailable precision stays unresolved and presents a localized act
 test("import does not manufacture a liquidity route", async ({ page }) => {
   await install(page);
   await page.route("**/api/tokens/metadata*", route => route.fulfill({ json: metadata }));
-  await page.route("**/api/quotes/intent/stream", route => route.fulfill({ contentType: "application/x-ndjson",
+  await routeCoreIntent(page, route => route.fulfill({ contentType: "application/x-ndjson",
     body: JSON.stringify({ type: "error", code: "quote-no-route", error: "No route", correlationId: "fixture" }) + "\n" }));
   await page.goto("/en"); await importSelected(page);
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");

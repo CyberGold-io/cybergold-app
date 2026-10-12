@@ -18,6 +18,7 @@ const args = [{ netCygldOut: 123n, recipient: owner }, { permit: { permitted: [{
 
 function fixture() {
   const requests: { method: string; params?: unknown }[] = [];
+  let receiptLogs: { address: typeof helpers; data: `0x${string}`; topics: `0x${string}`[] }[] = [];
   let capabilities: object = { [toHex(targetChainId)]: { atomic: { status: "supported" } } };
   let status = 200, receiptStatus = "0x1", unavailable = false, rejectSend = false, missingReceipts = false;
   const client = createWalletClient({ account: owner, chain, transport: custom({ async request(request) {
@@ -31,14 +32,14 @@ function fixture() {
     if (request.method === "wallet_getCallsStatus") {
       if (unavailable) throw { code: -32603, message: "Unavailable" };
       return { atomic: true, chainId: toHex(targetChainId), version: "2.0.0", status,
-        ...(!missingReceipts ? { receipts: [{ transactionHash: hash, blockNumber: "0x64", gasUsed: "0x123", status: receiptStatus, logs: [] }] } : {}) };
+        ...(!missingReceipts ? { receipts: [{ transactionHash: hash, blockNumber: "0x64", gasUsed: "0x123", status: receiptStatus, logs: receiptLogs }] } : {}) };
     }
     throw new Error(`Unexpected wallet request: ${request.method}`);
   } }, { retryCount: 0 }) });
   return { client, requests, capabilities: (value: object) => { capabilities = value; },
     status: (value: number, receipt = "0x1") => { status = value; receiptStatus = receipt; },
     unavailable: (value: boolean) => { unavailable = value; }, rejectSend: () => { rejectSend = true; },
-    missingReceipts: () => { missingReceipts = true; } };
+    missingReceipts: () => { missingReceipts = true; }, logs: (value: typeof receiptLogs) => { receiptLogs = value; } };
 }
 
 test("capabilities are requested for the connected network; other networks cannot grant support", async () => {
@@ -118,4 +119,15 @@ test("successful wallet confirmation does not invent a hash when receipts are ab
   const f = fixture(); f.missingReceipts();
   const submission = await createWalletSwapBatch(f.client, owner, helpers).submit("issueFromBasketExactOutWithPermit2", args);
   assert.deepEqual(await submission.wait(), { transactionHash: undefined });
+});
+
+
+test("atomic confirmation carries existing operation logs without another receipt read", async () => {
+  const f = fixture(), logs = [{ address: helpers, data: "0xab" as const, topics: [`0x${"1".repeat(64)}` as `0x${string}`] }];
+  f.logs(logs);
+  const submission = await createWalletSwapBatch(f.client, owner, helpers).submit("issueFromBasketExactOutWithPermit2", args);
+  const result = await submission.wait();
+  assert.deepEqual(result.logs, logs); assert.equal(result.transactionHash, hash);
+  assert.equal(f.requests.filter(row => row.method === "wallet_getCallsStatus").length, 1);
+  assert.equal(f.requests.some(row => row.method === "eth_getTransactionReceipt"), false);
 });

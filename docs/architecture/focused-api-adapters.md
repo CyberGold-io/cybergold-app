@@ -38,6 +38,14 @@ unit cases cover precision, query sharing and generation invalidation.
 The five-second balance setting is a freshness threshold, not polling. The sell
 token picker shows a spinner while its wallet-only choices initially load;
 settled failures and cached background refreshes do not keep that spinner active.
+Public display fallbacks survive reloads separately from live configuration:
+`displayTokens` restores only selector metadata, while operation addresses,
+token inputs and trading identity continue to come from the live configuration
+query. Gold and FX hooks restore parsed observations as SWR fallback data after
+hydration, retain their original acquisition age and stale status, and perform
+the existing Backend refresh. Stale supplier fallbacks still render normally
+and do not replace the persistent fresh observation. Wallet state, executable quotes, pause/cap/fee
+facts and deployment roots are excluded from this persistent display cache.
 Ordinary wallet and native reads send `purpose=display`, select one latest block and retain canonical
 hash pinning for each asset, without repeating the chain check or rereading the
 block afterward. Swap submission sends `purpose=swap-preflight` on its fresh
@@ -178,21 +186,56 @@ older targets retain their Permit2 executors and sufficient Helpers allowance
 remains usable. Source tests do
 not establish installation or physical-wallet qualification.
 
-## Market liquidity swaps
+## Unified token trading
 
-The home page separates Core Issue/Redeem from PAXG/CYGLD liquidity swaps.
-Market activation calls the amount-independent `/api/quotes/market/model`
-adapter; `/api/quotes/market/stream` delivers complete fee-aware market plans.
-Market models have their own bank and family identity. They neither replace
-the Core basket snapshot nor become issuance/redemption quotes. Cached rational
-models display estimates during typing; exact protocol calculation and route
-search remain on the Backend with Uniswap SDK dependencies.
+The home page has one neutral token trading form without a mechanism chooser or
+selected-strategy label. `POST /api/quotes/trade/stream` sends
+side, exact-in/out mode, counter-token/native selection, amount, recipient,
+deadline and tolerance. The Backend assembles and competes Core and market
+candidates, publishes each improving qualified winner, and returns the selected
+complete tagged provider request/quote. The App does not assemble basket targets,
+rank families or rebuild an executor payload. A Core failure cannot erase a
+qualified market winner. Initially only PAXG/CYGLD market trading is qualified;
+native ETH and other configured tokens retain Core routing. Basket operations
+and recovery settlement remain distinct.
 
-The App consumes the Backend's selected fee rate and frozen CYGLD fee amount,
+Exact-in competition uses fee-net output; exact-out competition uses actual
+fee-inclusive expected input. Min/max protections and gas are separate. Core
+redeem-exact-out still settles a fixed redemption lot: its actual burned
+`executionAmount` is compared, rather than the smaller advisory solver input.
+Token MAX uses the spending wallet budget, so a Core mint cap cannot restrict a
+qualified market purchase.
+
+`POST /api/quotes/trade/model` obtains organic family models and a Backend-ranked
+estimate. Warm acquisition reuses caches; cold acquisition may load lightweight
+baselines through existing shared Backend facts. An unavailable model does not
+block exact quoting. Core and market models keep their family and deployment
+namespaces. No generic browser RPC or swap computation fallback is added.
+The indicative model receives the validated raw amount independently of exact
+search debounce. Tolerance remains debounced, and obsolete work retains existing
+cancellation and configuration/head isolation.
+
+One shared query/stream retains the first qualified plan during optimization.
+Ordinary head refresh starts a fresh competition without automatically restricting
+it to the previously selected family. Input, deployment and fork changes isolate
+cached models and abort obsolete work. Before wallet preparation, the App captures
+the complete selected plan, targets and terms. Later better candidates cannot
+retarget a signature or change its displayed terms. Only the selected executor
+prepares permits or transactions; specialized basket actions keep their existing
+execution path.
+
+Market fee rows and receipts use the Front-end fee label, independently of the
+Core Helpers fee. The App consumes the Backend's selected fee rate and frozen CYGLD fee amount,
 complete V2/V3/V4 route, explicit routed sale input, net output and inclusive
 input bounds. It defines no token classification or fee-rate policy and does
 not rebuild a generic route as a V3 packed path. Core execution continues to
 consume its own complete Backend quote and adapter payload.
+Expanded fee details render fixed Protocol, Helpers, Front-end and transaction
+rows before their data arrives. Unknown amounts, valuations and bounds display
+`...`; an inapplicable fee displays `—`. Token catalogs, balances, requested
+Basket composition and MAX controls retain their shell while loading. These
+placeholders do not supply amounts or plans to execution. The action mirrors
+the existing submission requirement for an actual ready flow.
 
 Market execution uses the scoped `swapExactInput`/`swapExactOutput` selectors.
 Native token permits name Helpers as spender and cover the declared inclusive
@@ -207,6 +250,10 @@ permit-and-swap call is simulated through
 
 `MarketSwapExecuted` supplies actual venue input, net recipient output,
 original-input and output-excess refunds, CYGLD fee and actual beneficiary.
+The common receipt reports total CYGLD debit for sales, including that fee.
+Core `Issued`/`Redeemed` events retain measured input/output and distinct recovery
+share amounts. Atomic/SDK batch confirmations reuse their already-returned logs
+without another receipt read.
 The quoted fee-recipient observation is advisory; receipts use the emitted
 beneficiary. Exact-output excess returns to the payer, while exact-input
 settlement delivers favorable output to the selected recipient.

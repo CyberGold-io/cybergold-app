@@ -1,8 +1,9 @@
+import { tradeIntentEvent } from "./fixtures/trade-core";
 import { routeWalletBalances } from "./fixtures/wallet-balances";
 import { expect, test } from "./fixtures/app-test";
 import { createServer, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { QuoteIntentRequest } from "../../app/utils/quoteIntent";
+import type { QuoteIntentEvent, QuoteIntentRequest } from "../../app/utils/quoteIntent";
 import { choose, context, install } from "./fixtures/token-quotes";
 import { intentFixture } from "./fixtures/quote-intent";
 
@@ -26,7 +27,7 @@ function send(response: ServerResponse, request: QuoteIntentRequest) {
     : phase === "error" ? { type: "error", error: "Quote is temporarily unavailable.", correlationId: "fixture" }
     : phase === "partial" || phase === "preview-pending" ? { type: "progress", stage: "initial", completed: 1, total: 4 }
     : { type: "estimate", amount: value.displayAmount, context: value.context };
-  response.write(JSON.stringify(event) + "\n");
+  response.write(JSON.stringify(tradeIntentEvent(event as QuoteIntentEvent, request)) + "\n");
   if (phase === "complete" || phase === "error") response.end();
 }
 
@@ -50,7 +51,7 @@ for (const symbol of ["WETH", "USDC"] as const) {
       advance("qualified-better");
       await expect.poll(async () => Number(await quoted.inputValue())).toEqual(exactIn ? first * 2 : first / 2);
       const improved = await quoted.inputValue();
-      advance("qualified"); await expect(quoted).toHaveValue(improved); // Late weaker plan.
+      advance("first"); await expect(quoted).toHaveValue(improved); // A weaker advisory estimate cannot replace the selected Backend plan.
       advance("error"); await expect(quoted).toBeEnabled(); await expect(quoted).toHaveValue(improved);
       await expect(page.getByText("The quote service could not process this request. Retry.", { exact: true })).toHaveCount(0);
       expect(observed.intents).toHaveLength(1);
@@ -144,7 +145,7 @@ test("an expired qualified tuple is replaced under the ordinary deadline policy"
 test("a new intent gets a fresh deadline after renewal, clearing and an idle period", async ({ page }) => {
   const requests: QuoteIntentRequest[] = [];
   page.on("request", request => {
-    if (new URL(request.url()).pathname === "/api/quotes/intent/stream") requests.push(request.postDataJSON());
+    if (new URL(request.url()).pathname === "/api/quotes/trade/stream") requests.push(request.postDataJSON());
   });
   await install(page, "", undefined, streamUrl);
   await page.goto("/en"); await choose(page, "WETH");

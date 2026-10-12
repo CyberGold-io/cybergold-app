@@ -186,7 +186,10 @@
     "quoteStreamInterrupted": "The connection to the quote service was interrupted. Retry.",
     "quoteInvalidInput": "The quote request is invalid. Change the amount or token.",
     "quoteRequestLimit": "The quote service is receiving too many requests. Retry shortly.",
-    "quoteRpcAccessDenied": "RPC error: the provider refused access. Retry later."
+    "quoteRpcAccessDenied": "RPC error: the provider refused access. Retry later.",
+    "tradeActualInput": "Actual input used",
+    "tradeActualOutput": "Actual output received",
+    "applicationFee": "Front-end fee"
   },
   
   "WalletBalances": {
@@ -841,7 +844,7 @@
     "amount": "Amount ({token})",
     "recipient": "Output recipient",
     "recipientHint": "Your connected wallet receives the output unless you specify another address.",
-    "fee": "Application fee ({rate}%)",
+    "fee": "Front-end fee ({rate}%)",
     "feeRecipient": "Fee recipient",
     "minimum": "Minimum received",
     "maximum": "Maximum paid",

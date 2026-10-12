@@ -19,7 +19,7 @@ for (const symbol of ["BASKET", "WETH", "ETH", "USDC"]) {
     else await choose(page, symbol);
     await page.getByRole("button", { name: /Total fee/ }).click();
     const gas = page.getByText("Transaction fee (gas):", { exact: true }).locator("..");
-    const placeholder = () => expect(gas).toHaveText("Transaction fee (gas):—");
+    const placeholder = () => expect(gas).toHaveText("Transaction fee (gas):...");
     await placeholder();
 
     const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)');
@@ -65,7 +65,7 @@ test("disconnected gas-price cache refreshes only after the head hash changes", 
   await page.goto("/en"); await choose(page, "WETH");
   await page.getByRole("button", { name: /Total fee/ }).click();
   const gas = page.getByText("Transaction fee (gas):", { exact: true }).locator("..");
-  await expect(gas).toHaveText("Transaction fee (gas):—");
+  await expect(gas).toHaveText("Transaction fee (gas):...");
   const edited = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first();
   await edited.fill("1");
   await expect(page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last()).toHaveValue("1");

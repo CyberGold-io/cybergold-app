@@ -463,7 +463,8 @@ Sources: [styles](../../app/globals.css), [header](../../app/components/navbar.t
 [wallet UI](../../app/components/walletConnectButton.tsx),
 [swap page](../../app/[locale]/page.tsx),
 [picker](../../app/components/tokenPickerModal.tsx),
-[intent hook](../../app/hooks/flows/quotes/useQuoteIntent.ts).
+[current trade quote hook](../../app/hooks/flows/quotes/useTradeQuote.ts)
+(successor to the intent hook covered by this audit).
 
 ## Follow-up improvements
 

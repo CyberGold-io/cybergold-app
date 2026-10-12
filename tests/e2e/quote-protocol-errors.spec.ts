@@ -1,3 +1,4 @@
+import { routeCoreIntent } from "./fixtures/trade-core";
 import { selectBasket } from "./fixtures/swap-selection";
 import { expect, test } from "./fixtures/app-test";
 import { install as tokenInstall } from "./fixtures/token-quotes";
@@ -16,7 +17,7 @@ for (const locale of ["en", "fr", "de"] as const) for (const path of ["token", "
   test(`${locale} ${path}: decoded supply error is specific and fees stay visible`, async ({ page }) => {
     if (path === "token") {
       await tokenInstall(page);
-      await page.route("**/api/quotes/intent/stream", route => route.fulfill({ contentType: "application/x-ndjson", body:
+      await routeCoreIntent(page, route => route.fulfill({ contentType: "application/x-ndjson", body:
         JSON.stringify({ type: "error", code: "insufficient-protocol-supply", error: "private diagnostic", correlationId: "fixture" }) + "\n" }));
     } else {
       await basketInstall(page);

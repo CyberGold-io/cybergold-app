@@ -1,3 +1,4 @@
+import { routeCoreIntent } from "./fixtures/trade-core";
 import { expect, test } from "./fixtures/app-test";
 import { choose, install, previewSelectors } from "./fixtures/token-quotes";
 
@@ -33,7 +34,7 @@ for (const [symbol, kind] of [["WETH", "token"], ["ETH", "native"], ["USDC", "to
     await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last().fill("2");
     await expect(page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first()).toBeEnabled();
     await expect(page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first()).toHaveValue("2");
-    expect(observed.intents.map(request => request.mode)).toEqual(["issue-exact-in", "issue-exact-out", "redeem-exact-in", "redeem-exact-out"]);
+    expect(observed.intents.map(request => request.mode), JSON.stringify(observed.rawIntents)).toEqual(["issue-exact-in", "issue-exact-out", "redeem-exact-in", "redeem-exact-out"]);
     expect(observed.intents.every(request => request.native === (kind === "native"))).toBe(true);
     // Price valuation can still read pools; quote routing no longer lists/records the cache.
     expect(observed.poolReads).not.toContain("/api/quote-pool-cache");
@@ -101,7 +102,7 @@ test("USDT issuance does not preflight empty routes while execution quotes are p
 test("a failed final issuance preview still reports a quote failure", async ({ page }) => {
   await install(page);
   let validated = 0;
-  await page.route("**/api/quotes/intent/stream", async route => {
+  await routeCoreIntent(page, async route => {
     validated++;
     await route.fulfill({ contentType: "application/x-ndjson", body:
       JSON.stringify({ type: "estimate", amount: "1000000000000000000" }) + "\n" +

@@ -4,7 +4,7 @@ doc_type: repository-guide
 status: active
 owner: app-maintainer
 created: 2026-07-11
-last_reviewed: 2026-10-02
+last_reviewed: 2026-10-11
 canonical_for: App repository overview and validation entry points
 ---
 
@@ -19,6 +19,31 @@ market caches and the dashboard/history indexer. Wallet signing and submission
 remain in the browser. The App is part of the
 Phase 2 release and is not production-ready until the Ops work-register App
 security/release gates close.
+
+Token trading uses one Swap form. The Backend competes Core issuance/redemption
+with qualified PAXG/CYGLD market swaps and supplies the selected complete plan;
+the App retains the original neutral trading form without a mechanism chooser
+or label. Market fees use the Front-end fee label; Core execution retains its
+separate Helpers fee. Exact-input quotes compare fee-net output, and exact-output quotes compare the actual fee-inclusive input
+required by each executor. Min/max protections and gas remain separate. Core
+exact-output redemption burns its selected fixed lot, including its protective
+margin. Basket issuance/redemption and recovery settlement retain their distinct
+operations. Token MAX uses the wallet budget rather than a universal Core mint cap.
+
+The form renders its amount fields, valuation lines and fee controls immediately.
+Expanded fee details keep Protocol, Helpers, Front-end and transaction-fee rows
+visible: pending values show `...`, and fees inapplicable to the selected plan
+show `—`. Pending token catalogs, balances and requested Basket data retain
+their controls and placeholders; MAX uses a stable spinner slot while loading.
+
+The fixed `/api/quotes/trade/model` adapter obtains Backend-ranked indicative
+estimates and `/api/quotes/trade/stream` publishes a qualified winner while other
+candidates can continue improving it. Models retain separate Core/market family
+identities. Indicative models follow the edited amount before exact-quote typing
+debounce; tolerance changes retain that debounce. Normal head refresh competes again; the selected plan and deployment
+are frozen before wallet preparation. Existing native permits, approvals,
+Permit2 fallback and signed-call simulation are reused only for the winner.
+No deployment address settings or economic fee-policy changes are introduced.
 
 ## Quick start
 
@@ -192,7 +217,13 @@ simulation still runs for the actual transaction inputs; its gas units are
 repriced with the current head's fee data.
 
 Gold/FX freshness follows `fetchedAt`, including an expiry update on screen,
-rather than starting a new browser lifetime when an old value arrives. Vendored
+rather than starting a new browser lifetime when an old value arrives. Successful fresh
+gold and FX observations also restore optional display fallbacks after browser
+hydration while the normal Backend refresh runs. The token selector retains
+Backend-managed labels, decimals and token metadata across reloads; those display
+rows never supply deployment targets, executable quotes, wallet balances or
+authority facts. Trading continues to use the current Backend configuration.
+Unavailable browser storage falls back to the ordinary requests. Vendored
 backend source metadata explicitly names each file's SHA-256 digest; it is
 provenance documentation, with no runtime consumer or secret-scan exception.
 
