@@ -192,6 +192,136 @@ test("a served protocol-facts timeout fails required startup observations for al
   } finally { rmSync(output, { recursive: true, force: true }); }
 });
 
+type SandboxRunnerFixture = {
+  cacheExitCode?: number; testExitCode?: number; testSignal?: string; cacheCheckpoint?: unknown; cacheCheckpointText?: string;
+  spawnError?: { name: string; code?: string }; independent?: unknown; ui?: unknown;
+};
+
+function runSandboxRunnerFixture(options: SandboxRunnerFixture) {
+  const output = mkdtempSync(join(tmpdir(), "cybergold-trade-runner-diagnostics-"));
+  const fixture = join(output, "owned-command-fixture.mjs");
+  writeFileSync(fixture, `
+import childProcess from "node:child_process";
+import assert from "node:assert/strict";
+import { syncBuiltinESMExports } from "node:module";
+import { EventEmitter } from "node:events";
+import { writeFileSync } from "node:fs";
+const options = ${JSON.stringify(options)};
+const config = ${JSON.stringify(protocolConfigurationFixture)};
+globalThis.fetch = async url => new URL(url).pathname === "/en" ? new Response("")
+  : Response.json(new URL(url).pathname === "/api/protocol/config" ? config : {});
+childProcess.spawn = (_executable, args, commandOptions) => {
+  const child = new EventEmitter();
+  child.kill = () => true;
+  const cache = args[0] === "scripts/cache-metamask-wallet.mjs";
+  const env = commandOptions.env;
+  assert.equal(env.NEXT_PUBLIC_CHAIN_NAME, "CyberGold Sandbox");
+  if (cache && options.cacheCheckpoint !== undefined)
+    writeFileSync(env.TRADE_REGRESSION_WALLET_SETUP_OUTPUT, JSON.stringify(options.cacheCheckpoint));
+  if (cache && options.cacheCheckpointText !== undefined)
+    writeFileSync(env.TRADE_REGRESSION_WALLET_SETUP_OUTPUT, options.cacheCheckpointText);
+  if (!cache && options.independent !== undefined)
+    writeFileSync(env.TRADE_REGRESSION_OUTPUT, JSON.stringify(options.independent));
+  if (!cache && options.ui !== undefined)
+    writeFileSync(env.TRADE_REGRESSION_UI_OUTPUT, JSON.stringify(options.ui));
+  process.nextTick(() => {
+    if (cache && options.spawnError)
+      child.emit("error", Object.assign(new Error("private-error-message"), options.spawnError));
+    else child.emit("exit", cache ? options.cacheExitCode ?? 0 : options.testSignal ? null : options.testExitCode ?? 0,
+      cache ? null : options.testSignal ?? null);
+  });
+  return child;
+};
+syncBuiltinESMExports();
+`);
+  try {
+    const child = spawnSync(process.execPath, ["--import", fixture, "scripts/run-trade-regression.mjs", "--target", "sandbox",
+      "--mode", "sandbox-execution", "--base-url", "http://app.test", "--output-dir", output],
+    { cwd: new URL("../../", import.meta.url), stdio: "ignore" });
+    return { exitCode: child.status, report: JSON.parse(readFileSync(join(output, "report.json"), "utf8")) };
+  } finally { rmSync(output, { recursive: true, force: true }); }
+}
+
+function sandboxSuiteReports() {
+  return {
+    independent: { schema: "cybergold.trade-regression.v1", scenarios: tradeScenarios.map(scenario => ({
+      ...resultFor(scenario, "execution"), status: "pass", code: undefined })) },
+    ui: { schema: "cybergold.trade-regression.v1", scenarios: tradeScenarios.filter(scenario => scenario.requestedStrategy === "core")
+      .map(scenario => ({ ...resultFor(scenario, "execution"), id: `ui-${scenario.id}`, requestedStrategy: "auto", status: "pass", code: undefined })) },
+  };
+}
+
+test("wallet cache failure fails the runner and leaves all36 cases unstarted with safe setup diagnostics", () => {
+  const { exitCode, report } = runSandboxRunnerFixture({ cacheExitCode: 1,
+    cacheCheckpoint: { stage: "wallet-onboarding", result: "fail", errorClass: "TimeoutError",
+      errorCode: "private-errno", error: "private-error-message", seedPhrase: "private-wallet-seed", rpcUrl: "https://private-rpc.invalid" } });
+  assert.equal(exitCode, 1);
+  assert.equal(report.runnerOutcome, "fail"); assert.equal(report.runnerCode, "wallet-setup-failed");
+  assert.equal(report.runnerDiagnostics.stage, "wallet-cache"); assert.equal(report.runnerDiagnostics.exitCode, 1);
+  assert.deepEqual(report.runnerDiagnostics.walletSetup, { stage: "wallet-onboarding", result: "fail", errorClass: "TimeoutError" });
+  assert.equal(report.scenarios.length, 36);
+  assert.equal(new Set(report.scenarios.map((row: { id: string }) => row.id)).size, 36);
+  assert.ok(report.scenarios.every((row: { status: string; code: string }) => row.status === "unavailable" && row.code === "wallet-setup-unavailable"));
+  assert.doesNotMatch(JSON.stringify(report), /private-errno|private-error-message|private-wallet-seed|private-rpc/);
+});
+
+test("a child spawn failure retains its safe system code and never exports an arbitrary error name", () => {
+  const { exitCode, report } = runSandboxRunnerFixture({ spawnError: { name: "private-error-name", code: "ENOENT" } });
+  assert.equal(exitCode, 1);
+  assert.equal(report.runnerOutcome, "fail"); assert.equal(report.runnerCode, "wallet-setup-failed");
+  assert.equal(report.runnerDiagnostics.stage, "wallet-cache");
+  assert.equal(report.runnerDiagnostics.errorClass, "UnknownError"); assert.equal(report.runnerDiagnostics.errorCode, "ENOENT");
+  assert.equal(report.scenarios.length, 36);
+  assert.ok(report.scenarios.every((row: { status: string }) => row.status === "unavailable"));
+  assert.doesNotMatch(JSON.stringify(report), /private-error-name|private-error-message/);
+});
+
+test("missing execution reports fail the runner without inventing attempted failures for all36 cases", () => {
+  for (const command of [{ testExitCode: 1 }, { testSignal: "SIGTERM" }]) {
+    const { exitCode, report } = runSandboxRunnerFixture(command);
+    assert.equal(exitCode, 1);
+    assert.equal(report.runnerOutcome, "fail"); assert.equal(report.runnerCode, "execution-results-unavailable");
+    assert.equal(report.runnerDiagnostics.stage, "independent-report");
+    assert.equal(report.runnerDiagnostics.exitCode, command.testExitCode);
+    assert.equal(report.runnerDiagnostics.signal, command.testSignal);
+    assert.equal(report.runnerDiagnostics.errorClass, "Error"); assert.equal(report.runnerDiagnostics.errorCode, "ENOENT");
+    assert.equal(report.scenarios.length, 36);
+    assert.equal(report.scenarios.filter((row: { status: string }) => row.status === "fail").length, 0);
+    assert.ok(report.scenarios.filter((row: { id: string }) => !row.id.startsWith("ui-"))
+      .every((row: { status: string; code: string }) => row.status === "unavailable" && row.code === "execution-results-unavailable"));
+    assert.ok(report.scenarios.filter((row: { id: string }) => row.id.startsWith("ui-"))
+      .every((row: { status: string; code: string }) => row.status === "unavailable" && row.code === "ui-results-unavailable"));
+  }
+});
+
+test("a missing independent report preserves mined UI evidence and its other unstarted cases", () => {
+  const transactionHash = `0x${"d".repeat(64)}`;
+  const ui = { schema: "cybergold.trade-regression.v1", scenarios: tradeScenarios.filter(scenario => scenario.requestedStrategy === "core")
+    .map((scenario, index) => ({ ...resultFor(scenario, "execution"), id: `ui-${scenario.id}`, requestedStrategy: "auto",
+      ...(index === 0 ? { status: "pass", code: undefined, transactionHash, actualOperation: "issueFromTokenExactOut",
+        receipt: { transactionHash, blockNumber: "26100001", netPaid: ["100"], netReceived: ["90"] } } : {}) })) };
+  const { exitCode, report } = runSandboxRunnerFixture({ testExitCode: 1, ui });
+  assert.equal(exitCode, 1);
+  assert.equal(report.runnerOutcome, "fail"); assert.equal(report.runnerCode, "execution-results-unavailable");
+  assert.equal(report.scenarios.length, 36);
+  assert.equal(report.scenarios.filter((row: { status: string }) => row.status === "pass").length, 1);
+  assert.equal(report.scenarios.filter((row: { status: string }) => row.status === "unavailable").length, 35);
+  const mined = report.scenarios.find((row: { id: string }) => row.id === ui.scenarios[0].id);
+  assert.equal(mined.transactionHash, transactionHash);
+  assert.equal(mined.actualOperation, "issueFromTokenExactOut"); assert.deepEqual(mined.receipt, ui.scenarios[0].receipt);
+});
+
+test("optional missing or invalid wallet setup diagnostics cannot reject successful execution reports", () => {
+  for (const checkpoint of [{}, { cacheCheckpointText: "invalid optional json" },
+    { cacheCheckpoint: { stage: "private-stage", result: "private-result", errorClass: "private-error-name", error: "private-error-message" } }]) {
+    const { exitCode, report } = runSandboxRunnerFixture({ ...sandboxSuiteReports(), ...checkpoint });
+    assert.equal(exitCode, 0);
+    assert.equal(report.runnerOutcome, "pass"); assert.equal(report.scenarios.length, 36);
+    assert.ok(report.scenarios.every((row: { status: string }) => row.status === "pass"));
+    assert.doesNotMatch(JSON.stringify(report), /private-stage|private-result|private-error-name|private-error-message/);
+  }
+});
+
 test("UI preparation references follow the latest matching quote attempt and reject stale or unrelated events", () => {
   const scenario = tradeScenarios.find(row => row.id === "core-redeem-usdc-exact-in")!;
   const request = tokenRequest(scenario, protocolConfigurationFixture, protocolConfigurationFixture.contracts.helpers!);
