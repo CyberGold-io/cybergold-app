@@ -23,12 +23,44 @@ import type { CygldPermit } from "../../app/hooks/flows/shared/types.ts";
 const emptyPermit = { value: 0n, deadline: 0n, v: 0, r: `0x${"0".repeat(64)}` as Hex, s: `0x${"0".repeat(64)}` as Hex };
 const emptyPermit2 = { permit: { permitted: [] as { token: Address; amount: bigint }[], nonce: 0n, deadline: 0n }, signature: "0x" as Hex };
 
+function safeWalletRequestErrorCode(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value)
+    && ([4001, 4100, 4200, 4900, 4901, -32700, -32600, -32601, -32602, -32603].includes(value)
+      || (value >= -32099 && value <= -32000)) ? value : undefined;
+}
+
 /** Native MetaMask owns every signature and broadcast; no signer exists in Node. */
 export async function requestWallet(page: Page, request: { method: string; params: unknown[] }, reject = false): Promise<unknown> {
   await page.bringToFront();
   let settled = false;
-  const pending = page.evaluate(input => (window as unknown as { ethereum: { request: (input: unknown) => Promise<unknown> } }).ethereum.request(input), request)
-    .then(value => { settled = true; return value; }, error => { settled = true; throw error; });
+  const pending = page.evaluate(async input => {
+    try { return await (window as unknown as { ethereum: { request: (input: unknown) => Promise<unknown> } }).ethereum.request(input); }
+    catch (error) {
+      // Capture only owned metadata before Playwright serializes Error fields.
+      let errorClass = "UnknownError", walletRequestErrorCode: number | undefined;
+      try {
+        const source = error as { name?: unknown; code?: unknown } | undefined;
+        if (typeof source?.name === "string" && ["Error", "TypeError", "SyntaxError", "TimeoutError", "AbortError", "ReferenceError", "RangeError", "AggregateError", "UnknownError", "SystemError"].includes(source.name)) errorClass = source.name;
+        const code = source?.code;
+        if (typeof code === "number" && Number.isInteger(code)
+          && ([4001, 4100, 4200, 4900, 4901, -32700, -32600, -32601, -32602, -32603].includes(code)
+            || (code >= -32099 && code <= -32000))) walletRequestErrorCode = code;
+      } catch { /* Optional metadata cannot replace the wallet rejection. */ }
+      return { __cybergoldWalletRequestRejected: true, errorClass,
+        ...(walletRequestErrorCode === undefined ? {} : { walletRequestErrorCode }) };
+    }
+  }, request).then(value => {
+    settled = true;
+    if (value && typeof value === "object" && "__cybergoldWalletRequestRejected" in value && value.__cybergoldWalletRequestRejected === true) {
+      const rejection = value as { errorClass?: string; walletRequestErrorCode?: unknown };
+      const error = new Error("Wallet request failed.") as Error & { walletRequestErrorCode?: number };
+      error.name = safeRunnerError({ name: rejection.errorClass }).errorClass;
+      const code = safeWalletRequestErrorCode(rejection.walletRequestErrorCode);
+      if (code !== undefined) error.walletRequestErrorCode = code;
+      throw error;
+    }
+    return value;
+  }, error => { settled = true; throw error; });
   void pending.catch(() => undefined);
   try {
     await expect.poll(async () => {
@@ -266,6 +298,10 @@ export async function executeScenario(observation: QuoteObservation, page: Page,
   result.status = "pass"; result.executionStage = "complete"; delete result.code; return result;
   } catch (error) {
     Object.assign(result, safeRunnerError(error));
+    try {
+      const code = safeWalletRequestErrorCode((error as { walletRequestErrorCode?: unknown })?.walletRequestErrorCode);
+      if (code !== undefined) result.walletRequestErrorCode = code;
+    } catch { /* Optional metadata cannot replace the operation's error. */ }
     throw error;
   }
 }

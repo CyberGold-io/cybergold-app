@@ -7,7 +7,7 @@ import { protocolConfigurationFixture, tokenAddresses } from "../../tests/fixtur
 import { failureResult, RegressionAssertionError, resultFor, type QuoteObservation } from "../../tests/trading/regression.ts";
 import { tradeScenarios } from "../../tests/trading/scenarios.ts";
 
-const { executeScenario, executionPlan } = await withEnvironment(appEnvironment, () => import("../../tests/trading/walletExecution.ts"));
+const { executeScenario, executionPlan, requestWallet } = await withEnvironment(appEnvironment, () => import("../../tests/trading/walletExecution.ts"));
 const owner = `0x${"a".repeat(40)}` as Address;
 const approvalHash = `0x${"b".repeat(64)}` as Hex;
 
@@ -27,6 +27,30 @@ function basketObservation(mode: "exact-in" | "exact-out" = "exact-in"): QuoteOb
 
 function walletPage(request: () => Promise<unknown>): Page {
   return { bringToFront: async () => undefined, evaluate: request } as unknown as Page;
+}
+
+function browserWalletPage(provider: () => Promise<unknown>, returned: unknown[] = []): Page {
+  const button = { click: async () => undefined, or: () => button };
+  const popup = { url: () => "chrome-extension://fixture/notification.html", bringToFront: async () => undefined,
+    setDefaultTimeout: () => undefined, getByTestId: () => button };
+  return { bringToFront: async () => undefined,
+    context: () => ({ pages: () => [popup], serviceWorkers: () => [{ url: () => "chrome-extension://fixture/background.js" }] }),
+    evaluate: async (callback: (input: unknown) => Promise<unknown>, input: unknown) => {
+      const previous = Object.getOwnPropertyDescriptor(globalThis, "window");
+      Object.defineProperty(globalThis, "window", { configurable: true, value: { ethereum: { request: provider } } });
+      try {
+        try { const value = await callback(input); returned.push(value); return structuredClone(value); }
+        catch (error) {
+          // Playwright's Error bridge transmits name/message/stack, losing code.
+          const original = error as Error, serialized = new Error(original.message);
+          serialized.name = original.name; serialized.stack = original.stack; throw serialized;
+        }
+      } finally {
+        if (previous) Object.defineProperty(globalThis, "window", previous);
+        else Reflect.deleteProperty(globalThis, "window");
+      }
+    },
+  } as unknown as Page;
 }
 
 const installedBasket = (mixed = true) => Response.json({ configuration: {
@@ -219,4 +243,70 @@ test("required Permit2 grants keep token order and confirm a USDT reset before i
   assert.deepEqual(events, [`approve:${tokenAddresses.PAXG}:100`, "receipt:1", `approve:${tokenAddresses.USDT}:0`, "receipt:2", `approve:${tokenAddresses.USDT}:200`, "receipt:3", "signature"]);
   assert.deepEqual(observation.result.approvalTransactionHashes, hashes);
   assert.deepEqual(observation.result.authorization, ["permit2"]);
+});
+
+test("the browser Error bridge drops a native provider's custom numeric code", async () => {
+  const fault = Object.assign(new Error("private-provider-response"), { code: 4001 });
+  const page = browserWalletPage(async () => { throw fault; });
+  await assert.rejects(page.evaluate(async () => (window as unknown as { ethereum: { request: (input: unknown) => Promise<unknown> } })
+    .ethereum.request({ method: "eth_sendTransaction", params: [] })), error => {
+    assert.ok(error instanceof Error);
+    assert.equal((error as Error & { code?: number }).code, undefined);
+    return true;
+  });
+});
+
+test("native provider codes cross the browser callback and survive per-case projection without private error data", async () => {
+  for (const code of [4001, -32002, -32099, -32000]) {
+    const observation = basketObservation();
+    const fault = Object.assign(new Error("private-wallet-seed private-provider-url private-signature"),
+      { code, data: { signature: "private-signature", params: "private-request-params" } });
+    const returned: unknown[] = []; let requests = 0;
+    const page = browserWalletPage(async () => { requests++; throw fault; }, returned);
+    const fetcher = (async path => String(path).startsWith("/api/governance/helpers-facts") ? installedBasket()
+      : Response.json({ allowance: { status: "success", value: "0" } })) as typeof fetch;
+    let failure: unknown;
+    try { await executeScenario(observation, page, owner, protocolConfigurationFixture, fetcher); } catch (error) { failure = error; }
+    assert.ok(failure instanceof Error);
+    assert.equal(failure.message, "Wallet request failed.");
+    assert.equal(requests, 1);
+    assert.deepEqual(returned, [{ __cybergoldWalletRequestRejected: true, errorClass: "Error", walletRequestErrorCode: code }]);
+    const result = failureResult(observation.result, failure);
+    assert.equal(result.status, "fail");
+    assert.equal(result.executionStage, "approval-submission");
+    assert.equal(result.errorClass, "Error");
+    assert.equal(result.walletRequestErrorCode, code);
+    assert.doesNotMatch(JSON.stringify(result), /private-wallet-seed|private-provider-url|private-signature|private-request-params/);
+  }
+});
+
+test("unknown names and malformed numeric metadata are omitted while the wallet rejection remains a failure", async () => {
+  for (const code of ["4001", 4001.5, -32100, -31999, 1, NaN, { code: 4001 }]) {
+    const observation = basketObservation();
+    const fault = Object.assign(new Error("private-wallet-response"), { name: "private-provider-class", code });
+    const returned: unknown[] = []; let requests = 0;
+    const page = browserWalletPage(async () => { requests++; throw fault; }, returned);
+    const fetcher = (async path => String(path).startsWith("/api/governance/helpers-facts") ? installedBasket()
+      : Response.json({ allowance: { status: "success", value: "0" } })) as typeof fetch;
+    let failure: unknown;
+    try { await executeScenario(observation, page, owner, protocolConfigurationFixture, fetcher); } catch (error) { failure = error; }
+    assert.ok(failure instanceof Error);
+    assert.equal(requests, 1);
+    assert.deepEqual(returned, [{ __cybergoldWalletRequestRejected: true, errorClass: "UnknownError" }]);
+    const result = failureResult(observation.result, failure);
+    assert.equal(result.status, "fail");
+    assert.equal(result.errorClass, "UnknownError");
+    assert.equal(result.walletRequestErrorCode, undefined);
+    assert.doesNotMatch(JSON.stringify(result), /private-wallet-response|private-provider-class/);
+  }
+});
+
+test("successful native wallet hashes and signatures return unchanged with one provider request", async () => {
+  for (const [method, value] of [["eth_sendTransaction", approvalHash], ["eth_signTypedData_v4", `0x${"e".repeat(130)}`]]) {
+    const returned: unknown[] = []; let requests = 0;
+    const page = browserWalletPage(async () => { requests++; return value; }, returned);
+    assert.equal(await requestWallet(page, { method, params: [] }), value);
+    assert.equal(requests, 1);
+    assert.deepEqual(returned, [value]);
+  }
 });

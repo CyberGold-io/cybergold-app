@@ -25,7 +25,7 @@ export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "ass
   code?: string; reason?: QuotePreviewError["code"] | UiObservationPhase; refs?: DiagnosticReferences; transactionHash?: string;
   context?: { chainId: number; blockNumber: string; blockHash: string }; bounds?: Record<string, string | string[]>;
   receipt?: Record<string, string | string[]>; authorization?: string[];
-  executionStage?: ExecutionStage; errorClass?: string; errorCode?: string; approvalTransactionHashes?: string[];
+  executionStage?: ExecutionStage; errorClass?: string; errorCode?: string; walletRequestErrorCode?: number; approvalTransactionHashes?: string[];
   uiQuote?: UiQuoteSnapshot; wallet?: UiWalletEvidence;
 };
 export type RegressionReport = { schema: "cybergold.trade-regression.v1"; runId: string; target: "sandbox" | "mainnet";
