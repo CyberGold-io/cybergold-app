@@ -13,6 +13,11 @@ import type { UiQuoteSnapshot, UiWalletEvidence } from "./uiEconomics.ts";
 
 export type UiObservationPhase = "ui-prepare" | "ui-facts" | "ui-balances" | "ui-submit" | "ui-confirmation"
   | "ui-hash" | "ui-receipt-read" | "ui-transaction-read" | "ui-receipt-assertions" | "ui-balance-postchecks";
+export const executionStages = ["execution-plan", "authorization-availability", "allowance-read", "approval-submission",
+  "approval-confirmation", "native-permit-read", "permit2-read", "authorization-signature", "execution-simulation",
+  "execution-encoding", "execution-submission", "execution-confirmation", "execution-transaction-read",
+  "execution-receipt-assertions", "complete"] as const;
+export type ExecutionStage = typeof executionStages[number];
 export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "asset"> & {
   requestedStrategy: "core" | "market" | "auto";
   status: "pass" | "fail" | "unavailable" | "skipped"; actualStrategy: "core" | "market" | "unknown";
@@ -20,6 +25,7 @@ export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "ass
   code?: string; reason?: QuotePreviewError["code"] | UiObservationPhase; refs?: DiagnosticReferences; transactionHash?: string;
   context?: { chainId: number; blockNumber: string; blockHash: string }; bounds?: Record<string, string | string[]>;
   receipt?: Record<string, string | string[]>; authorization?: string[];
+  executionStage?: ExecutionStage; errorClass?: string; errorCode?: string; approvalTransactionHashes?: string[];
   uiQuote?: UiQuoteSnapshot; wallet?: UiWalletEvidence;
 };
 export type RegressionReport = { schema: "cybergold.trade-regression.v1"; runId: string; target: "sandbox" | "mainnet";

@@ -186,6 +186,8 @@ def main() -> None:
                             "SYNPRESS_WALLET_SEED_PHRASE": wallet["mnemonic"], "SYNPRESS_WALLET_PASSWORD": password,
                             "TRADE_REGRESSION_OUTPUT": str(output / "regression-execution.json"),
                             "TRADE_REGRESSION_UI_OUTPUT": str(output / "regression-ui.json"),
+                            "TRADE_REGRESSION_UI_FIXTURE_OUTPUT": str(output / "wallet-fixture-ui.json"),
+                            "TRADE_REGRESSION_INDEPENDENT_FIXTURE_OUTPUT": str(output / "wallet-fixture-independent.json"),
                             "TRADE_REGRESSION_MODE": "fork-execution", "TRADE_REGRESSION_TARGET": os.environ.get("TRADE_REGRESSION_TARGET", "mainnet")})
         database_password = secrets.token_urlsafe(24)
         private_env(work / "database.env", {"POSTGRES_USER": "fixture", "POSTGRES_PASSWORD": database_password, "POSTGRES_DB": "fixture"})
@@ -221,7 +223,7 @@ def main() -> None:
         test_paths = ["scripts/qualify-fixed-api-wallet.py", "scripts/cache-metamask-wallet.mjs", "wallet-setup/metamask.setup.ts",
                       "tests/metamask/testWithMetaMask.ts", "tests/metamask/fixed-api-roundtrips.spec.ts",
                       "tests/metamask/wallet-session.spec.ts", "tests/metamask/wallet-ui.ts", "tests/metamask/token-flows/helpers.ts",
-                      "tests/metamask/regression-execution.spec.ts", "tests/trading/scenarios.ts", "tests/trading/regression.ts", "tests/trading/walletExecution.ts",
+                      "tests/metamask/regression-execution.spec.ts", "tests/trading/scenarios.ts", "tests/trading/regression.ts", "tests/trading/runnerDiagnostics.ts", "tests/trading/walletExecution.ts",
                       "tests/trading/uiReceipt.ts", "tests/trading/uiEconomics.ts", "tests/trading/uiQuoteCapture.ts", "tests/trading/uiGas.ts", "tests/trading/uiDiagnostics.ts", "tests/trading/sandboxFunding.ts"]
         try:
             image_environment = json.loads(docker("image", "inspect", args.backend_image, "--format", "{{json .Config.Env}}"))
