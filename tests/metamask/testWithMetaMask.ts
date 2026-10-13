@@ -8,7 +8,7 @@ import {
   metaMaskFixtures,
 } from "@synthetixio/synpress-metamask/playwright";
 import metamaskSetup from "../../wallet-setup/metamask.setup";
-import { safeRunnerError, walletFixtureOutput, writeWalletSetupDiagnostic, type WalletSetupDiagnostic } from "../trading/runnerDiagnostics";
+import { observeWalletOnboarding, safeRunnerError, walletFixtureOutput, walletOnboardingStep, writeWalletSetupDiagnostic, type WalletSetupDiagnostic } from "../trading/runnerDiagnostics";
 
 type MetaMaskConstructor = ConstructorParameters<typeof MetaMask>;
 
@@ -26,7 +26,9 @@ export const test = testWithSynpress(metaMaskFixtures(metamaskSetup)).extend<{
     let profile: string | undefined;
     let context: BrowserContext | undefined;
     let failed = false;
-    const checkpoint = (result: WalletSetupDiagnostic["result"]) => writeWalletSetupDiagnostic(diagnosticOutput, { stage, result });
+    let onboarding: ReturnType<typeof observeWalletOnboarding> | undefined;
+    const observations = () => onboarding ? { onboarding: onboarding.snapshot() } : {};
+    const checkpoint = (result: WalletSetupDiagnostic["result"]) => writeWalletSetupDiagnostic(diagnosticOutput, { stage, result, ...observations() });
     try {
       await checkpoint("running");
       profile = await mkdtemp(join(tmpdir(), "cybergold-wallet-profile-"));
@@ -42,15 +44,20 @@ export const test = testWithSynpress(metaMaskFixtures(metamaskSetup)).extend<{
       const extensionId = new URL(worker.url()).host;
       const home = `chrome-extension://${extensionId}/home.html`;
       const page = context.pages().find(candidate => candidate.url().startsWith(home)) ?? await context.newPage();
+      onboarding = observeWalletOnboarding(context);
       stage = "wallet-onboarding"; await checkpoint("running");
       await page.goto(home, { waitUntil: "domcontentloaded" });
+      walletOnboardingStep(context, "focus");
       await page.bringToFront();
+      walletOnboardingStep(context, "other-pages-close");
       for (const other of context.pages()) if (other !== page) await other.close();
       console.log("MetaMask fixture extension:", extensionId);
+      walletOnboardingStep(context, "setup-callback");
       await metamaskSetup.fn(
         context as unknown as Parameters<typeof metamaskSetup.fn>[0],
         page as unknown as Parameters<typeof metamaskSetup.fn>[1]
       );
+      onboarding.stop();
       stage = "wallet-ready"; await checkpoint("running");
       await page.goto(`chrome-extension://${extensionId}/home.html`, { waitUntil: "domcontentloaded" });
       await page.getByTestId("account-menu-icon").waitFor({ timeout: 30000 });
@@ -59,7 +66,8 @@ export const test = testWithSynpress(metaMaskFixtures(metamaskSetup)).extend<{
       await fixtureUse(context);
     } catch (error) {
       failed = true;
-      await writeWalletSetupDiagnostic(diagnosticOutput, { stage, result: "fail", ...safeRunnerError(error) });
+      onboarding?.stop();
+      await writeWalletSetupDiagnostic(diagnosticOutput, { stage, result: "fail", ...safeRunnerError(error), ...observations() });
       throw error;
     } finally {
       try {
@@ -69,7 +77,7 @@ export const test = testWithSynpress(metaMaskFixtures(metamaskSetup)).extend<{
           catch (error) {
             if (!failed) {
               failed = true;
-              await writeWalletSetupDiagnostic(diagnosticOutput, { stage: "browser-close", result: "fail", ...safeRunnerError(error) });
+              await writeWalletSetupDiagnostic(diagnosticOutput, { stage: "browser-close", result: "fail", ...safeRunnerError(error), ...observations() });
               throw error;
             }
           }
@@ -79,7 +87,7 @@ export const test = testWithSynpress(metaMaskFixtures(metamaskSetup)).extend<{
         try { if (profile) await rm(profile, { recursive: true, force: true }); }
         catch (error) {
           if (!failed) {
-            await writeWalletSetupDiagnostic(diagnosticOutput, { stage: "profile", result: "fail", ...safeRunnerError(error) });
+            await writeWalletSetupDiagnostic(diagnosticOutput, { stage: "profile", result: "fail", ...safeRunnerError(error), ...observations() });
             throw error;
           }
         }

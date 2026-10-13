@@ -16,7 +16,7 @@ import { observeBrowserQuotes } from "../../tests/trading/browserQuotes.ts";
 import { protocolConfigurationFixture } from "../../tests/fixtures/protocol-configuration.ts";
 import { installQuoteObservation } from "../../tests/trading/quoteObservation.ts";
 import { createUiQuoteDiagnostics, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion } from "../../tests/trading/uiDiagnostics.ts";
-import { walletFixtureOutput } from "../../tests/trading/runnerDiagnostics.ts";
+import { readWalletSetupDiagnostic, walletFixtureOutput, walletOnboardingStep, observeWalletOnboarding } from "../../tests/trading/runnerDiagnostics.ts";
 
 test("inventory includes every Core asset/direction/mode and four independent market modes", () => {
   assert.equal(tradeScenarios.length, 20);
@@ -263,15 +263,17 @@ function sandboxSuiteReports() {
 test("wallet cache failure fails the runner and leaves all36 cases unstarted with safe setup diagnostics", () => {
   const { exitCode, report } = runSandboxRunnerFixture({ cacheExitCode: 1,
     cacheCheckpoint: { stage: "wallet-onboarding", result: "fail", errorClass: "TimeoutError",
+      onboarding: { step: "import-wallet", elapsedMs: 1200, message: "private-onboarding-error" },
       errorCode: "private-errno", error: "private-error-message", seedPhrase: "private-wallet-seed", rpcUrl: "https://private-rpc.invalid" } });
   assert.equal(exitCode, 1);
   assert.equal(report.runnerOutcome, "fail"); assert.equal(report.runnerCode, "wallet-setup-failed");
   assert.equal(report.runnerDiagnostics.stage, "wallet-cache"); assert.equal(report.runnerDiagnostics.exitCode, 1);
-  assert.deepEqual(report.runnerDiagnostics.walletSetup, { stage: "wallet-onboarding", result: "fail", errorClass: "TimeoutError" });
+  assert.deepEqual(report.runnerDiagnostics.walletSetup, { stage: "wallet-onboarding", result: "fail", errorClass: "TimeoutError",
+    onboarding: { step: "import-wallet", elapsedMs: 1200 } });
   assert.equal(report.scenarios.length, 36);
   assert.equal(new Set(report.scenarios.map((row: { id: string }) => row.id)).size, 36);
   assert.ok(report.scenarios.every((row: { status: string; code: string }) => row.status === "unavailable" && row.code === "wallet-setup-unavailable"));
-  assert.doesNotMatch(JSON.stringify(report), /private-errno|private-error-message|private-wallet-seed|private-rpc/);
+  assert.doesNotMatch(JSON.stringify(report), /private-errno|private-error-message|private-wallet-seed|private-rpc|private-onboarding-error/);
 });
 
 test("a child spawn failure retains its safe system code and never exports an arbitrary error name", () => {
@@ -327,13 +329,15 @@ test("UI fixture failure keeps safe setup cause while missing UI results preserv
     authorization: ["permit2"], receipt: { transactionHash, inputUsed: "100", amountOut: "90" } });
   const { exitCode, report } = runSandboxRunnerFixture({ independent, testExitCode: 1,
     uiFixtureDiagnostic: { stage: "wallet-onboarding", result: "fail", errorClass: "TimeoutError", errorCode: "EACCES",
+      onboarding: { step: "completion-click", elapsedMs: 2400, dom: "private-wallet-DOM" },
       message: "private-wallet-error", password: "private-wallet-password", rpcUrl: "https://private-fixture-rpc.invalid" },
     independentFixtureDiagnostic: { stage: "browser-close", result: "pass" } });
   assert.equal(exitCode, 1);
   assert.equal(report.runnerOutcome, "fail"); assert.equal(report.runnerCode, "ui-results-unavailable");
   assert.equal(report.runnerDiagnostics.stage, "ui-report"); assert.equal(report.runnerDiagnostics.errorCode, "ENOENT");
   assert.deepEqual(report.runnerDiagnostics.walletTests, {
-    ui: { stage: "wallet-onboarding", result: "fail", errorClass: "TimeoutError", errorCode: "EACCES" },
+    ui: { stage: "wallet-onboarding", result: "fail", errorClass: "TimeoutError", errorCode: "EACCES",
+      onboarding: { step: "completion-click", elapsedMs: 2400 } },
     independent: { stage: "browser-close", result: "pass" },
   });
   assert.equal(report.scenarios.filter((row: { status: string }) => row.status === "pass").length, 20);
@@ -341,7 +345,7 @@ test("UI fixture failure keeps safe setup cause while missing UI results preserv
   const mined = report.scenarios.find((row: { id: string }) => row.id === independent.scenarios[0].id);
   assert.equal(mined.transactionHash, transactionHash); assert.deepEqual(mined.authorization, ["permit2"]);
   assert.deepEqual(mined.receipt, { transactionHash, inputUsed: "100", amountOut: "90" });
-  assert.doesNotMatch(JSON.stringify(report), /private-wallet-error|private-wallet-password|private-fixture-rpc/);
+  assert.doesNotMatch(JSON.stringify(report), /private-wallet-error|private-wallet-password|private-fixture-rpc|private-wallet-DOM/);
 });
 
 test("optional missing or invalid wallet setup diagnostics cannot reject successful execution reports", () => {
@@ -400,11 +404,13 @@ test("initial report precedes the suite's navigation", async ({ page }) => {
   } finally { rmSync(output, { recursive: true, force: true }); }
 });
 
-function runFreshWalletFixture(options: { failAt?: "browser-launch" | "wallet-onboarding"; closeFailure?: boolean; unavailableOutput?: boolean }) {
+function runFreshWalletFixture(options: { failAt?: "browser-launch" | "wallet-onboarding" | "fixture-focus" | "other-pages-close"; closeFailure?: boolean; unavailableOutput?: boolean;
+  actualOnboarding?: "import-wallet" | "completion-click" | "complete" }) {
   const output = mkdtempSync(join(tmpdir(), "cybergold-fresh-wallet-fixture-"));
   const fixture = join(output, "fixed-api-roundtrips.spec.ts"), config = join(output, "playwright.config.mjs");
   const diagnostic = options.unavailableOutput ? join(output, "missing-directory", "fixture.json") : join(output, "fixture.json");
   const entered = join(output, "body-entered.json");
+  const actionsFile = join(output, "actions.json");
   const walletFixture = fileURLToPath(new URL("../../tests/metamask/testWithMetaMask.ts", import.meta.url));
   const walletSetup = fileURLToPath(new URL("../../wallet-setup/metamask.setup.ts", import.meta.url));
   const playwright = fileURLToPath(new URL("../../node_modules/@playwright/test/index.mjs", import.meta.url));
@@ -412,6 +418,7 @@ function runFreshWalletFixture(options: { failAt?: "browser-launch" | "wallet-on
 import { test } from ${JSON.stringify(walletFixture)};
 import setup from ${JSON.stringify(walletSetup)};
 import { chromium } from ${JSON.stringify(playwright)};
+import { MetaMask } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@synthetixio/synpress-metamask/playwright")))};
 import filesystem from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { writeFileSync } from "node:fs";
@@ -421,16 +428,27 @@ filesystem.realpath = async path => String(path).endsWith(".cache-synpress/metam
   ? "/public-fixture-extension" : realpath(path);
 syncBuiltinESMExports();
 const failure = () => Object.assign(new Error("private-wallet-fixture-message"), { name: "TimeoutError", code: "EACCES" });
+const actions: string[] = [];
 const home = "chrome-extension://fixture/home.html";
-const extensionPage = { url: () => home, goto: async () => {}, bringToFront: async () => {}, close: async () => {},
-  getByTestId: () => ({ waitFor: async () => {} }) };
+const otherPage = { url: () => "about:blank", close: async () => { throw failure(); } };
+const extensionPage = { url: () => home, goto: async () => {}, bringToFront: async () => { if (options.failAt === "fixture-focus") throw failure(); }, close: async () => {},
+  getByTestId: (id: string) => ({
+    waitFor: async () => { if (id !== "account-menu-icon") actions.push(id === "onboarding-import-wallet" ? "import-button-wait" : "completion-hidden-wait"); },
+    isVisible: async () => { actions.push("completion-check"); return true; },
+    click: async () => { actions.push("completion-click"); if (options.actualOnboarding === "completion-click") throw failure(); },
+  }), waitForLoadState: async () => { actions.push("load-state"); },
+  waitForTimeout: async (milliseconds: number) => { actions.push("existing-wait:" + milliseconds); } };
 chromium.launchPersistentContext = async () => {
   if (options.failAt === "browser-launch") throw failure();
   return { serviceWorkers: () => [{ url: () => "chrome-extension://fixture/service-worker.js" }],
-    pages: () => [extensionPage], newPage: async () => ({ goto: async () => {} }),
+    pages: () => options.failAt === "other-pages-close" ? [extensionPage, otherPage] : [extensionPage], newPage: async () => ({ goto: async () => {} }),
     close: async () => { if (options.closeFailure) throw Object.assign(new Error("private-close-message"), { name: "TypeError", code: "EROFS" }); } } as never;
 };
-setup.fn = async () => { if (options.failAt === "wallet-onboarding") throw failure(); };
+if (options.actualOnboarding) MetaMask.prototype.importWallet = async () => {
+  actions.push("import-wallet"); if (options.actualOnboarding === "import-wallet") throw failure();
+};
+else setup.fn = async () => { if (options.failAt === "wallet-onboarding") throw failure(); };
+test.afterAll(() => { writeFileSync(${JSON.stringify(actionsFile)}, JSON.stringify(actions)); });
 test("owned fresh wallet fixture reaches its test body", async ({ page }) => {
   writeFileSync(${JSON.stringify(entered)}, JSON.stringify({ entered: true }));
 });
@@ -445,15 +463,22 @@ test("owned fresh wallet fixture reaches its test body", async ({ page }) => {
     let checkpoint, bodyEntered = false;
     try { checkpoint = JSON.parse(readFileSync(diagnostic, "utf8")); } catch { /* Optional checkpoint can be absent. */ }
     try { bodyEntered = JSON.parse(readFileSync(entered, "utf8")).entered; } catch { /* A failed fixture has no test body. */ }
-    return { exitCode: child.status, checkpoint, bodyEntered };
+    let actions: string[] = [];
+    try { actions = JSON.parse(readFileSync(actionsFile, "utf8")); } catch { /* A startup failure can precede hooks. */ }
+    return { exitCode: child.status, checkpoint, bodyEntered, actions };
   } finally { rmSync(output, { recursive: true, force: true }); }
 }
 
 test("fresh wallet fixture failures retain the exact safe startup stage and preserve its first cause", () => {
-  for (const failAt of ["browser-launch", "wallet-onboarding"] as const) {
+  for (const failAt of ["browser-launch", "wallet-onboarding", "fixture-focus", "other-pages-close"] as const) {
     const result = runFreshWalletFixture({ failAt, closeFailure: true });
     assert.equal(result.exitCode, 1); assert.equal(result.bodyEntered, false);
-    assert.deepEqual(result.checkpoint, { stage: failAt, result: "fail", errorClass: "TimeoutError", errorCode: "EACCES" });
+    const { onboarding, ...base } = result.checkpoint;
+    assert.deepEqual(base, { stage: failAt === "browser-launch" ? failAt : "wallet-onboarding", result: "fail", errorClass: "TimeoutError", errorCode: "EACCES" });
+    if (failAt !== "browser-launch") {
+      assert.equal(onboarding.step, failAt === "wallet-onboarding" ? "setup-callback" : failAt === "fixture-focus" ? "focus" : failAt);
+      assert.ok(Number.isSafeInteger(onboarding.elapsedMs) && onboarding.elapsedMs >= 0);
+    } else assert.equal(onboarding, undefined);
     assert.doesNotMatch(JSON.stringify(result.checkpoint), /private-wallet-fixture-message|private-close-message/);
   }
 });
@@ -461,6 +486,43 @@ test("fresh wallet fixture failures retain the exact safe startup stage and pres
 test("an unwritable optional diagnostic cannot reject an otherwise ready fresh wallet fixture", () => {
   const result = runFreshWalletFixture({ unavailableOutput: true });
   assert.equal(result.exitCode, 0); assert.equal(result.bodyEntered, true); assert.equal(result.checkpoint, undefined);
+});
+
+test("real onboarding failures identify the existing substep and preserve the first failure through closing", () => {
+  for (const step of ["import-wallet", "completion-click"] as const) {
+    const result = runFreshWalletFixture({ actualOnboarding: step, closeFailure: true });
+    assert.equal(result.exitCode, 1); assert.equal(result.bodyEntered, false);
+    assert.equal(result.checkpoint.stage, "wallet-onboarding"); assert.equal(result.checkpoint.result, "fail");
+    assert.equal(result.checkpoint.errorClass, "TimeoutError"); assert.equal(result.checkpoint.errorCode, "EACCES");
+    assert.equal(result.checkpoint.onboarding.step, step);
+    assert.ok(Number.isSafeInteger(result.checkpoint.onboarding.elapsedMs) && result.checkpoint.onboarding.elapsedMs >= 0);
+    assert.deepEqual(result.actions, step === "import-wallet" ? ["import-button-wait", "import-wallet"]
+      : ["import-button-wait", "import-wallet", "completion-check", "completion-click"]);
+    assert.doesNotMatch(JSON.stringify(result.checkpoint), /private-wallet-fixture-message|private-close-message|public-fixture-placeholder/);
+  }
+  const successful = runFreshWalletFixture({ actualOnboarding: "complete", unavailableOutput: true });
+  assert.equal(successful.exitCode, 0); assert.equal(successful.bodyEntered, true);
+  assert.deepEqual(successful.actions, ["import-button-wait", "import-wallet", "completion-check", "completion-click",
+    "completion-hidden-wait", "load-state", "existing-wait:1000"]);
+});
+
+test("optional onboarding readers retain only fixed substeps and nonnegative integer elapsed time", async () => {
+  const output = mkdtempSync(join(tmpdir(), "cybergold-onboarding-reader-")), path = join(output, "checkpoint.json");
+  try {
+    const base = { stage: "wallet-onboarding", result: "fail", errorClass: "Error" };
+    writeFileSync(path, JSON.stringify({ ...base, onboarding: { step: "import-wallet", elapsedMs: 125,
+      message: "private-seed", params: "private-request" } }));
+    assert.deepEqual(await readWalletSetupDiagnostic(path), { ...base, onboarding: { step: "import-wallet", elapsedMs: 125 } });
+    for (const onboarding of [{ step: "private-name", elapsedMs: 1 }, { step: "focus", elapsedMs: -1 },
+      { step: "focus", elapsedMs: 1.5 }, { step: "focus", elapsedMs: "1" }, { step: "focus", elapsedMs: true }]) {
+      writeFileSync(path, JSON.stringify({ ...base, onboarding }));
+      assert.deepEqual(await readWalletSetupDiagnostic(path), base);
+    }
+    const context = {}, observation = observeWalletOnboarding(context);
+    walletOnboardingStep(context, "import-wallet"); observation.stop();
+    const frozen = observation.snapshot(); walletOnboardingStep(context, "complete");
+    assert.deepEqual(observation.snapshot(), frozen);
+  } finally { rmSync(output, { recursive: true, force: true }); }
 });
 
 test("UI preparation references follow the latest matching quote attempt and reject stale or unrelated events", () => {

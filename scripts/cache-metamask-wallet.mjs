@@ -5,13 +5,15 @@ import { prepareExtension } from "@synthetixio/synpress-cache";
 import { existsSync } from "node:fs";
 import { realpath, rm } from "node:fs/promises";
 import { resolve } from "node:path";
-import { safeRunnerError, writeWalletSetupDiagnostic } from "../tests/trading/runnerDiagnostics.ts";
+import { observeWalletOnboarding, safeRunnerError, walletOnboardingStep, writeWalletSetupDiagnostic } from "../tests/trading/runnerDiagnostics.ts";
 
 let stage = "setup-import";
 let context;
 let failed = false;
+let onboarding;
+const observations = () => onboarding ? { onboarding: onboarding.snapshot() } : {};
 const checkpoint = result => writeWalletSetupDiagnostic(process.env.TRADE_REGRESSION_WALLET_SETUP_OUTPUT,
-  { stage, result });
+  { stage, result, ...observations() });
 try {
   await checkpoint("running");
   const { default: setup } = await import("../wallet-setup/metamask.setup.ts");
@@ -32,9 +34,12 @@ try {
     stage = "extension-worker"; await checkpoint("running");
     const worker = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
     const page = await context.newPage();
+    onboarding = observeWalletOnboarding(context);
     stage = "wallet-onboarding"; await checkpoint("running");
     await page.goto(`chrome-extension://${new URL(worker.url()).host}/home.html`, { waitUntil: "domcontentloaded" });
+    walletOnboardingStep(context, "setup-callback");
     await setup.fn(context, page);
+    onboarding.stop();
     stage = "wallet-ready"; await checkpoint("running");
     await page.goto(`chrome-extension://${new URL(worker.url()).host}/home.html`, { waitUntil: "domcontentloaded" });
     await page.getByTestId("account-menu-icon").waitFor({ timeout: 30000 });
@@ -42,8 +47,9 @@ try {
   }
 } catch (error) {
   failed = true;
+  onboarding?.stop();
   await writeWalletSetupDiagnostic(process.env.TRADE_REGRESSION_WALLET_SETUP_OUTPUT,
-    { stage, result: "fail", ...safeRunnerError(error) });
+    { stage, result: "fail", ...safeRunnerError(error), ...observations() });
   throw error;
 } finally {
   if (context) {
@@ -51,7 +57,7 @@ try {
     catch (error) {
       if (!failed) {
         await writeWalletSetupDiagnostic(process.env.TRADE_REGRESSION_WALLET_SETUP_OUTPUT,
-          { stage: "browser-close", result: "fail", ...safeRunnerError(error) });
+          { stage: "browser-close", result: "fail", ...safeRunnerError(error), ...observations() });
         throw error;
       }
     }

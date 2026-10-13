@@ -12,7 +12,7 @@ import { fetchPermit2Context } from "../../app/utils/permit2/context.ts";
 import { notification } from "../metamask/wallet-ui.ts";
 import { ScenarioUnavailableError } from "./scenarios.ts";
 import { readJson, requireInvariant, type QuoteObservation, type ScenarioResult } from "./regression.ts";
-import { safeRunnerError } from "./runnerDiagnostics.ts";
+import { safeRunnerError, safeWalletClickError, type WalletRequestDiagnostic } from "./runnerDiagnostics.ts";
 import { protocolConfigurationValues, type ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
 import type { HelpersExecutionOperation } from "../../app/utils/helpersExecutionGas.ts";
 import type { QuoteIntent } from "../../app/utils/quoteIntent.ts";
@@ -22,6 +22,9 @@ import type { CygldPermit } from "../../app/hooks/flows/shared/types.ts";
 
 const emptyPermit = { value: 0n, deadline: 0n, v: 0, r: `0x${"0".repeat(64)}` as Hex, s: `0x${"0".repeat(64)}` as Hex };
 const emptyPermit2 = { permit: { permitted: [] as { token: Address; amount: bigint }[], nonce: 0n, deadline: 0n }, signature: "0x" as Hex };
+// A timed-out observer does not cancel the native request. Count its settlement
+// separately so a later case on the same page can report that pending request.
+const pendingWalletRequests = new WeakMap<Page, number>();
 
 function safeWalletRequestErrorCode(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value)
@@ -30,9 +33,29 @@ function safeWalletRequestErrorCode(value: unknown): number | undefined {
 }
 
 /** Native MetaMask owns every signature and broadcast; no signer exists in Node. */
-export async function requestWallet(page: Page, request: { method: string; params: unknown[] }, reject = false): Promise<unknown> {
+export async function requestWallet(page: Page, request: { method: string; params: unknown[] }, reject = false, result?: ScenarioResult): Promise<unknown> {
   await page.bringToFront();
   let settled = false;
+  const started = performance.now(), pendingBefore = pendingWalletRequests.get(page) ?? 0;
+  pendingWalletRequests.set(page, pendingBefore + 1);
+  let observing = true;
+  const diagnostic: WalletRequestDiagnostic | undefined = request.method === "eth_sendTransaction" || request.method === "eth_signTypedData_v4"
+    ? { method: request.method, settlement: "pending", elapsedMs: 0, pendingBefore, pendingAfter: pendingBefore + 1,
+      clickAttempts: 0, clickCompleted: 0 } : undefined;
+  const snapshot = () => {
+    if (!diagnostic || !observing) return;
+    diagnostic.elapsedMs = Math.max(0, Math.round(performance.now() - started));
+    diagnostic.pendingAfter = pendingWalletRequests.get(page) ?? 0;
+    try { if (result) result.walletRequest = { ...diagnostic }; }
+    catch { /* Optional observations cannot replace the wallet's outcome. */ }
+  };
+  const settlement = (value: "fulfilled" | "rejected") => {
+    settled = true;
+    pendingWalletRequests.set(page, Math.max(0, (pendingWalletRequests.get(page) ?? 1) - 1));
+    if (diagnostic) diagnostic.settlement = value;
+    snapshot();
+  };
+  snapshot();
   const pending = page.evaluate(async input => {
     try { return await (window as unknown as { ethereum: { request: (input: unknown) => Promise<unknown> } }).ethereum.request(input); }
     catch (error) {
@@ -50,8 +73,8 @@ export async function requestWallet(page: Page, request: { method: string; param
         ...(walletRequestErrorCode === undefined ? {} : { walletRequestErrorCode }) };
     }
   }, request).then(value => {
-    settled = true;
     if (value && typeof value === "object" && "__cybergoldWalletRequestRejected" in value && value.__cybergoldWalletRequestRejected === true) {
+      settlement("rejected");
       const rejection = value as { errorClass?: string; walletRequestErrorCode?: unknown };
       const error = new Error("Wallet request failed.") as Error & { walletRequestErrorCode?: number };
       error.name = safeRunnerError({ name: rejection.errorClass }).errorClass;
@@ -59,22 +82,37 @@ export async function requestWallet(page: Page, request: { method: string; param
       if (code !== undefined) error.walletRequestErrorCode = code;
       throw error;
     }
+    settlement("fulfilled");
     return value;
-  }, error => { settled = true; throw error; });
+  }, error => { settlement("rejected"); throw error; });
   void pending.catch(() => undefined);
   try {
     await expect.poll(async () => {
       if (settled) return true;
-      const popup = await notification(page);
+      const popup = await notification(page, value => { if (diagnostic) Object.assign(diagnostic, value); snapshot(); });
       const button = reject ? popup.getByTestId("confirm-footer-cancel-button")
         : popup.getByTestId("confirm-footer-button").or(popup.getByTestId("confirm-btn"));
-      await button.click({ timeout: 1000 }).catch(() => undefined);
+      if (diagnostic) diagnostic.clickAttempts++;
+      snapshot();
+      await button.click({ timeout: 1000 }).then(() => {
+        if (diagnostic) diagnostic.clickCompleted++;
+        snapshot();
+      }).catch(error => {
+        if (diagnostic) Object.assign(diagnostic, safeWalletClickError(error));
+        snapshot();
+      });
       return settled;
     }, { timeout: 90_000, intervals: [250, 500, 1000] }).toBe(true);
   } catch (error) {
-    if (!settled) throw new ScenarioUnavailableError(request.method === "eth_signTypedData_v4"
-      ? "wallet-authorization-timeout" : "wallet-submission-timeout");
+    if (!settled) {
+      if (diagnostic) diagnostic.deadlineExpired = true;
+      throw new ScenarioUnavailableError(request.method === "eth_signTypedData_v4"
+        ? "wallet-authorization-timeout" : "wallet-submission-timeout");
+    }
     throw error;
+  } finally {
+    snapshot();
+    observing = false; // Freeze this case; a later native settlement only updates the page's count.
   }
   return pending;
 }
@@ -93,8 +131,9 @@ export async function waitReceipt(hash: Hex, fetcher: typeof fetch) {
 }
 async function approval(page: Page, token: Address, owner: Address, spender: Address, amount: bigint, chainId: number, fetcher: typeof fetch, result: ScenarioResult) {
   result.executionStage = "approval-submission";
+  result.lastApproval = { assetAddress: token, spenderAddress: spender, amountRaw: String(amount) };
   const hash = await requestWallet(page, { method: "eth_sendTransaction", params: [{ from: owner, to: token,
-    chainId: toHex(chainId), gas: toHex(120_000), data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [spender, amount] }) }] }) as Hex;
+    chainId: toHex(chainId), gas: toHex(120_000), data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [spender, amount] }) }] }, false, result) as Hex;
   (result.approvalTransactionHashes ??= []).push(hash);
   result.executionStage = "approval-confirmation";
   await waitReceipt(hash, fetcher);
@@ -118,7 +157,7 @@ async function nativePermit(page: Page, token: Address, owner: Address, amount: 
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200);
   const typed = tokenPermitTypedData(owner, config.contracts.helpers as Address, amount, deadline, selected.domain, selected.nonce);
   result.executionStage = "authorization-signature";
-  const signature = await requestWallet(page, { method: "eth_signTypedData_v4", params: [owner, serializeTypedData(typed)] }) as Hex;
+  const signature = await requestWallet(page, { method: "eth_signTypedData_v4", params: [owner, serializeTypedData(typed)] }, false, result) as Hex;
   return signedTokenPermit(amount, deadline, signature);
 }
 async function permit2(page: Page, inputs: { token: Address; amount: bigint }[], owner: Address, config: ProtocolConfiguration, fetcher: typeof fetch, result: ScenarioResult, single = false) {
@@ -141,7 +180,7 @@ async function permit2(page: Page, inputs: { token: Address; amount: bigint }[],
       { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] };
   result.executionStage = "authorization-signature";
   const signature = await requestWallet(page, { method: "eth_signTypedData_v4", params: [owner, serializeTypedData({ domain, types, primaryType,
-    message: { permitted, spender: config.contracts.helpers as Address, nonce, deadline } })] }) as Hex;
+    message: { permitted, spender: config.contracts.helpers as Address, nonce, deadline } })] }, false, result) as Hex;
   return { permit: { permitted: inputs, nonce, deadline }, signature };
 }
 
@@ -247,7 +286,7 @@ export async function executeScenario(observation: QuoteObservation, page: Page,
   const data = encodeFunctionData({ abi: HELPERS_EXECUTION_ABI, functionName: operation, args: args as never });
   result.executionStage = "execution-submission";
   const hash = await requestWallet(page, { method: "eth_sendTransaction", params: [{ from: owner, to: config.contracts.helpers,
-    chainId: toHex(config.chainId), data, value: toHex(nativeValue ?? 0n), gas: toHex(gas * 12n / 10n) }] }) as Hex;
+    chainId: toHex(config.chainId), data, value: toHex(nativeValue ?? 0n), gas: toHex(gas * 12n / 10n) }] }, false, result) as Hex;
   result.transactionHash = hash; // Retain submission evidence before any receipt read.
   result.executionStage = "execution-confirmation";
   const receipt = await waitReceipt(hash, fetcher);

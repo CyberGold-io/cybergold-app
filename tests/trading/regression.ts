@@ -10,6 +10,7 @@ import { QuotePreviewError, quoteResponseError } from "../../app/utils/quoteErro
 import { diagnosticReferences, retainDiagnosticReferences, type DiagnosticReferences } from "../../app/utils/diagnosticReferences.ts";
 import { basketFacts, configuredToken, coreIntentRequest, ScenarioUnavailableError, type Scenario } from "./scenarios.ts";
 import type { UiQuoteSnapshot, UiWalletEvidence } from "./uiEconomics.ts";
+import type { WalletRequestDiagnostic } from "./runnerDiagnostics.ts";
 
 export type UiObservationPhase = "ui-prepare" | "ui-facts" | "ui-balances" | "ui-submit" | "ui-confirmation"
   | "ui-hash" | "ui-receipt-read" | "ui-transaction-read" | "ui-receipt-assertions" | "ui-balance-postchecks";
@@ -26,6 +27,7 @@ export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "ass
   context?: { chainId: number; blockNumber: string; blockHash: string }; bounds?: Record<string, string | string[]>;
   receipt?: Record<string, string | string[]>; authorization?: string[];
   executionStage?: ExecutionStage; errorClass?: string; errorCode?: string; walletRequestErrorCode?: number; approvalTransactionHashes?: string[];
+  lastApproval?: { assetAddress: string; spenderAddress: string; amountRaw: string }; walletRequest?: WalletRequestDiagnostic;
   uiQuote?: UiQuoteSnapshot; wallet?: UiWalletEvidence;
 };
 export type RegressionReport = { schema: "cybergold.trade-regression.v1"; runId: string; target: "sandbox" | "mainnet";
