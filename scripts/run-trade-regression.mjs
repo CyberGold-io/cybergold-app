@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { ScenarioUnavailableError, tradeScenarios } from "../tests/trading/scenarios.ts";
 import { failureResult, observeScenario, originFetch, readJson, resultFor } from "../tests/trading/regression.ts";
 import { observeBrowserQuotes } from "../tests/trading/browserQuotes.ts";
-import { readWalletSetupDiagnostic, safeCommandResult, safeRunnerError } from "../tests/trading/runnerDiagnostics.ts";
+import { readWalletSetupDiagnostic, readWalletTestDiagnostics, safeCommandResult, safeRunnerError } from "../tests/trading/runnerDiagnostics.ts";
 
 const { values } = parseArgs({ options: { target: { type: "string" }, mode: { type: "string", default: "quotes" },
   "output-dir": { type: "string" }, "base-url": { type: "string" } } });
@@ -21,6 +21,9 @@ const report = { schema: "cybergold.trade-regression.v1", runId: randomUUID(), t
   startedAt: new Date().toISOString(), runnerOutcome: "pass", runnerDiagnostics: { stage: "origin" }, scenarios: [] };
 
 async function walletResults() {
+  const walletTests = await readWalletTestDiagnostics({ ui: resolve(output, "wallet-fixture-ui.json"),
+    independent: resolve(output, "wallet-fixture-independent.json") });
+  if (Object.keys(walletTests).length) report.runnerDiagnostics.walletTests = walletTests;
   let firstProblem;
   report.fixtures = [];
   for (const [file, stage, ui] of [["regression-execution.json", "independent-report", false], ["regression-ui.json", "ui-report", true]]) {
@@ -136,6 +139,8 @@ try {
       const env = { PLAYWRIGHT_BASE_URL: origin, PLAYWRIGHT_EXTERNAL_SERVER: "1", NEXT_PUBLIC_CHAIN_ID: String(config.chainId), NEXT_PUBLIC_CHAIN_NAME: "CyberGold Sandbox",
         TRADE_REGRESSION_OUTPUT: resolve(output, "regression-execution.json"), TRADE_REGRESSION_UI_OUTPUT: resolve(output, "regression-ui.json"),
         TRADE_REGRESSION_WALLET_SETUP_OUTPUT: resolve(output, "wallet-setup.json"),
+        TRADE_REGRESSION_UI_FIXTURE_OUTPUT: resolve(output, "wallet-fixture-ui.json"),
+        TRADE_REGRESSION_INDEPENDENT_FIXTURE_OUTPUT: resolve(output, "wallet-fixture-independent.json"),
         TRADE_REGRESSION_FAUCET_REQUEST_ID: report.runId, TRADE_REGRESSION_MODE: "sandbox-execution", TRADE_REGRESSION_TARGET: "sandbox" };
       report.runnerDiagnostics.stage = "wallet-cache";
       const setupResult = await command(process.execPath, ["scripts/cache-metamask-wallet.mjs"], env);

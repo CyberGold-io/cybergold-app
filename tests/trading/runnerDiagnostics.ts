@@ -1,4 +1,5 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
+import { basename } from "node:path";
 
 export const runnerStages = ["origin", "config-facts", "wallet-cache", "wallet-tests", "independent-report", "ui-report", "fork-qualification", "complete"] as const;
 export const walletSetupStages = ["setup-import", "profile", "extension", "browser-launch", "extension-worker", "wallet-onboarding", "wallet-ready", "browser-close"] as const;
@@ -7,7 +8,14 @@ const errorCodes = new Set(["ENOENT", "EACCES", "EROFS", "ENOSPC", "ENOMEM"]);
 const signals = new Set(["SIGINT", "SIGTERM", "SIGKILL", "SIGABRT", "SIGSEGV", "SIGILL", "SIGTRAP"]);
 export type SafeRunnerError = { errorClass: string; errorCode?: string };
 export type WalletSetupDiagnostic = { stage: typeof walletSetupStages[number]; result: "running" | "pass" | "fail" } & Partial<SafeRunnerError>;
-export type RunnerDiagnostic = { stage: typeof runnerStages[number]; exitCode?: number; signal?: string; walletSetup?: WalletSetupDiagnostic } & Partial<SafeRunnerError>;
+export type WalletTestDiagnostics = Partial<Record<"ui" | "independent", WalletSetupDiagnostic>>;
+export type RunnerDiagnostic = { stage: typeof runnerStages[number]; exitCode?: number; signal?: string;
+  walletSetup?: WalletSetupDiagnostic; walletTests?: WalletTestDiagnostics } & Partial<SafeRunnerError>;
+
+export function walletFixtureOutput(file: string, environment: Record<string, string | undefined> = process.env) {
+  if (basename(file) === "fixed-api-roundtrips.spec.ts") return environment.TRADE_REGRESSION_UI_FIXTURE_OUTPUT;
+  if (basename(file) === "regression-execution.spec.ts") return environment.TRADE_REGRESSION_INDEPENDENT_FIXTURE_OUTPUT;
+}
 
 /** Exception messages, stacks and arbitrary names can contain signing data. */
 export function safeRunnerError(error: unknown): SafeRunnerError {
@@ -34,4 +42,9 @@ export async function readWalletSetupDiagnostic(path: string): Promise<WalletSet
       ...(errorClasses.has(value.errorClass) ? { errorClass: value.errorClass } : {}),
       ...(errorCodes.has(value.errorCode) ? { errorCode: value.errorCode } : {}) };
   } catch { /* A missing diagnostic is independent of the operation. */ }
+}
+
+export async function readWalletTestDiagnostics(paths: Record<"ui" | "independent", string>): Promise<WalletTestDiagnostics> {
+  const [ui, independent] = await Promise.all([readWalletSetupDiagnostic(paths.ui), readWalletSetupDiagnostic(paths.independent)]);
+  return { ...(ui ? { ui } : {}), ...(independent ? { independent } : {}) };
 }

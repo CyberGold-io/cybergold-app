@@ -11,6 +11,7 @@ import { fetchPermit2Context } from "../../app/utils/permit2/context.ts";
 import { notification } from "../metamask/wallet-ui.ts";
 import { ScenarioUnavailableError } from "./scenarios.ts";
 import { readJson, requireInvariant, type QuoteObservation, type ScenarioResult } from "./regression.ts";
+import { safeRunnerError } from "./runnerDiagnostics.ts";
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
 import type { HelpersExecutionOperation } from "../../app/utils/helpersExecutionGas.ts";
 import type { QuoteIntent } from "../../app/utils/quoteIntent.ts";
@@ -57,33 +58,42 @@ export async function waitReceipt(hash: Hex, fetcher: typeof fetch) {
   }
   requireInvariant(receipt!.status === "success", "receipt-reverted"); return receipt!;
 }
-async function approval(page: Page, token: Address, owner: Address, spender: Address, amount: bigint, chainId: number, fetcher: typeof fetch) {
+async function approval(page: Page, token: Address, owner: Address, spender: Address, amount: bigint, chainId: number, fetcher: typeof fetch, result: ScenarioResult) {
+  result.executionStage = "approval-submission";
   const hash = await requestWallet(page, { method: "eth_sendTransaction", params: [{ from: owner, to: token,
     chainId: toHex(chainId), gas: toHex(120_000), data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [spender, amount] }) }] }) as Hex;
+  (result.approvalTransactionHashes ??= []).push(hash);
+  result.executionStage = "approval-confirmation";
   await waitReceipt(hash, fetcher);
 }
-async function allowance(page: Page, token: Address, owner: Address, amount: bigint, config: ProtocolConfiguration, fetcher: typeof fetch) {
+async function allowance(page: Page, token: Address, owner: Address, amount: bigint, config: ProtocolConfiguration, fetcher: typeof fetch, result: ScenarioResult) {
+  result.executionStage = "allowance-read";
   const context = await fetchTokenPermit(token, owner, fetcher);
   if (context.allowance.status !== "success") throw new ScenarioUnavailableError("allowance-unavailable");
-  if (BigInt(context.allowance.value) < amount) await approval(page, token, owner, config.contracts.helpers as Address, amount, config.chainId, fetcher);
+  if (BigInt(context.allowance.value) < amount) await approval(page, token, owner, config.contracts.helpers as Address, amount, config.chainId, fetcher, result);
 }
-async function nativePermit(page: Page, token: Address, owner: Address, amount: bigint, config: ProtocolConfiguration, fetcher: typeof fetch): Promise<CygldPermit> {
+async function nativePermit(page: Page, token: Address, owner: Address, amount: bigint, config: ProtocolConfiguration, fetcher: typeof fetch, result: ScenarioResult): Promise<CygldPermit> {
+  result.executionStage = "native-permit-read";
   let context = await fetchTokenPermit(token, owner, fetcher);
   if (context.allowance.status === "success" && BigInt(context.allowance.value) >= amount) {
-    await approval(page, token, owner, config.contracts.helpers as Address, 0n, config.chainId, fetcher);
+    await approval(page, token, owner, config.contracts.helpers as Address, 0n, config.chainId, fetcher, result);
+    result.executionStage = "native-permit-read";
     context = await fetchTokenPermit(token, owner, fetcher);
   }
   const selected = tokenPurchaseAuthorization(context, amount, true);
   if (selected.kind !== "permit") throw new ScenarioUnavailableError("native-permit-unavailable");
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200);
   const typed = tokenPermitTypedData(owner, config.contracts.helpers as Address, amount, deadline, selected.domain, selected.nonce);
+  result.executionStage = "authorization-signature";
   const signature = await requestWallet(page, { method: "eth_signTypedData_v4", params: [owner, serializeTypedData(typed)] }) as Hex;
   return signedTokenPermit(amount, deadline, signature);
 }
-async function permit2(page: Page, inputs: { token: Address; amount: bigint }[], owner: Address, config: ProtocolConfiguration, fetcher: typeof fetch, single = false) {
+async function permit2(page: Page, inputs: { token: Address; amount: bigint }[], owner: Address, config: ProtocolConfiguration, fetcher: typeof fetch, result: ScenarioResult, single = false) {
+  result.executionStage = "permit2-read";
   const spender = permit2FromFacts(await fetchHelpersRouterFacts(undefined, fetcher));
   // Exact test setup permissions, never an owner wallet or public-chain grant.
-  for (const input of inputs) await approval(page, input.token, owner, spender, input.amount, config.chainId, fetcher);
+  for (const input of inputs) await approval(page, input.token, owner, spender, input.amount, config.chainId, fetcher, result);
+  result.executionStage = "permit2-read";
   const observation = await fetchPermit2Context({ mode: "nonce", owner }, fetcher);
   const nonce = BigInt(observation.result.nonce), deadline = BigInt(Math.floor(Date.now() / 1000) + 1200);
   const permitted = single ? inputs[0] : inputs;
@@ -93,6 +103,7 @@ async function permit2(page: Page, inputs: { token: Address; amount: bigint }[],
     TokenPermissions: [{ name: "token", type: "address" }, { name: "amount", type: "uint256" }],
     [primaryType]: [{ name: "permitted", type: single ? "TokenPermissions" : "TokenPermissions[]" }, { name: "spender", type: "address" },
       { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] };
+  result.executionStage = "authorization-signature";
   const signature = await requestWallet(page, { method: "eth_signTypedData_v4", params: [owner, serializeTypedData({ domain, types, primaryType,
     message: { permitted, spender: config.contracts.helpers as Address, nonce, deadline } })] }) as Hex;
   return { permit: { permitted: inputs, nonce, deadline }, signature };
@@ -100,6 +111,7 @@ async function permit2(page: Page, inputs: { token: Address; amount: bigint }[],
 
 export async function executionPlan(observation: QuoteObservation, page: Page, owner: Address, config: ProtocolConfiguration, fetcher: typeof fetch) {
   const { scenario, value, result } = observation;
+  result.executionStage = "execution-plan";
   const maximum = typeof result.bounds?.inputMaximum === "string" ? BigInt(result.bounds.inputMaximum) : 0n,
     minimum = typeof result.bounds?.outputMinimum === "string" ? BigInt(result.bounds.outputMinimum) : 0n;
   let operation: HelpersExecutionOperation, args: unknown[], nativeValue: bigint | undefined;
@@ -110,6 +122,7 @@ export async function executionPlan(observation: QuoteObservation, page: Page, o
       requireInvariant(preview.mode === "issue-exact-in" || preview.mode === "issue-exact-out", "basket-mode-mismatch");
       const maxima = result.bounds!.inputMaximum as string[];
       const inputs = preview.result.orderedCoreAssets.map((token, index) => ({ token: token as Address, amount: BigInt(maxima[index]) }));
+      result.executionStage = "authorization-availability";
       const mixed = await fetchBasketPermitIssuanceInstalled(scenario.inputMode, fetcher);
       const request = preview.mode === "issue-exact-in" ? { recipient: owner, minimumNetCygldOut: minimum }
         : { recipient: owner, netCygldOut: minimum };
@@ -120,15 +133,15 @@ export async function executionPlan(observation: QuoteObservation, page: Page, o
         const permitInputs = scenario.inputMode === "exact-in" ? inputs.slice(1).filter(input => input.amount > 0n) : [];
         for (const input of inputs) {
           const usePermit2 = permitInputs.includes(input);
-          if (!usePermit2 && input.amount > 0n) await allowance(page, input.token, owner, input.amount, config, fetcher);
+          if (!usePermit2 && input.amount > 0n) await allowance(page, input.token, owner, input.amount, config, fetcher, result);
           authorization.push({ token: input.token, maximumInputAmount: input.amount, authorization: usePermit2 ? 2 : 0, permit: emptyPermit });
           auth.push(usePermit2 ? "permit2" : "allowance");
         }
-        const signed = permitInputs.length ? await permit2(page, permitInputs, owner, config, fetcher) : emptyPermit2;
+        const signed = permitInputs.length ? await permit2(page, permitInputs, owner, config, fetcher, result) : emptyPermit2;
         operation = preview.mode === "issue-exact-in" ? "issueFromBasketExactInWithMixedPermits" : "issueFromBasketExactOutWithMixedPermits";
         args = [request, authorization, signed];
       } else {
-        const signed = await permit2(page, inputs, owner, config, fetcher); auth.push("permit2");
+        const signed = await permit2(page, inputs, owner, config, fetcher, result); auth.push("permit2");
         operation = preview.mode === "issue-exact-in" ? "issueFromBasketExactInWithPermit2" : "issueFromBasketExactOutWithPermit2";
         args = [request, signed];
       }
@@ -138,12 +151,12 @@ export async function executionPlan(observation: QuoteObservation, page: Page, o
       const request = { grossCygldIn: maximum, recipient: owner, expectedCoreOutputs: preview.result.projectedCoreOutputs.map((output, index) => ({
         kind: output.kind, token: output.token, id: BigInt(output.id), minimumAmount: BigInt(minima[index]),
       })) };
-      await allowance(page, config.contracts.core as Address, owner, maximum, config, fetcher); auth.push("allowance");
+      await allowance(page, config.contracts.core as Address, owner, maximum, config, fetcher, result); auth.push("allowance");
       operation = "redeemToBasketExactIn"; args = [request];
     }
   } else if (scenario.requestedStrategy === "market") {
     const quote = value as MarketQuote, token = quote.tokenIn as Address;
-    await allowance(page, token, owner, maximum, config, fetcher); auth.push("allowance");
+    await allowance(page, token, owner, maximum, config, fetcher, result); auth.push("allowance");
     const params = { ...quote.params, amount: BigInt(quote.params.amount), bound: BigInt(quote.params.bound),
       routedInput: BigInt(quote.params.routedInput), feeCygld: BigInt(quote.params.feeCygld), deadline: BigInt(quote.params.deadline) };
     operation = scenario.inputMode === "exact-in" ? "swapExactInput" : "swapExactOutput";
@@ -161,13 +174,14 @@ export async function executionPlan(observation: QuoteObservation, page: Page, o
         // Keep native permit and Permit2 coverage on independent exact-output
         // quotes, so an unavailable budget quote does not hide those fixtures.
         if (scenario.inputMode === "exact-in") {
-          await allowance(page, token, owner, maximum, config, fetcher); auth.push("allowance"); operation = "issueFromTokenExactOut"; args = [params, execution, legs];
+          await allowance(page, token, owner, maximum, config, fetcher, result); auth.push("allowance"); operation = "issueFromTokenExactOut"; args = [params, execution, legs];
         } else if (scenario.asset === "USDC") {
+          result.executionStage = "authorization-availability";
           if (!await fetchTokenPermitIssuanceInstalled(fetcher)) throw new ScenarioUnavailableError("native-permit-unavailable");
-          const signed = await nativePermit(page, token, owner, maximum, config, fetcher); auth.push("native-permit");
+          const signed = await nativePermit(page, token, owner, maximum, config, fetcher, result); auth.push("native-permit");
           operation = "issueFromTokenExactOutWithPermit"; args = [params, execution, signed, legs];
         } else {
-          const signed = await permit2(page, [{ token, amount: maximum }], owner, config, fetcher, true); auth.push("permit2");
+          const signed = await permit2(page, [{ token, amount: maximum }], owner, config, fetcher, result, true); auth.push("permit2");
           operation = "issueFromTokenExactOutWithPermit2"; args = [params, execution, { permit: { ...signed.permit, permitted: signed.permit.permitted[0] }, signature: signed.signature }, legs];
         }
       }
@@ -178,7 +192,7 @@ export async function executionPlan(observation: QuoteObservation, page: Page, o
       const redemption = { grossCygldIn: BigInt(quote.executionAmount), recipient: owner, minimumAmountOut: minimum,
         expectedCoreOutputs: outputs.map(output => ({ ...output, id: BigInt(output.id), minimumAmount: BigInt(output.minimumAmount) })) };
       const legs = quote.quotes.map(leg => ({ adapter: leg.adapter, minimumAmountOut: BigInt(leg.minimumAmountOut), data: leg.data }));
-      await allowance(page, config.contracts.core as Address, owner, maximum, config, fetcher); auth.push("allowance");
+      await allowance(page, config.contracts.core as Address, owner, maximum, config, fetcher, result); auth.push("allowance");
       operation = request.native ? "redeemToNativeExactIn" : "redeemToTokenExactIn";
       args = [request.native ? redemption : { ...redemption, outputToken: request.counterToken }, legs];
     }
@@ -189,14 +203,21 @@ export async function executionPlan(observation: QuoteObservation, page: Page, o
 
 export async function executeScenario(observation: QuoteObservation, page: Page, owner: Address, config: ProtocolConfiguration, fetcher: typeof fetch): Promise<ScenarioResult> {
   const result = observation.result; result.layer = "execution"; result.status = "unavailable"; result.code = "execution-not-completed";
+  try {
   const { operation, args, nativeValue } = await executionPlan(observation, page, owner, config, fetcher);
+  result.executionStage = "execution-simulation";
   const gas = await estimateHelpersExecutionGas(owner, operation, args, nativeValue, fetcher, undefined, config.contracts.helpers as Address);
+  result.executionStage = "execution-encoding";
   const data = encodeFunctionData({ abi: HELPERS_EXECUTION_ABI, functionName: operation, args: args as never });
+  result.executionStage = "execution-submission";
   const hash = await requestWallet(page, { method: "eth_sendTransaction", params: [{ from: owner, to: config.contracts.helpers,
     chainId: toHex(config.chainId), data, value: toHex(nativeValue ?? 0n), gas: toHex(gas * 12n / 10n) }] }) as Hex;
   result.transactionHash = hash; // Retain submission evidence before any receipt read.
+  result.executionStage = "execution-confirmation";
   const receipt = await waitReceipt(hash, fetcher);
+  result.executionStage = "execution-transaction-read";
   const observed = await readJson<{ transaction: { input: Hex; to: string; from: string } | null }>(fetcher, `/api/transaction/wait/transaction?hash=${hash}`);
+  result.executionStage = "execution-receipt-assertions";
   requireInvariant(observed.transaction?.to.toLowerCase() === config.contracts.helpers!.toLowerCase() && observed.transaction?.from.toLowerCase() === owner.toLowerCase(), "transaction-party-mismatch");
   requireInvariant(decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: observed.transaction!.input }).functionName === operation, "execution-selector-mismatch");
   result.actualOperation = operation;
@@ -238,5 +259,9 @@ export async function executeScenario(observation: QuoteObservation, page: Page,
       recoveryShareAmounts: measured.recoveryShareAmounts.map(String) };
   }
   result.context = { chainId: config.chainId, blockNumber: String(receipt.blockNumber), blockHash: receipt.blockHash };
-  result.status = "pass"; delete result.code; return result;
+  result.status = "pass"; result.executionStage = "complete"; delete result.code; return result;
+  } catch (error) {
+    Object.assign(result, safeRunnerError(error));
+    throw error;
+  }
 }
