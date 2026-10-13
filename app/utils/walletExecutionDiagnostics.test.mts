@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { decodeFunctionData, erc20Abi, type Address, type Hex } from "viem";
 import { appEnvironment, withEnvironment } from "../../tests/fixtures/environment.mts";
 import { protocolConfigurationFixture, tokenAddresses } from "../../tests/fixtures/protocol-configuration.ts";
-import { failureResult, RegressionAssertionError, resultFor, type QuoteObservation } from "../../tests/trading/regression.ts";
+import { failureResult, RegressionAssertionError, resultFor, type QuoteObservation, type ScenarioResult } from "../../tests/trading/regression.ts";
 import { tradeScenarios } from "../../tests/trading/scenarios.ts";
+import { ScenarioUnavailableError } from "../../tests/trading/scenarios.ts";
+import { notification } from "../../tests/metamask/wallet-ui.ts";
+import { safeWalletClickError } from "../../tests/trading/runnerDiagnostics.ts";
 
 const { executeScenario, executionPlan, requestWallet } = await withEnvironment(appEnvironment, () => import("../../tests/trading/walletExecution.ts"));
 const owner = `0x${"a".repeat(40)}` as Address;
@@ -276,6 +279,11 @@ test("native provider codes cross the browser callback and survive per-case proj
     assert.equal(result.executionStage, "approval-submission");
     assert.equal(result.errorClass, "Error");
     assert.equal(result.walletRequestErrorCode, code);
+    assert.deepEqual(result.lastApproval, { assetAddress: tokenAddresses.PAXG,
+      spenderAddress: protocolConfigurationFixture.contracts.helpers, amountRaw: "100" });
+    assert.equal(result.walletRequest?.method, "eth_sendTransaction");
+    assert.equal(result.walletRequest?.settlement, "rejected");
+    assert.equal(result.walletRequest?.pendingBefore, 0); assert.equal(result.walletRequest?.pendingAfter, 0);
     assert.doesNotMatch(JSON.stringify(result), /private-wallet-seed|private-provider-url|private-signature|private-request-params/);
   }
 });
@@ -309,4 +317,92 @@ test("successful native wallet hashes and signatures return unchanged with one p
     assert.equal(requests, 1);
     assert.deepEqual(returned, [value]);
   }
+});
+
+test("a timed-out native request stays pending and the next case observes it without changing the original case", async () => {
+  const originalPoll = expect.poll;
+  expect.poll = ((callback: () => Promise<boolean>) => ({ toBe: async () => {
+    if (!await callback()) throw new Error("fixture-observation-deadline");
+  } })) as unknown as typeof expect.poll;
+  let resolvePending!: (value: unknown) => void, evaluations = 0, pageSnapshots = 0, clickCalls = 0;
+  const firstRequest = new Promise(resolve => { resolvePending = resolve; });
+  const ambiguity = new Error("strict mode violation: private-DOM private-signature");
+  const button = { or: () => button, click: async () => { clickCalls++; throw ambiguity; } };
+  const popup = { url: () => "chrome-extension://fixture/notification.html", bringToFront: async () => undefined,
+    setDefaultTimeout: () => undefined, getByTestId: () => button };
+  const page = { bringToFront: async () => undefined,
+    context: () => ({ pages: () => { pageSnapshots++; return [popup]; },
+      serviceWorkers: () => [{ url: () => "chrome-extension://fixture/background.js" }] }),
+    evaluate: async () => ++evaluations === 1 ? firstRequest : approvalHash } as unknown as Page;
+  const first = basketObservation().result, second = basketObservation().result, third = basketObservation().result;
+  try {
+    await assert.rejects(requestWallet(page, { method: "eth_sendTransaction", params: [] }, false, first),
+      error => error instanceof ScenarioUnavailableError && error.code === "wallet-submission-timeout");
+    const diagnostic = first.walletRequest!;
+    assert.equal(diagnostic.settlement, "pending"); assert.equal(diagnostic.deadlineExpired, true);
+    assert.equal(diagnostic.pendingBefore, 0); assert.equal(diagnostic.pendingAfter, 1);
+    assert.equal(diagnostic.notificationSelection, "existing-notification"); assert.equal(diagnostic.notificationViewCount, 1);
+    assert.equal(diagnostic.clickAttempts, 1); assert.equal(diagnostic.clickCompleted, 0);
+    assert.equal(diagnostic.lastClickErrorClass, "Error"); assert.equal(diagnostic.lastClickErrorKind, "ambiguous");
+    assert.equal(pageSnapshots, 1); assert.equal(clickCalls, 1);
+    assert.doesNotMatch(JSON.stringify(diagnostic), /private-DOM|private-signature|fixture-observation-deadline/);
+    const frozen = structuredClone(diagnostic);
+    assert.equal(await requestWallet(page, { method: "eth_sendTransaction", params: [] }, false, second), approvalHash);
+    assert.equal(second.walletRequest?.pendingBefore, 1); assert.equal(second.walletRequest?.pendingAfter, 1);
+    resolvePending(approvalHash); await firstRequest; await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(first.walletRequest, frozen);
+    assert.equal(await requestWallet(page, { method: "eth_sendTransaction", params: [] }, false, third), approvalHash);
+    assert.equal(third.walletRequest?.pendingBefore, 0); assert.equal(third.walletRequest?.pendingAfter, 0);
+    assert.equal(evaluations, 3);
+  } finally { expect.poll = originalPoll; resolvePending(approvalHash); }
+});
+
+test("successful native confirmation records its existing click and optional observation failures cannot reject the hash", async () => {
+  const originalPoll = expect.poll;
+  expect.poll = ((callback: () => Promise<boolean>) => ({ toBe: async () => assert.equal(await callback(), true) })) as unknown as typeof expect.poll;
+  let resolvePending!: (value: unknown) => void, clicks = 0, requests = 0;
+  const pending = new Promise(resolve => { resolvePending = resolve; });
+  const button = { or: () => button, click: async () => { clicks++; resolvePending(approvalHash); } };
+  const popup = { url: () => "chrome-extension://fixture/notification.html", bringToFront: async () => undefined,
+    setDefaultTimeout: () => undefined, getByTestId: () => button };
+  const page = { bringToFront: async () => undefined, evaluate: async () => { requests++; return pending; },
+    context: () => ({ pages: () => [popup], serviceWorkers: () => [{ url: () => "chrome-extension://fixture/background.js" }] }) } as unknown as Page;
+  try {
+    const result = basketObservation().result;
+    assert.equal(await requestWallet(page, { method: "eth_sendTransaction", params: [] }, false, result), approvalHash);
+    assert.equal(requests, 1); assert.equal(clicks, 1);
+    assert.equal(result.walletRequest?.settlement, "fulfilled"); assert.equal(result.walletRequest?.clickAttempts, 1);
+    assert.equal(result.walletRequest?.clickCompleted, 1); assert.equal(result.walletRequest?.pendingAfter, 0);
+    const failingObserver = Object.defineProperty({}, "walletRequest", { set: () => { throw new Error("private-observer-failure"); } }) as ScenarioResult;
+    const immediate = browserWalletPage(async () => approvalHash);
+    assert.equal(await requestWallet(immediate, { method: "eth_sendTransaction", params: [] }, false, failingObserver), approvalHash);
+  } finally { expect.poll = originalPoll; resolvePending(approvalHash); }
+});
+
+test("notification observations use existing page snapshots and preserve selection despite a failed observer", async () => {
+  for (const selection of ["existing-notification", "existing-extension", "created"] as const) {
+    let reads = 0, created = 0, navigations = 0;
+    const popup = { url: () => selection === "existing-notification" ? "chrome-extension://fixture/notification.html" : "chrome-extension://fixture/home.html",
+      bringToFront: async () => undefined, goto: async () => { navigations++; }, setDefaultTimeout: () => undefined };
+    const page = { context: () => ({ serviceWorkers: () => [{ url: () => "chrome-extension://fixture/background.js" }],
+      pages: () => { reads++; return selection === "created" ? [] : [popup]; },
+      newPage: async () => { created++; return popup; } }) } as unknown as Page;
+    let observed: unknown;
+    assert.equal(await notification(page, value => { observed = value; throw new Error("private-observer-failure"); }), popup);
+    assert.deepEqual(observed, { notificationSelection: selection, notificationViewCount: selection === "existing-notification" ? 1 : 0 });
+    assert.equal(reads, selection === "existing-notification" ? 1 : 2);
+    assert.equal(created, selection === "created" ? 1 : 0); assert.equal(navigations, selection === "existing-notification" ? 0 : 1);
+  }
+});
+
+test("click failures expose only a fixed class and classification, never private messages or custom fields", () => {
+  for (const [error, kind] of [[Object.assign(new Error("private-DOM"), { name: "TimeoutError" }), "timeout"],
+    [new Error("Target page, context or browser has been closed: private-signature"), "closed"],
+    [Object.assign(new Error("private-provider-url"), { name: "private-class" }), "other"]] as const) {
+    const observed = safeWalletClickError(error);
+    assert.equal(observed.lastClickErrorKind, kind);
+    assert.doesNotMatch(JSON.stringify(observed), /private-DOM|private-signature|private-provider-url|private-class/);
+  }
+  assert.deepEqual(safeWalletClickError(Object.defineProperty({}, "message", { get: () => { throw new Error("private-getter"); } })),
+    { lastClickErrorClass: "UnknownError", lastClickErrorKind: "other" });
 });

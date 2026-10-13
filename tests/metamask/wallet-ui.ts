@@ -1,4 +1,5 @@
 import { expect, type Page } from "@playwright/test";
+import type { WalletRequestDiagnostic } from "../trading/runnerDiagnostics";
 
 export async function addLocalNetwork(page: Page, node: { rpcUrl: string; chainId: number }, name: string) {
   await page.bringToFront();
@@ -16,12 +17,20 @@ export async function addLocalNetwork(page: Page, node: { rpcUrl: string; chainI
   await pending;
 }
 
-export async function notification(page: Page) {
+export async function notification(page: Page, observe?: (value: Pick<WalletRequestDiagnostic, "notificationSelection" | "notificationViewCount">) => void) {
   const context = page.context();
   const extensionId = new URL(context.serviceWorkers()[0].url()).host;
-  const popup = context.pages().find(candidate => candidate.url().includes("notification.html"))
-    ?? context.pages().find(candidate => candidate.url().startsWith(`chrome-extension://${extensionId}/`))
-    ?? await context.newPage();
+  const views = context.pages();
+  let popup = views.find(candidate => candidate.url().includes("notification.html"));
+  let selection: WalletRequestDiagnostic["notificationSelection"] = "existing-notification";
+  if (!popup) {
+    popup = context.pages().find(candidate => candidate.url().startsWith(`chrome-extension://${extensionId}/`));
+    selection = "existing-extension";
+  }
+  if (!popup) { popup = await context.newPage(); selection = "created"; }
+  try { observe?.({ notificationSelection: selection,
+    notificationViewCount: views.filter(candidate => candidate.url().includes("notification.html")).length }); }
+  catch { /* Optional observations never change native request selection. */ }
   // Keep a native request view that is already open: reloading it races the
   // extension's own request navigation. Foreground the view so headed Linux
   // Chromium can render and interact with its controls normally.
