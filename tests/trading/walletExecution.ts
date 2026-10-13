@@ -5,14 +5,15 @@ import { HELPERS_EXECUTION_ABI } from "../../app/contracts/cybergold-helpers/exe
 import { tradeReceipt } from "../../app/utils/tradeReceipt.ts";
 import { fetchTransactionReceipt } from "../../app/utils/transactionReceipt.ts";
 import { estimateHelpersExecutionGas } from "../../app/utils/helpersExecutionGas.ts";
-import { fetchTokenPermit, tokenPermitTypedData, tokenPurchaseAuthorization, signedTokenPermit } from "../../app/utils/tokenPermit.ts";
+import { fetchTokenPermit, tokenPermitTypedData, tokenPurchaseApprovalAmounts, tokenPurchaseAuthorization, signedTokenPermit } from "../../app/utils/tokenPermit.ts";
+import { getTokensNeedingPermit2Approval } from "../../app/utils/tokensApproval.ts";
 import { fetchBasketPermitIssuanceInstalled, fetchHelpersRouterFacts, fetchTokenPermitIssuanceInstalled, permit2FromFacts } from "../../app/utils/helpersRouterFacts.ts";
 import { fetchPermit2Context } from "../../app/utils/permit2/context.ts";
 import { notification } from "../metamask/wallet-ui.ts";
 import { ScenarioUnavailableError } from "./scenarios.ts";
 import { readJson, requireInvariant, type QuoteObservation, type ScenarioResult } from "./regression.ts";
 import { safeRunnerError } from "./runnerDiagnostics.ts";
-import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
+import { protocolConfigurationValues, type ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
 import type { HelpersExecutionOperation } from "../../app/utils/helpersExecutionGas.ts";
 import type { QuoteIntent } from "../../app/utils/quoteIntent.ts";
 import type { BasketPreview } from "../../app/utils/basketPreview.ts";
@@ -91,8 +92,11 @@ async function nativePermit(page: Page, token: Address, owner: Address, amount: 
 async function permit2(page: Page, inputs: { token: Address; amount: bigint }[], owner: Address, config: ProtocolConfiguration, fetcher: typeof fetch, result: ScenarioResult, single = false) {
   result.executionStage = "permit2-read";
   const spender = permit2FromFacts(await fetchHelpersRouterFacts(undefined, fetcher));
-  // Exact test setup permissions, never an owner wallet or public-chain grant.
-  for (const input of inputs) await approval(page, input.token, owner, spender, input.amount, config.chainId, fetcher, result);
+  const approvals = await getTokensNeedingPermit2Approval({ owner, permitted: inputs, fetchImpl: fetcher });
+  const resetAllowanceToken = protocolConfigurationValues(config).tokenAddresses.USDT;
+  // Keep exact test grants and reuse ordinary allowance/reset selection.
+  for (const input of approvals) for (const amount of tokenPurchaseApprovalAmounts(input.token, input.allowance, input.amount, resetAllowanceToken))
+    await approval(page, input.token, owner, spender, amount, config.chainId, fetcher, result);
   result.executionStage = "permit2-read";
   const observation = await fetchPermit2Context({ mode: "nonce", owner }, fetcher);
   const nonce = BigInt(observation.result.nonce), deadline = BigInt(Math.floor(Date.now() / 1000) + 1200);
