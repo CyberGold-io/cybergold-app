@@ -215,3 +215,16 @@ test("an incorrect wallet direction fails while retaining exact signed delta and
   assert.throws(() => assertWalletEconomics(evidence, [1n], [1n]), /wallet-paid-receipt-mismatch/);
   assert.deepEqual(evidence.inputBefore, ["10"]); assert.deepEqual(evidence.inputAfter, ["11"]);
 });
+
+test("native redemption still receives its displayed target when gas exceeds the payout and ETH balance falls", () => {
+  const quote = snapshot("exact-out", cygld, zeroAddress), payout = 600000000000000n, gas = 900000000000000n;
+  quote.output[0].amount = String(payout);
+  const before = { input: ["5000"], output: ["1000000000000000000"] }, after = { input: ["4000"], output: ["999700000000000000"] };
+  assert.ok(BigInt(after.output[0]) < BigInt(before.output[0]));
+  const actual = { input: [actualAmount(cygld, 1000n)], output: [actualAmount(zeroAddress, payout, true)],
+    maximum: [actualAmount(cygld, 1005n)], minimum: [actualAmount(zeroAddress, payout, true)] };
+  assertUiEconomics(quote, actual);
+  const evidence = walletEvidence(quote, before, after, gas, [hash]);
+  assertWalletEconomics(evidence, [1000n], [payout]);
+  assert.equal(evidence.outputDelta[0], String(payout)); assert.equal(evidence.nativeGasPaid, String(gas));
+});

@@ -273,7 +273,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       observationPhase = "ui-balance-postchecks";
       await balancesAfter(page, [...ids, "cygld"], after => scenario.side === "buy"
         ? after.cygld > before.cygld && ids.some(id => after[id] < before[id])
-        : after.cygld < before.cygld && ids.some(id => after[id] > before[id]));
+        // Native gas can exceed a small ETH delivery. Its received trade
+        // amount is already proved by the gas-adjusted integer wallet check.
+        : after.cygld < before.cygld && (scenario.asset === "ETH" || ids.some(id => after[id] > before[id])));
     } catch (error) { results[index] = { ...uiObservationFailure(results[index], error, observationPhase), ...(helpersHash ? { transactionHash: helpersHash } : {}) }; }
     activeScenarioIndex = undefined; activeQuoteDiagnostics = undefined; activeSwapAttempt = undefined;
     results[index].durationMs = Math.round(performance.now() - started); await persist();
