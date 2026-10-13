@@ -1,8 +1,14 @@
+import type { Page } from "@playwright/test";
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
 import { safeDiagnosticReferences } from "../../app/utils/diagnosticReferences.ts";
 import { knownQuoteError, type QuotePreviewError } from "../../app/utils/quoteErrors.ts";
 import { failureResult, RegressionAssertionError, tokenRequest, type ScenarioResult, type UiObservationPhase } from "./regression.ts";
 import { ScenarioUnavailableError, type Scenario } from "./scenarios.ts";
+
+/** Core confirmation appears in both the receipt card and its existing toast. */
+export function confirmedTransactionText(page: Page) {
+  return page.getByText(/^Transaction confirmed$/i).filter({ visible: true }).first();
+}
 
 /** Scope optional UI evidence to the latest original request for this case. */
 export function createUiQuoteDiagnostics(scenario: Scenario, config: ProtocolConfiguration) {

@@ -5,6 +5,7 @@ import { install as installBasket } from "./fixtures/basket-quotes";
 import { ensureBasketInputEditable, getMainInput, getSwapButton, openFeeDetails, selectToken, showAllSellTokens } from "../metamask/token-flows/helpers";
 import { armUiQuoteCapture, capturedUiQuote, quoteAssets } from "../trading/uiQuoteCapture";
 import { uiReceiptResult } from "../trading/uiReceipt";
+import { confirmedTransactionText } from "../trading/uiDiagnostics";
 import { tradeScenarios } from "../trading/scenarios";
 import { protocolConfigurationFixture as config, tokenAddresses } from "../fixtures/protocol-configuration";
 import { HELPERS_EXECUTION_ABI } from "../../app/contracts/cybergold-helpers/execution";
@@ -91,4 +92,12 @@ test("actual basket exact-out capture reads its quoted inactive side without cha
   expect(uiReceiptResult(scenario, config, owner, data, receipt(event("RedeemedToBasket", { payer: owner, recipient: owner,
     grossCygldIn: maximum, kinds: [0], tokens: [tokenAddresses.PAXG], ids: [0n], amounts: [output], protocolFeeCygld: 1000000000000000n,
     helperFeeCygld: 1000000000000000n })), output, [output], quote).status).toBe("pass");
+});
+
+test("confirmation observer accepts either visible existing Core card/toast despite duplicate hidden text", async ({ page }) => {
+  await page.setContent('<p hidden>Transaction confirmed</p><section data-testid="trade-receipt" role="status"><p>Transaction confirmed</p></section><div data-sonner-toast><div>Transaction confirmed</div></div>');
+  await expect(page.getByText(/^Transaction confirmed$/i)).toHaveCount(3);
+  expect(await confirmedTransactionText(page).isVisible()).toBe(true);
+  await page.setContent('<p hidden>Transaction confirmed</p>');
+  expect(await confirmedTransactionText(page).isVisible()).toBe(false);
 });

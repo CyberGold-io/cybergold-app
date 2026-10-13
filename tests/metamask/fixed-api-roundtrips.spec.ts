@@ -16,10 +16,10 @@ import { fetchTransactionReceipt } from "../../app/utils/transactionReceipt";
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration";
 import type { ProtocolFacts } from "../../app/utils/protocolFacts";
 import { safeDiagnosticReferences } from "../../app/utils/diagnosticReferences";
-import { createUiQuoteDiagnostics, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion } from "../trading/uiDiagnostics";
+import { confirmedTransactionText, createUiQuoteDiagnostics, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion } from "../trading/uiDiagnostics";
 
 async function approveUntilMined(page: Page, submitted: () => boolean) {
-  const success = page.getByText(/^Transaction confirmed$/i);
+  const success = confirmedTransactionText(page);
   const failure = page.getByText(/^Transaction failed$/i);
   let openedStep = "";
   await uiCompletionAssertion(() => expect.poll(async () => {
