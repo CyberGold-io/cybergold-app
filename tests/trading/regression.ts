@@ -9,6 +9,7 @@ import { fetchQuoteStream } from "../../app/utils/quoteStream.ts";
 import { QuotePreviewError, quoteResponseError } from "../../app/utils/quoteErrors.ts";
 import { diagnosticReferences, retainDiagnosticReferences, type DiagnosticReferences } from "../../app/utils/diagnosticReferences.ts";
 import { basketFacts, configuredToken, coreIntentRequest, ScenarioUnavailableError, type Scenario } from "./scenarios.ts";
+import type { UiQuoteSnapshot, UiWalletEvidence } from "./uiEconomics.ts";
 
 export type UiObservationPhase = "ui-prepare" | "ui-facts" | "ui-balances" | "ui-submit" | "ui-confirmation"
   | "ui-hash" | "ui-receipt-read" | "ui-transaction-read" | "ui-receipt-assertions" | "ui-balance-postchecks";
@@ -19,6 +20,7 @@ export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "ass
   code?: string; reason?: QuotePreviewError["code"] | UiObservationPhase; refs?: DiagnosticReferences; transactionHash?: string;
   context?: { chainId: number; blockNumber: string; blockHash: string }; bounds?: Record<string, string | string[]>;
   receipt?: Record<string, string | string[]>; authorization?: string[];
+  uiQuote?: UiQuoteSnapshot; wallet?: UiWalletEvidence;
 };
 export type RegressionReport = { schema: "cybergold.trade-regression.v1"; runId: string; target: "sandbox" | "mainnet";
   mode: "quotes" | "sandbox-execution" | "fork-execution"; startedAt: string; finishedAt?: string;
@@ -45,12 +47,19 @@ export function resultFor(scenario: Scenario, layer: ScenarioResult["layer"]): S
   return { id: scenario.id, family: scenario.family, inputMode: scenario.inputMode, requestedStrategy: scenario.requestedStrategy,
     asset: scenario.asset, status: "unavailable", code: "not-exercised", actualStrategy: "unknown", layer };
 }
+// These runner prerequisites prevented a case from starting. Once an expected
+// positive path is attempted, an unavailable dependency is a failed test.
+const unexercisedRunnerCodes = new Set([
+  "app-origin-unavailable", "fork-fixture-configuration-unavailable", "browser-unavailable",
+  "wallet-setup-unavailable", "wallet-rpc-unavailable",
+]);
 export function failureResult(result: ScenarioResult, error: unknown) {
   const code = error instanceof QuotePreviewError || error instanceof RegressionAssertionError || error instanceof ScenarioUnavailableError
     ? error.code : "unexpected-error";
-  const unavailable = error instanceof QuotePreviewError || error instanceof ScenarioUnavailableError || /Timeout|Abort/.test((error as Error)?.name ?? "");
+  const unavailable = error instanceof ScenarioUnavailableError && unexercisedRunnerCodes.has(error.code);
+  const timedOut = /Timeout|Abort/.test((error as Error)?.name ?? "");
   return { ...result, status: unavailable ? "unavailable" as const : "fail" as const,
-    code: unavailable && code === "unexpected-error" ? "service-unavailable" : code,
+    code: timedOut && code === "unexpected-error" ? "service-unavailable" : code,
     refs: { ...result.refs, ...diagnosticReferences(error) } };
 }
 

@@ -1,8 +1,14 @@
+import type { Page } from "@playwright/test";
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
 import { safeDiagnosticReferences } from "../../app/utils/diagnosticReferences.ts";
 import { knownQuoteError, type QuotePreviewError } from "../../app/utils/quoteErrors.ts";
 import { failureResult, RegressionAssertionError, tokenRequest, type ScenarioResult, type UiObservationPhase } from "./regression.ts";
 import { ScenarioUnavailableError, type Scenario } from "./scenarios.ts";
+
+/** Core confirmation appears in both the receipt card and its existing toast. */
+export function confirmedTransactionText(page: Page) {
+  return page.getByText(/^Transaction confirmed$/i).filter({ visible: true }).first();
+}
 
 /** Scope optional UI evidence to the latest original request for this case. */
 export function createUiQuoteDiagnostics(scenario: Scenario, config: ProtocolConfiguration) {
@@ -57,8 +63,8 @@ export async function uiCompletionAssertion(assertion: () => Promise<unknown>, s
   }
 }
 
-/** A constant caller phase fills only the missing context of a generic error. */
+/** A constant caller phase fills only the missing context of a generic error or deadline. */
 export function uiObservationFailure(result: ScenarioResult, error: unknown, phase: UiObservationPhase) {
   const failed = failureResult(result, error);
-  return failed.code === "unexpected-error" && !failed.reason ? { ...failed, reason: phase } : failed;
+  return (failed.code === "unexpected-error" || failed.code === "service-unavailable") && !failed.reason ? { ...failed, reason: phase } : failed;
 }

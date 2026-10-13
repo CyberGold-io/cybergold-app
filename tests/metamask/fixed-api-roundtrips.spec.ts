@@ -1,21 +1,25 @@
 import { errors, type Page } from "@playwright/test";
 import { expect, test } from "./testWithMetaMask";
 import { addLocalNetwork, connectWallet, notification, requestConnection, switchLocalNetwork } from "./wallet-ui";
-import { ensureBasketInputEditable, getMainInput, getSwapButton, parseAmount, readWalletBalances, selectToken, showAllSellTokens } from "./token-flows/helpers";
+import { ensureBasketInputEditable, getMainInput, getSwapButton, openFeeDetails, parseAmount, readWalletBalances, selectToken, showAllSellTokens } from "./token-flows/helpers";
 import { writeFile, rename } from "node:fs/promises";
-import { parseUnits, type Address, type Hex } from "viem";
+import { type Address, type Hex } from "viem";
 import { tradeScenarios, configuredToken, basketFacts } from "../trading/scenarios";
 import { failureResult, originFetch, readJson, requireInvariant, resultFor, type ScenarioResult, type UiObservationPhase } from "../trading/regression";
-import { uiReceiptResult } from "../trading/uiReceipt";
+import { observeUiReceipt } from "../trading/uiReceipt";
+import { armUiQuoteCapture, capturedUiQuote, quoteAssets } from "../trading/uiQuoteCapture";
+import { assertWalletEconomics, walletAmounts, walletEvidence } from "../trading/uiEconomics";
+import { observeUiGas, ownedReceiptGas } from "../trading/uiGas";
+import { fetchWalletBalances, type WalletBalancesSnapshot } from "../../app/utils/walletBalanceSnapshot";
 import { fundSandboxWallet } from "../trading/sandboxFunding";
 import { fetchTransactionReceipt } from "../../app/utils/transactionReceipt";
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration";
 import type { ProtocolFacts } from "../../app/utils/protocolFacts";
 import { safeDiagnosticReferences } from "../../app/utils/diagnosticReferences";
-import { createUiQuoteDiagnostics, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion } from "../trading/uiDiagnostics";
+import { confirmedTransactionText, createUiQuoteDiagnostics, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion } from "../trading/uiDiagnostics";
 
 async function approveUntilMined(page: Page, submitted: () => boolean) {
-  const success = page.getByText(/^Transaction confirmed$/i);
+  const success = confirmedTransactionText(page);
   const failure = page.getByText(/^Transaction failed$/i);
   let openedStep = "";
   await uiCompletionAssertion(() => expect.poll(async () => {
@@ -125,6 +129,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   const accounts = await page.evaluate(() => (window as unknown as { ethereum: { request: (input: unknown) => Promise<string[]> } }).ethereum.request({ method: "eth_accounts" }));
   const owner = accounts[0] as Address;
   await fundSandboxWallet(owner, fetcher);
+  const gasObservation = observeUiGas(page, owner);
 
   async function prepare(sell: string, buy: string, amount: string, side: "sell" | "buy" = "sell") {
     await page.goto("/en");
@@ -149,13 +154,39 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     } else {
       await uiPreparationAssertion("ui-quoted-amount-not-ready", () => expect.poll(async () => Number(await getMainInput(page, quotedSide).inputValue()), { timeout: 60000 }).toBeGreaterThan(0));
     }
+    // The existing accordion contains the committed tolerance and exact
+    // min/max labels. Expose them without editing the chosen trade intent.
+    await openFeeDetails(page);
     await uiPreparationAssertion("ui-swap-not-enabled", async () => expect(await getSwapButton(page)).toBeEnabled({ timeout: 60000 }));
   }
-  async function submit() {
+  async function submit(assets: ReturnType<typeof quoteAssets>, mode: "exact-in" | "exact-out") {
+    const button = await getSwapButton(page);
+    await armUiQuoteCapture(button, assets);
+    gasObservation.begin();
     observationPhase = "ui-submit";
-    await (await getSwapButton(page)).click();
+    await button.click();
+    // A failed observation must not leave an already-open wallet request
+    // unhandled. Complete the one existing submission before reporting it.
+    let quote, captureError;
+    try { quote = await capturedUiQuote(page, assets, mode); activeResult()!.uiQuote = quote; }
+    catch (error) { captureError = error; }
     observationPhase = "ui-confirmation";
     await approveUntilMined(page, () => Boolean(helpersHash));
+    if (captureError) throw captureError;
+    requireInvariant(quote, "ui-click-quote-not-observed");
+    return quote;
+  }
+  async function walletPostcheck(before: WalletBalancesSnapshot, result: ScenarioResult) {
+    observationPhase = "ui-balance-postchecks";
+    const after = await fetchWalletBalances(owner, undefined, fetcher, "swap-preflight");
+    const quote = result.uiQuote!;
+    const observedGas = await readJson<unknown>(fetcher, `/api/transaction/wait/receipt?hash=${helpersHash}`);
+    gasObservation.record(observedGas);
+    const gas = await gasObservation.finish();
+    if ([...quote.input, ...quote.output].some(value => value.type === "native"))
+      requireInvariant(ownedReceiptGas(observedGas, owner), "receipt-gas-unavailable");
+    result.wallet = walletEvidence(quote, walletAmounts(before, config, quote), walletAmounts(after, config, quote), gas.paid, gas.hashes);
+    return () => assertWalletEconomics(result.wallet!, (result.receipt!.netPaid as string[]).map(BigInt), (result.receipt!.netReceived as string[]).map(BigInt));
   }
 
   await prepare("ETH", "CYGLD", "0.25", "buy");
@@ -181,8 +212,10 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   try {
     observationPhase = "ui-prepare";
     await prepare("PAXG", "CYGLD", bootstrap.displayAmount, "buy");
+    observationPhase = "ui-balances";
+    const walletBefore = await fetchWalletBalances(owner, undefined, fetcher, "swap-preflight");
     fixtures[0].code = "execution-not-completed"; await persist();
-    await submit();
+    const uiQuote = await submit(quoteAssets(bootstrap, config, []), bootstrap.inputMode);
     observationPhase = "ui-hash";
     await expect.poll(() => helpersHash, { timeout: 15000 }).toBeTruthy();
     observationPhase = "ui-receipt-read";
@@ -193,9 +226,11 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     requireInvariant(observed.transaction?.to.toLowerCase() === config.contracts.helpers!.toLowerCase()
       && observed.transaction?.from.toLowerCase() === owner.toLowerCase(), "transaction-party-mismatch");
     observationPhase = "ui-receipt-assertions";
-    fixtures[0] = { ...uiReceiptResult(bootstrap, config, owner, observed.transaction!.input, receipt,
-      parseUnits(bootstrap.displayAmount, configuredToken(config, "CYGLD").decimals), []),
-      id: bootstrap.id, refs: fixtures[0].refs, reason: fixtures[0].reason };
+    const measuredReceipt = observeUiReceipt(bootstrap, config, owner, observed.transaction!.input, receipt,
+      BigInt(uiQuote.output[0].amount), [], uiQuote, fixtures[0]);
+    const validateWallet = await walletPostcheck(walletBefore, fixtures[0]);
+    observationPhase = "ui-receipt-assertions"; measuredReceipt.validate();
+    observationPhase = "ui-balance-postchecks"; validateWallet();
   } catch (error) { fixtures[0] = { ...uiObservationFailure(fixtures[0], error, observationPhase), ...(helpersHash ? { transactionHash: helpersHash } : {}) }; }
   fixtures[0].durationMs = Math.round(performance.now() - bootstrapStarted); await persist();
   activeFixtureIndex = undefined; activeQuoteDiagnostics = undefined; activeSwapAttempt = undefined;
@@ -215,14 +250,13 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       const ids = scenario.asset === "BASKET" ? basketTokens.map(token => token.id) : [configuredToken(config, scenario.asset).id];
       observationPhase = "ui-balances";
       const before = await readWalletBalances(page, [...ids, "cygld"]);
-      const basketEdited = scenario.asset === "BASKET" && ((scenario.side === "buy") === (scenario.inputMode === "exact-in"));
-      const amounts = basketEdited ? await page.locator(`#${side}-basket-composition input`).all() : [];
-      const basketAmounts = await Promise.all(amounts.map(async (input, index) => parseUnits(await input.inputValue(), basketTokens[index].decimals)));
-      const userToken = configuredToken(config, (scenario.side === "buy") !== (scenario.inputMode === "exact-in") ? "CYGLD" : scenario.asset === "BASKET" ? basketTokens[0].symbol : scenario.asset);
-      const userAmount = parseUnits(scenario.displayAmount, userToken.decimals);
+      const walletBefore = await fetchWalletBalances(owner, undefined, fetcher, "swap-preflight");
       helpersHash = undefined;
       results[index].code = "execution-not-completed"; await persist();
-      await submit();
+      const uiQuote = await submit(quoteAssets(scenario, config, basket), scenario.inputMode);
+      const entered = scenario.inputMode === "exact-in" ? uiQuote.input : uiQuote.output;
+      const userAmount = BigInt(entered[0].amount);
+      const basketAmounts = scenario.asset === "BASKET" ? entered.map(value => BigInt(value.amount)) : [];
       observationPhase = "ui-hash";
       await expect.poll(() => helpersHash, { timeout: 15000 }).toBeTruthy();
       observationPhase = "ui-receipt-read";
@@ -232,11 +266,16 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       const observed = await readJson<{ transaction: { input: Hex; to: string; from: string } | null }>(fetcher, `/api/transaction/wait/transaction?hash=${helpersHash}`);
       requireInvariant(observed.transaction?.to.toLowerCase() === config.contracts.helpers!.toLowerCase() && observed.transaction?.from.toLowerCase() === owner.toLowerCase(), "transaction-party-mismatch");
       observationPhase = "ui-receipt-assertions";
-      results[index] = { ...uiReceiptResult(scenario, config, owner, observed.transaction!.input, receipt, userAmount, basketAmounts), refs: results[index].refs, reason: results[index].reason };
+      const measuredReceipt = observeUiReceipt(scenario, config, owner, observed.transaction!.input, receipt, userAmount, basketAmounts, uiQuote, results[index]);
+      const validateWallet = await walletPostcheck(walletBefore, results[index]);
+      observationPhase = "ui-receipt-assertions"; measuredReceipt.validate();
+      observationPhase = "ui-balance-postchecks"; validateWallet();
       observationPhase = "ui-balance-postchecks";
       await balancesAfter(page, [...ids, "cygld"], after => scenario.side === "buy"
         ? after.cygld > before.cygld && ids.some(id => after[id] < before[id])
-        : after.cygld < before.cygld && ids.some(id => after[id] > before[id]));
+        // Native gas can exceed a small ETH delivery. Its received trade
+        // amount is already proved by the gas-adjusted integer wallet check.
+        : after.cygld < before.cygld && (scenario.asset === "ETH" || ids.some(id => after[id] > before[id])));
     } catch (error) { results[index] = { ...uiObservationFailure(results[index], error, observationPhase), ...(helpersHash ? { transactionHash: helpersHash } : {}) }; }
     activeScenarioIndex = undefined; activeQuoteDiagnostics = undefined; activeSwapAttempt = undefined;
     results[index].durationMs = Math.round(performance.now() - started); await persist();
