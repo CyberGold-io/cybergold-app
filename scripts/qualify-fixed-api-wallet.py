@@ -222,7 +222,7 @@ def main() -> None:
                       "tests/metamask/testWithMetaMask.ts", "tests/metamask/fixed-api-roundtrips.spec.ts",
                       "tests/metamask/wallet-session.spec.ts", "tests/metamask/wallet-ui.ts", "tests/metamask/token-flows/helpers.ts",
                       "tests/metamask/regression-execution.spec.ts", "tests/trading/scenarios.ts", "tests/trading/regression.ts", "tests/trading/walletExecution.ts",
-                      "tests/trading/uiReceipt.ts", "tests/trading/uiDiagnostics.ts", "tests/trading/sandboxFunding.ts"]
+                      "tests/trading/uiReceipt.ts", "tests/trading/uiEconomics.ts", "tests/trading/uiQuoteCapture.ts", "tests/trading/uiGas.ts", "tests/trading/uiDiagnostics.ts", "tests/trading/sandboxFunding.ts"]
         try:
             image_environment = json.loads(docker("image", "inspect", args.backend_image, "--format", "{{json .Config.Env}}"))
             backend_commit = next((value.split("=", 1)[1] for value in image_environment if value.startswith("CYBERGOLD_BACKEND_COMMIT=")), None)
@@ -237,7 +237,7 @@ def main() -> None:
             "testInputSha256": {path: hashlib.sha256((work / path).read_bytes()).hexdigest() for path in test_paths},
             "contractsSha256": hashlib.sha256(args.contracts_json.read_bytes()).hexdigest(),
             "fundingSha256": hashlib.sha256(args.funding_json.read_bytes()).hexdigest(),
-            "scope": "Sixteen UI-selected funded paths plus independent 20-case Core/market matrix with amount bounds, actual mined operation, authorization and receipts; rejection and three session/network cases; real Python API/native PG18/production Next.js; no product or receipt interception",
+            "scope": "Sixteen UI-selected funded paths with displayed amounts, committed tolerance and integer wallet deltas (gas separate), plus independent 20-case Core/market matrix with amount bounds, actual mined operation, authorization and receipts; rejection and three session/network cases; real Python API/native PG18/production Next.js; no product or receipt interception",
             "wallet": "New disposable seed/profile; no owner wallet or B2B/public-chain write",
         })
         checkpoint("wallet-cache")
