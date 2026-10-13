@@ -115,13 +115,14 @@ try {
     }
   }
 } catch (error) {
-  report.runnerOutcome = "unavailable"; report.runnerCode = failureResult(resultFor(tradeScenarios[0], "api"), error).code;
+  const failure = failureResult(resultFor(tradeScenarios[0], "api"), error);
+  report.runnerOutcome = failure.status; report.runnerCode = failure.code;
   if (values.mode === "quotes") {
     const observed = new Set(report.scenarios.map(row => row.id));
     for (const scenario of tradeScenarios) if (!observed.has(scenario.id))
-      report.scenarios.push({ ...failureResult(resultFor(scenario, "api"), error), status: "unavailable" });
+      report.scenarios.push(failureResult(resultFor(scenario, "api"), error));
     for (const scenario of tradeScenarios.filter(row => row.requestedStrategy === "core")) if (!observed.has(`ui-${scenario.id}`))
-      report.scenarios.push({ ...failureResult(resultFor(scenario, "browser"), error), id: `ui-${scenario.id}`, requestedStrategy: "auto", status: "unavailable" });
+      report.scenarios.push({ ...failureResult(resultFor(scenario, "browser"), error), id: `ui-${scenario.id}`, requestedStrategy: "auto" });
   } else if (!report.scenarios.length) report.scenarios = tradeScenarios.map(scenario => failureResult(resultFor(scenario, "execution"), error));
 }
 report.finishedAt = new Date().toISOString();

@@ -63,8 +63,8 @@ export async function uiCompletionAssertion(assertion: () => Promise<unknown>, s
   }
 }
 
-/** A constant caller phase fills only the missing context of a generic error. */
+/** A constant caller phase fills only the missing context of a generic error or deadline. */
 export function uiObservationFailure(result: ScenarioResult, error: unknown, phase: UiObservationPhase) {
   const failed = failureResult(result, error);
-  return failed.code === "unexpected-error" && !failed.reason ? { ...failed, reason: phase } : failed;
+  return (failed.code === "unexpected-error" || failed.code === "service-unavailable") && !failed.reason ? { ...failed, reason: phase } : failed;
 }

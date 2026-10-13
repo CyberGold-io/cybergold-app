@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium, expect as playwrightExpect, type Browser } from "@playwright/test";
@@ -51,7 +51,7 @@ test("quote readiness enforces integer input ceilings and exact-output minima", 
   assert.throws(() => uint(String(2n ** 256n), "amount"), /invalid-amount/);
 });
 
-test("HTTP 200 stream error remains unavailable and retains safe Backend linkage", async () => {
+test("HTTP 200 no-route fails the expected positive quote and retains safe Backend linkage", async () => {
   const requestId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e", correlationId = "eb3e6932-a2af-4303-a09e-35831f864a1d";
   let error: unknown;
   try { await fetchQuoteStream("/api/quotes/trade/stream", {}, new AbortController().signal, () => {},
@@ -61,7 +61,7 @@ test("HTTP 200 stream error remains unavailable and retains safe Backend linkage
   assert.equal((error as QuotePreviewError).code, "quote-no-route");
   assert.equal(diagnosticReferences(error).requestId, requestId);
   const result = failureResult(resultFor(tradeScenarios[0], "api"), error);
-  assert.equal(result.status, "unavailable"); assert.equal(result.refs?.correlationId, correlationId);
+  assert.equal(result.status, "fail"); assert.equal(result.refs?.correlationId, correlationId);
   assert.doesNotMatch(JSON.stringify(result), /private-provider-url/);
 });
 
@@ -78,13 +78,38 @@ test("wallet and receipt failures preserve quote linkage while adding failure re
     { requestId, correlationId });
 });
 
-test("a submitted confirmation timeout stays unavailable with its transaction hash and quote references", () => {
+test("a submitted confirmation timeout fails confirmation without inventing a revert", () => {
   const transactionHash = `0x${"a".repeat(64)}`;
   const requestId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e";
   const result = failureResult({ ...resultFor(tradeScenarios[0], "execution"), transactionHash, refs: { requestId } },
     new ScenarioUnavailableError("submitted-unconfirmed"));
-  assert.equal(result.status, "unavailable"); assert.equal(result.code, "submitted-unconfirmed");
+  assert.equal(result.status, "fail"); assert.equal(result.code, "submitted-unconfirmed");
   assert.equal(result.transactionHash, transactionHash); assert.deepEqual(result.refs, { requestId });
+  assert.equal(result.receipt, undefined);
+});
+
+test("attempted positive quote and execution paths fail on required dependency errors", () => {
+  const requestId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e";
+  for (const code of ["quote-timeout", "rpc-timeout", "rpc-unavailable", "quote-no-route", "quote-stream-interrupted"] as const) {
+    const result = failureResult(resultFor(tradeScenarios[0], "api"), new QuotePreviewError(code, code, { requestId }));
+    assert.equal(result.status, "fail"); assert.equal(result.code, code); assert.deepEqual(result.refs, { requestId });
+  }
+  for (const code of ["basket-assets-unavailable", "basket-weights-unavailable", "wallet-balance-unavailable", "allowance-unavailable", "wallet-authorization-timeout", "wallet-submission-timeout", "ui-results-unavailable"]) {
+    const result = failureResult(resultFor(tradeScenarios[0], "execution"), new ScenarioUnavailableError(code));
+    assert.equal(result.status, "fail"); assert.equal(result.code, code);
+  }
+  for (const name of ["TimeoutError", "AbortError"]) {
+    const result = failureResult(resultFor(tradeScenarios[0], "execution"), Object.assign(new Error("private-provider-token"), { name }));
+    assert.equal(result.status, "fail"); assert.equal(result.code, "service-unavailable");
+    assert.doesNotMatch(JSON.stringify(result), /private-provider-token/);
+  }
+});
+
+test("unavailable is reserved for runner prerequisites that prevented case execution", () => {
+  for (const code of ["app-origin-unavailable", "fork-fixture-configuration-unavailable", "browser-unavailable", "wallet-setup-unavailable", "wallet-rpc-unavailable"]) {
+    const result = failureResult(resultFor(tradeScenarios[0], "execution"), new ScenarioUnavailableError(code));
+    assert.equal(result.status, "unavailable"); assert.equal(result.code, code);
+  }
 });
 
 test("browser launch failure is unavailable without exposing the launch error", async (t) => {
@@ -148,6 +173,25 @@ test("a quote runner startup failure retains all36 stable unavailable scenario r
   } finally { rmSync(output, { recursive: true, force: true }); }
 });
 
+test("a served protocol-facts timeout fails required startup observations for all36 paths", () => {
+  const output = mkdtempSync(join(tmpdir(), "cybergold-trade-regression-"));
+  const requestId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e";
+  const correlationId = "eb3e6932-a2af-4303-a09e-35831f864a1d";
+  const fixture = join(output, "served-facts-timeout.mjs");
+  writeFileSync(fixture, `globalThis.fetch = async url => new URL(url).pathname === '/en' ? new Response('') : Response.json({ code: 'rpc-timeout', requestId: '${requestId}', correlationId: '${correlationId}', error: 'private-provider-token' }, { status: 504, headers: { 'X-CyberGold-Request-Id': '${requestId}' } });`);
+  try {
+    const child = spawnSync(process.execPath, ["--import", fixture, "scripts/run-trade-regression.mjs", "--target", "mainnet", "--mode", "quotes", "--base-url", "http://app.test", "--output-dir", output],
+      { cwd: new URL("../../", import.meta.url), stdio: "ignore" });
+    assert.equal(child.status, 1);
+    const report = JSON.parse(readFileSync(join(output, "report.json"), "utf8"));
+    assert.equal(report.runnerOutcome, "fail"); assert.equal(report.runnerCode, "rpc-timeout");
+    assert.equal(report.scenarios.length, 36);
+    assert.ok(report.scenarios.every((row: { status: string; code: string; refs: unknown }) => row.status === "fail" && row.code === "rpc-timeout"));
+    assert.deepEqual(report.scenarios[0].refs, { requestId, correlationId });
+    assert.doesNotMatch(JSON.stringify(report), /private-provider-token/);
+  } finally { rmSync(output, { recursive: true, force: true }); }
+});
+
 test("UI preparation references follow the latest matching quote attempt and reject stale or unrelated events", () => {
   const scenario = tradeScenarios.find(row => row.id === "core-redeem-usdc-exact-in")!;
   const request = tokenRequest(scenario, protocolConfigurationFixture, protocolConfigurationFixture.contracts.helpers!);
@@ -191,7 +235,7 @@ test("UI completion deadline retains submission uncertainty and never masks an o
   let error: unknown;
   try { await uiCompletionAssertion(assertion, () => true); } catch (cause) { error = cause; }
   const uncertain = failureResult(result, error);
-  assert.equal(uncertain.status, "unavailable"); assert.equal(uncertain.code, "submitted-unconfirmed");
+  assert.equal(uncertain.status, "fail"); assert.equal(uncertain.code, "submitted-unconfirmed");
   assert.equal(uncertain.transactionHash, transactionHash);
   try { await uiCompletionAssertion(assertion, () => false); } catch (cause) { error = cause; }
   const unsubmitted = failureResult(resultFor(tradeScenarios[0], "execution"), error);
@@ -212,7 +256,12 @@ test("generic UI observation failures retain only a constant phase and safe refe
   }
   assert.equal(uiObservationFailure({ ...result, reason: "quote-timeout" }, privateFailure, "ui-receipt-read").reason, "quote-timeout");
   const specific = uiObservationFailure(result, new QuotePreviewError("rpc-timeout", "rpc-timeout"), "ui-receipt-read");
-  assert.equal(specific.code, "rpc-timeout"); assert.equal(specific.status, "unavailable"); assert.equal(specific.reason, undefined);
+  assert.equal(specific.code, "rpc-timeout"); assert.equal(specific.status, "fail"); assert.equal(specific.reason, undefined);
+  const deadline = Object.assign(new Error("private-provider-token"), { name: "TimeoutError" });
+  const timedOut = uiObservationFailure(result, deadline, "ui-prepare");
+  assert.equal(timedOut.status, "fail"); assert.equal(timedOut.code, "service-unavailable"); assert.equal(timedOut.reason, "ui-prepare");
+  assert.equal(uiObservationFailure({ ...result, reason: "quote-timeout" }, deadline, "ui-prepare").reason, "quote-timeout");
+  assert.doesNotMatch(JSON.stringify(timedOut), /private-provider-token/);
 });
 
 test("browser basket matching rejects warm vectors and validates current asset bounds", () => {
