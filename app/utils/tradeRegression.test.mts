@@ -16,7 +16,22 @@ import { observeBrowserQuotes } from "../../tests/trading/browserQuotes.ts";
 import { protocolConfigurationFixture } from "../../tests/fixtures/protocol-configuration.ts";
 import { installQuoteObservation } from "../../tests/trading/quoteObservation.ts";
 import { createUiQuoteDiagnostics, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion } from "../../tests/trading/uiDiagnostics.ts";
-import { readWalletSetupDiagnostic, walletFixtureOutput, walletOnboardingStep, observeWalletOnboarding } from "../../tests/trading/runnerDiagnostics.ts";
+import { readWalletSetupDiagnostic, safeRunnerError, walletFixtureOutput, walletOnboardingStep, observeWalletOnboarding } from "../../tests/trading/runnerDiagnostics.ts";
+
+test("plain native Node imports the actual wallet setup before any browser callback", () => {
+  const child = spawnSync(process.execPath, ["--input-type=module", "-e", `
+import assert from "node:assert/strict";
+const { default: setup } = await import("./wallet-setup/metamask.setup.ts");
+assert.equal(typeof setup.fn, "function");
+`], { cwd: new URL("../../", import.meta.url), encoding: "utf8", env: {
+    PATH: process.env.PATH,
+    NODE_ENV: "test",
+    SYNPRESS_WALLET_SEED_PHRASE: "public-fixture-placeholder",
+    SYNPRESS_WALLET_PASSWORD: "public-fixture-password",
+  } });
+  assert.equal(child.status, 0, child.stderr);
+  assert.equal(child.signal, null);
+});
 
 test("inventory includes every Core asset/direction/mode and four independent market modes", () => {
   assert.equal(tradeScenarios.length, 20);
@@ -274,6 +289,25 @@ test("wallet cache failure fails the runner and leaves all36 cases unstarted wit
   assert.equal(new Set(report.scenarios.map((row: { id: string }) => row.id)).size, 36);
   assert.ok(report.scenarios.every((row: { status: string; code: string }) => row.status === "unavailable" && row.code === "wallet-setup-unavailable"));
   assert.doesNotMatch(JSON.stringify(report), /private-errno|private-error-message|private-wallet-seed|private-rpc|private-onboarding-error/);
+});
+
+test("native wallet setup import errors retain only their fixed code through runner projection", () => {
+  const error = Object.assign(new Error("private-import-message"), {
+    code: "ERR_MODULE_NOT_FOUND", path: "private-import-path", stack: "private-import-stack",
+  });
+  assert.deepEqual(safeRunnerError(error), { errorClass: "Error", errorCode: "ERR_MODULE_NOT_FOUND" });
+  assert.deepEqual(safeRunnerError(Object.assign(new Error("private-import-message"), { code: "private-import-code" })),
+    { errorClass: "Error" });
+  const { exitCode, report } = runSandboxRunnerFixture({ cacheExitCode: 1,
+    cacheCheckpoint: { stage: "setup-import", result: "fail", ...safeRunnerError(error),
+      message: error.message, path: error.path, stack: error.stack, errorCodeSuffix: "private-import-code" } });
+  assert.equal(exitCode, 1);
+  assert.deepEqual(report.runnerDiagnostics.walletSetup,
+    { stage: "setup-import", result: "fail", errorClass: "Error", errorCode: "ERR_MODULE_NOT_FOUND" });
+  assert.equal(report.runnerCode, "wallet-setup-failed");
+  assert.ok(report.scenarios.every((row: { status: string; code: string }) =>
+    row.status === "unavailable" && row.code === "wallet-setup-unavailable"));
+  assert.doesNotMatch(JSON.stringify(report), /private-import/);
 });
 
 test("a child spawn failure retains its safe system code and never exports an arbitrary error name", () => {

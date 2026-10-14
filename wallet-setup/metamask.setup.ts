@@ -1,6 +1,6 @@
 import { defineWalletSetup } from "@synthetixio/synpress-cache";
 import { MetaMask } from "@synthetixio/synpress-metamask/playwright";
-import { walletOnboardingStep } from "../tests/trading/runnerDiagnostics";
+import { walletOnboardingStep } from "../tests/trading/runnerDiagnostics.ts";
 
 type MetaMaskConstructor = ConstructorParameters<typeof MetaMask>;
 
