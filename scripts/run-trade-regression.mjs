@@ -114,7 +114,8 @@ try {
       if (revision) report.context = { ...report.context, appRevision: revision };
     } catch { /* Optional deployed release observation never admits a run. */ }
     report.runnerDiagnostics.stage = "config-facts";
-    const [config, facts] = await Promise.all([readJson(fetcher, "/api/protocol/config"), readJson(fetcher, "/api/protocol/facts")]);
+    const [config, facts] = await Promise.all([readJson(fetcher, "/api/protocol/config"),
+      values.mode === "quotes" ? readJson(fetcher, "/api/protocol/facts") : undefined]);
     report.observations = { chainId: config.chainId, forkGeneration: config.sandboxForkGeneration };
     if (values.mode === "quotes") {
       for (const scenario of tradeScenarios) {

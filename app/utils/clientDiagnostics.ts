@@ -1,10 +1,10 @@
 import type { components } from "../contracts/backend/http";
-import { diagnosticAttemptId, diagnosticReferences, type DiagnosticReferences } from "./diagnosticReferences.ts";
+import { diagnosticAttemptId, diagnosticReferences, quoteDiagnostics, type DiagnosticReferences, type QuoteDiagnostics } from "./diagnosticReferences.ts";
 import { QuotePreviewError } from "./quoteErrors.ts";
 
 export type DiagnosticStage = "quote" | "balance" | "network" | "authorization" | "preparation" | "simulation" | "submission" | "confirmation";
-export type ClientDiagnostic = components["schemas"]["ClientDiagnostic"];
-export type DiagnosticContext = Omit<ClientDiagnostic, "operation" | "outcome" | "reason" | "walletStep" | "durationMs" | "transactionHash" | "errorCode" | "errorSelector">;
+export type ClientDiagnostic = components["schemas"]["ClientDiagnostic"] & { quoteDiagnostics?: QuoteDiagnostics };
+export type DiagnosticContext = Omit<ClientDiagnostic, "operation" | "outcome" | "reason" | "walletStep" | "durationMs" | "transactionHash" | "errorCode" | "errorSelector" | "quoteDiagnostics">;
 type Reporter = (event: ClientDiagnostic) => void;
 
 /** No queue, retry, cookies or persistent browser identifier. Never await telemetry. */
@@ -21,7 +21,7 @@ export function diagnosticReason(error: unknown): ClientDiagnostic["reason"] {
 }
 
 /** Project only a numeric code and four-byte structured revert selector. */
-export function diagnosticFailure(error: unknown): Pick<ClientDiagnostic, "reason" | "errorCode" | "errorSelector" | "errorClassification" | "requestId" | "correlationId"> {
+export function diagnosticFailure(error: unknown): Pick<ClientDiagnostic, "reason" | "errorCode" | "errorSelector" | "errorClassification" | "requestId" | "correlationId" | "quoteDiagnostics"> {
   // Error text and generic `data` can contain signatures, URLs and calldata.
   const seen = new Set<unknown>();
   let errorCode: number | undefined;
@@ -60,8 +60,10 @@ export function diagnosticFailure(error: unknown): Pick<ClientDiagnostic, "reaso
   const reason = rejected ? "wallet_rejected" : wrongChain ? "wrong_chain"
     : reverted || errorSelector ? "contract_reverted" : rpc ? "rpc_error" : "unknown";
   const { requestId, correlationId } = references;
+  const work = quoteDiagnostics(error);
   return { reason, ...(errorCode !== undefined ? { errorCode } : {}), ...(errorSelector ? { errorSelector } : {}),
     ...(error instanceof QuotePreviewError ? { errorClassification: error.code } : {}),
+    ...(work ? { quoteDiagnostics: work } : {}),
     ...(requestId ? { requestId } : {}), ...(correlationId ? { correlationId } : {}) };
 }
 

@@ -32,9 +32,11 @@ function walletPage(request: () => Promise<unknown>): Page {
   return { bringToFront: async () => undefined, evaluate: request } as unknown as Page;
 }
 
-function browserWalletPage(provider: () => Promise<unknown>, returned: unknown[] = []): Page {
-  const button = { click: async () => undefined, or: () => button };
-  const popup = { url: () => "chrome-extension://fixture/notification.html", bringToFront: async () => undefined,
+function browserWalletPage(provider: () => Promise<unknown>, returned: unknown[] = [], controls: {
+  notificationReady?: () => Promise<void>; click?: (options: { timeout: number }) => Promise<void>;
+} = {}): Page {
+  const button = { click: async (options: { timeout: number }) => controls.click?.(options), or: () => button };
+  const popup = { url: () => "chrome-extension://fixture/notification.html", bringToFront: async () => controls.notificationReady?.(),
     setDefaultTimeout: () => undefined, getByTestId: () => button };
   return { bringToFront: async () => undefined,
     context: () => ({ pages: () => [popup], serviceWorkers: () => [{ url: () => "chrome-extension://fixture/background.js" }] }),
@@ -317,6 +319,69 @@ test("successful native wallet hashes and signatures return unchanged with one p
     assert.equal(requests, 1);
     assert.deepEqual(returned, [value]);
   }
+});
+
+for (const outcome of ["fulfilled", "rejected"] as const)
+  test(`a wallet request ${outcome} while awaiting notification needs no confirm click`, async () => {
+    const pending = Promise.withResolvers<unknown>(), entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+    const result = basketObservation().result, returned: unknown[] = [];
+    let requests = 0, clicks = 0;
+    const page = browserWalletPage(async () => { requests++; return pending.promise; }, returned, {
+      notificationReady: async () => { entered.resolve(); await release.promise; },
+      click: async () => { clicks++; },
+    });
+    const request = requestWallet(page, { method: "eth_sendTransaction", params: [] }, false, result);
+    void request.catch(() => undefined);
+    try {
+      await entered.promise;
+      assert.equal(result.walletRequest?.settlement, "pending");
+      assert.equal(result.walletRequest?.pendingAfter, 1);
+      if (outcome === "fulfilled") pending.resolve(approvalHash);
+      else pending.reject(Object.assign(new Error("private-provider-response"), { code: -32002 }));
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(result.walletRequest?.settlement, outcome);
+      assert.equal(result.walletRequest?.pendingAfter, 0);
+      release.resolve();
+      if (outcome === "fulfilled") assert.equal(await request, approvalHash);
+      else await assert.rejects(request, error => {
+        assert.ok(error instanceof Error);
+        assert.equal(error.message, "Wallet request failed.");
+        assert.equal((error as Error & { walletRequestErrorCode?: number }).walletRequestErrorCode, -32002);
+        return true;
+      });
+      assert.equal(requests, 1); assert.equal(clicks, 0);
+      assert.equal(result.walletRequest?.clickAttempts, 0); assert.equal(result.walletRequest?.clickCompleted, 0);
+      assert.equal(result.walletRequest?.pendingBefore, 0); assert.equal(result.walletRequest?.pendingAfter, 0);
+      assert.equal(result.walletRequest?.deadlineExpired, undefined);
+      assert.deepEqual(returned, outcome === "fulfilled" ? [approvalHash]
+        : [{ __cybergoldWalletRequestRejected: true, errorClass: "Error", walletRequestErrorCode: -32002 }]);
+      assert.doesNotMatch(JSON.stringify(result), /private-provider-response/);
+    } finally { release.resolve(); pending.resolve(approvalHash); await request.catch(() => undefined); }
+  });
+
+test("a request still pending after notification keeps its confirm click and existing budgets", async () => {
+  const originalPoll = expect.poll;
+  expect.poll = ((callback: () => Promise<boolean>, options: unknown) => ({ toBe: async () => {
+    assert.deepEqual(options, { timeout: 90_000, intervals: [250, 500, 1000] });
+    assert.equal(await callback(), true);
+  } })) as unknown as typeof expect.poll;
+  const pending = Promise.withResolvers<unknown>(), result = basketObservation().result;
+  let requests = 0, clicks = 0;
+  const page = browserWalletPage(async () => { requests++; return pending.promise; }, [], {
+    notificationReady: async () => { assert.equal(result.walletRequest?.settlement, "pending"); },
+    click: async options => {
+      assert.deepEqual(options, { timeout: 1000 });
+      clicks++; pending.resolve(approvalHash); await new Promise(resolve => setImmediate(resolve));
+    },
+  });
+  try {
+    assert.equal(await requestWallet(page, { method: "eth_sendTransaction", params: [] }, false, result), approvalHash);
+    assert.equal(requests, 1); assert.equal(clicks, 1);
+    assert.equal(result.walletRequest?.settlement, "fulfilled");
+    assert.equal(result.walletRequest?.clickAttempts, 1); assert.equal(result.walletRequest?.clickCompleted, 1);
+    assert.equal(result.walletRequest?.pendingBefore, 0); assert.equal(result.walletRequest?.pendingAfter, 0);
+    assert.equal(result.walletRequest?.deadlineExpired, undefined);
+  } finally { expect.poll = originalPoll; pending.resolve(approvalHash); }
 });
 
 test("a timed-out native request stays pending and the next case observes it without changing the original case", async () => {

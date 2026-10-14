@@ -244,8 +244,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       const side = scenario.inputMode === "exact-in" ? "sell" : "buy";
       await prepare(scenario.side === "buy" ? scenario.asset : "CYGLD", scenario.side === "buy" ? "CYGLD" : scenario.asset, scenario.displayAmount, side);
       observationPhase = "ui-facts";
-      const facts = await readJson<ProtocolFacts>(fetcher, "/api/protocol/facts");
-      const basket = scenario.asset === "BASKET" ? basketFacts(facts).assets : [];
+      const basket = scenario.asset === "BASKET" ? basketFacts(await readJson<ProtocolFacts>(fetcher, "/api/protocol/facts")).assets : [];
       const basketTokens = basket.map(address => config.tokens.find(token => token.type === "erc20" && token.address.toLowerCase() === address.toLowerCase())!);
       const ids = scenario.asset === "BASKET" ? basketTokens.map(token => token.id) : [configuredToken(config, scenario.asset).id];
       observationPhase = "ui-balances";

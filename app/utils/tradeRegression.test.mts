@@ -9,8 +9,9 @@ import { chromium, expect as playwrightExpect, type Browser } from "@playwright/
 import { coreIntentRequest, ScenarioUnavailableError, splitAmount, tradeScenarios } from "../../tests/trading/scenarios.ts";
 import { failureResult, matchesBasketIntent, resultFor, tokenRequest, uint, validateBasket, validateTrade } from "../../tests/trading/regression.ts";
 import type { BasketPreview } from "./basketPreview.ts";
-import { QuotePreviewError } from "./quoteErrors.ts";
-import { diagnosticReferences } from "./diagnosticReferences.ts";
+import { QuotePreviewError, quoteResponseError } from "./quoteErrors.ts";
+import { diagnosticReferences, quoteDiagnostics, retainQuoteDiagnostics, safeQuoteDiagnostics } from "./diagnosticReferences.ts";
+import { createQuoteDiagnostics, type ClientDiagnostic } from "./clientDiagnostics.ts";
 import { fetchQuoteStream } from "./quoteStream.ts";
 import { observeBrowserQuotes } from "../../tests/trading/browserQuotes.ts";
 import { protocolConfigurationFixture } from "../../tests/fixtures/protocol-configuration.ts";
@@ -80,6 +81,68 @@ test("HTTP 200 no-route fails the expected positive quote and retains safe Backe
   const result = failureResult(resultFor(tradeScenarios[0], "api"), error);
   assert.equal(result.status, "fail"); assert.equal(result.refs?.correlationId, correlationId);
   assert.doesNotMatch(JSON.stringify(result), /private-provider-url/);
+});
+
+for (const transport of ["stream", "http"] as const) for (const known of [true, false])
+  test(`${transport} quote failures retain bounded work diagnostics through the actual error, report and latest UI event (${known ? "known" : "fallback"} code)`, async () => {
+    const attemptId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e", requestId = "eb3e6932-a2af-4303-a09e-35831f864a1d";
+    const snapshot = { phase: "initial-search", elapsedMs: 15000.125, qualified: true, inversionIteration: 0,
+      routeWave: { mode: "exact-out", subphase: "typed-reserve", elapsedMs: 14880.5, subphaseElapsedMs: 14800.25,
+        legacyCandidates: 8, legacyCompleted: 8, typedEnumerated: 1024, typedCompleted: 1000, typedPending: 24,
+        sdkRequests: 16, sdkWaiting: 2, sdkLockWaitMs: 22000.5, sdkExchangeMs: 4500.25 } };
+    const payload = { type: "error", attemptId, requestId, code: known ? "quote-timeout" : "private-code",
+      error: "private-provider-url signed-payload", quoteDiagnostics: { ...snapshot, privateData: "private-logical-payload",
+        routeWave: { ...snapshot.routeWave, providerMessage: "private-upstream-message" } } };
+    let error: unknown;
+    if (transport === "stream") {
+      try { await fetchQuoteStream("/api/quotes/trade/stream", {}, new AbortController().signal, () => {},
+        (async () => new Response(JSON.stringify(payload) + "\n", { headers: { "X-CyberGold-Request-Id": requestId } })) as typeof fetch); }
+      catch (cause) { error = cause; }
+    } else error = await quoteResponseError(new Response(JSON.stringify(payload), { status: 504,
+      headers: { "X-CyberGold-Request-Id": requestId } }));
+    assert.ok(error instanceof QuotePreviewError);
+    assert.equal(error.code, known || transport === "http" ? "quote-timeout" : "quote-unavailable");
+    const scenario = tradeScenarios.find(row => row.id === "core-issue-usdc-exact-in")!;
+    const result = failureResult(resultFor(scenario, "execution"), error);
+    assert.equal(result.status, "fail");
+    assert.deepEqual(result.quoteDiagnostics, snapshot);
+    const events: ClientDiagnostic[] = [], quotes = createQuoteDiagnostics(event => events.push(event));
+    quotes.observe({}, "loading", undefined, { attemptId }); quotes.observe({}, "failed", error);
+    assert.equal(events.length, 1);
+    const observer = createUiQuoteDiagnostics(scenario, protocolConfigurationFixture);
+    observer.request("/api/quotes/trade/stream", tokenRequest(scenario, protocolConfigurationFixture, protocolConfigurationFixture.contracts.helpers!), attemptId);
+    assert.equal(observer.diagnostic(events[0]), true);
+    assert.deepEqual(observer.snapshot().quoteDiagnostics, snapshot);
+    Object.assign(result, observer.snapshot());
+    assert.doesNotMatch(JSON.stringify({ result, events, ui: observer.snapshot() }), /private-|signed-payload/);
+    observer.request("/api/quotes/trade/stream", tokenRequest(scenario, protocolConfigurationFixture, protocolConfigurationFixture.contracts.helpers!), requestId);
+    Object.assign(result, observer.snapshot());
+    assert.equal(result.quoteDiagnostics, undefined);
+    assert.equal(observer.snapshot().quoteDiagnostics, undefined);
+    assert.equal(observer.diagnostic(events[0]), false);
+  });
+
+test("quote work projection omits malformed private fields independently and returns detached snapshots", () => {
+  const payload = { phase: "initial-search", qualified: false, elapsedMs: 1e12, inversionIteration: 0.5,
+    privateData: "private-calldata", routeWave: { mode: "exact-in", subphase: "composition", sdkRequests: 3.5,
+      sdkWaiting: false, sdkExchangeMs: Infinity, typedPending: -1, typedCompleted: "2", providerMessage: "private-provider-url" } };
+  const expected = { phase: "initial-search", qualified: false, elapsedMs: 1e12, inversionIteration: 0.5,
+    routeWave: { mode: "exact-in", subphase: "composition", sdkRequests: 3.5 } };
+  assert.deepEqual(safeQuoteDiagnostics(payload), expected);
+  const error = new QuotePreviewError("quote-timeout", "private-error-message"); retainQuoteDiagnostics(error, payload);
+  payload.routeWave.sdkRequests = 99;
+  const first = quoteDiagnostics(error)!;
+  assert.deepEqual(first, expected); first.routeWave!.sdkRequests = 100;
+  assert.deepEqual(quoteDiagnostics(error), expected);
+  assert.deepEqual(failureResult({ ...resultFor(tradeScenarios[0], "api"), quoteDiagnostics: payload as never }, new Error("private-failure")).quoteDiagnostics,
+    { ...expected, routeWave: { ...expected.routeWave, sdkRequests: 99 } });
+  for (const malformed of [undefined, null, true, "private-field", [], {}, { phase: "private-phase", qualified: 1,
+    elapsedMs: true, inversionIteration: 1e12 + 1, routeWave: { mode: "private-mode", subphase: "private-phase", sdkWaiting: NaN } },
+    Object.defineProperty({}, "phase", { get: () => { throw new Error("private-getter"); } })])
+    assert.equal(safeQuoteDiagnostics(malformed), undefined);
+  assert.equal(quoteDiagnostics(Object.defineProperty({}, "quoteDiagnostics", { get: () => { throw new Error("private-getter"); } })), undefined);
+  assert.equal(failureResult({ ...resultFor(tradeScenarios[0], "api"), quoteDiagnostics: { privateData: "private-result" } as never }, new Error("private-failure")).quoteDiagnostics, undefined);
+  assert.doesNotMatch(JSON.stringify(quoteDiagnostics(error)), /private-/);
 });
 
 test("regression reports never copy arbitrary provider error messages, even code-looking secrets", () => {
@@ -211,6 +274,7 @@ test("a served protocol-facts timeout fails required startup observations for al
 
 type SandboxRunnerFixture = {
   cacheExitCode?: number; testExitCode?: number; testSignal?: string; cacheCheckpoint?: unknown; cacheCheckpointText?: string;
+  factsUnavailable?: boolean;
   spawnError?: { name: string; code?: string }; independent?: unknown; ui?: unknown;
   uiFixtureDiagnostic?: unknown; independentFixtureDiagnostic?: unknown; uiFixtureDiagnosticText?: string;
 };
@@ -227,7 +291,9 @@ import { writeFileSync } from "node:fs";
 const options = ${JSON.stringify(options)};
 const config = ${JSON.stringify(protocolConfigurationFixture)};
 globalThis.fetch = async url => new URL(url).pathname === "/en" ? new Response("")
-  : Response.json(new URL(url).pathname === "/api/protocol/config" ? config : {});
+  : options.factsUnavailable && new URL(url).pathname === "/api/protocol/facts"
+    ? Response.json({ code: "rpc-timeout" }, { status: 504 })
+    : Response.json(new URL(url).pathname === "/api/protocol/config" ? config : {});
 childProcess.spawn = (_executable, args, commandOptions) => {
   const child = new EventEmitter();
   child.kill = () => true;
@@ -276,7 +342,7 @@ function sandboxSuiteReports() {
 }
 
 test("wallet cache failure fails the runner and leaves all36 cases unstarted with safe setup diagnostics", () => {
-  const { exitCode, report } = runSandboxRunnerFixture({ cacheExitCode: 1,
+  const { exitCode, report } = runSandboxRunnerFixture({ cacheExitCode: 1, factsUnavailable: true,
     cacheCheckpoint: { stage: "wallet-onboarding", result: "fail", errorClass: "TimeoutError",
       onboarding: { step: "import-wallet", elapsedMs: 1200, message: "private-onboarding-error" },
       errorCode: "private-errno", error: "private-error-message", seedPhrase: "private-wallet-seed", rpcUrl: "https://private-rpc.invalid" } });
@@ -568,13 +634,13 @@ test("UI preparation references follow the latest matching quote attempt and rej
   assert.equal(observer.request("/api/quotes/trade/stream", { ...request, amount: "0" }, first), false);
   assert.equal(observer.request("/api/quotes/trade/stream", request, first), true);
   assert.equal(observer.diagnostic({ operation: "quote", attemptId: first, requestId, outcome: "failed", errorClassification: "quote-timeout" }), true);
-  assert.deepEqual(observer.snapshot(), { refs: { attemptId: first, requestId }, reason: "quote-timeout" });
+  assert.deepEqual(observer.snapshot(), { refs: { attemptId: first, requestId }, reason: "quote-timeout", quoteDiagnostics: undefined });
   assert.equal(observer.request("/api/quotes/trade/stream", request, latest), true);
-  assert.deepEqual(observer.snapshot(), { refs: { attemptId: latest }, reason: undefined });
+  assert.deepEqual(observer.snapshot(), { refs: { attemptId: latest }, reason: undefined, quoteDiagnostics: undefined });
   assert.equal(observer.diagnostic({ operation: "quote", attemptId: first, requestId, outcome: "failed", errorClassification: "rpc-timeout" }), false);
   assert.equal(observer.diagnostic({ operation: "swap", attemptId: latest, requestId }), false);
   assert.equal(observer.diagnostic({ operation: "quote", attemptId: latest, requestId, outcome: "failed", errorClassification: "gho-private-token" }), true);
-  assert.deepEqual(observer.snapshot(), { refs: { attemptId: latest, requestId }, reason: undefined });
+  assert.deepEqual(observer.snapshot(), { refs: { attemptId: latest, requestId }, reason: undefined, quoteDiagnostics: undefined });
   assert.doesNotMatch(JSON.stringify(observer.snapshot()), /gho-private-token/);
   assert.equal(createUiQuoteDiagnostics(scenario, protocolConfigurationFixture).diagnostic({ operation: "quote", attemptId: latest, requestId }), false);
 });

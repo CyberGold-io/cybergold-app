@@ -90,6 +90,7 @@ export async function requestWallet(page: Page, request: { method: string; param
     await expect.poll(async () => {
       if (settled) return true;
       const popup = await notification(page, value => { if (diagnostic) Object.assign(diagnostic, value); snapshot(); });
+      if (settled) return true;
       const button = reject ? popup.getByTestId("confirm-footer-cancel-button")
         : popup.getByTestId("confirm-footer-button").or(popup.getByTestId("confirm-btn"));
       if (diagnostic) diagnostic.clickAttempts++;

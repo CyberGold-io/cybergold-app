@@ -1,4 +1,4 @@
-import { diagnosticReferences, retainDiagnosticReferences, type DiagnosticReferences } from "./diagnosticReferences.ts";
+import { diagnosticReferences, quoteDiagnostics, retainDiagnosticReferences, retainQuoteDiagnostics, type DiagnosticReferences } from "./diagnosticReferences.ts";
 
 export const quoteErrorKeys = {
   "insufficient-protocol-supply": "quoteProtocolSupplyExceeded",
@@ -20,16 +20,16 @@ type Code = keyof typeof quoteErrorKeys;
 
 export class QuotePreviewError extends Error {
   readonly code: Code;
-  constructor(code: Code, message: string, references?: DiagnosticReferences) {
-    super(message); this.code = code; retainDiagnosticReferences(this, references ?? {});
+  constructor(code: Code, message: string, references?: DiagnosticReferences, diagnostics?: unknown) {
+    super(message); this.code = code; retainDiagnosticReferences(this, references ?? {}); retainQuoteDiagnostics(this, diagnostics);
   }
 }
 
 export function knownQuoteError(value: unknown): QuotePreviewError | undefined {
   const code = (value as { code?: unknown } | null)?.code;
-  if (code === "insufficient-protocol-supply") return new QuotePreviewError(code, "The redemption amount exceeds available CYGLD supply.", diagnosticReferences(value));
-  if (code === "issuance-cap-exceeded") return new QuotePreviewError(code, "The issuance amount exceeds the CYGLD supply limit.", diagnosticReferences(value));
-  if (typeof code === "string" && Object.hasOwn(quoteErrorKeys, code)) return new QuotePreviewError(code as Code, code, diagnosticReferences(value));
+  if (code === "insufficient-protocol-supply") return new QuotePreviewError(code, "The redemption amount exceeds available CYGLD supply.", diagnosticReferences(value), quoteDiagnostics(value));
+  if (code === "issuance-cap-exceeded") return new QuotePreviewError(code, "The issuance amount exceeds the CYGLD supply limit.", diagnosticReferences(value), quoteDiagnostics(value));
+  if (typeof code === "string" && Object.hasOwn(quoteErrorKeys, code)) return new QuotePreviewError(code as Code, code, diagnosticReferences(value), quoteDiagnostics(value));
 }
 
 export function quoteErrorMessage(error: Error, translate: (key: typeof quoteErrorKeys[Code]) => string) {
@@ -43,5 +43,5 @@ export async function quoteResponseError(response: Response): Promise<QuotePrevi
   if (known) return known;
   const code = response.status === 400 ? "quote-invalid-input" : response.status === 429 ? "quote-request-limit"
     : response.status === 504 ? "quote-timeout" : "quote-service-unavailable";
-  return new QuotePreviewError(code, code, diagnosticReferences(body));
+  return new QuotePreviewError(code, code, diagnosticReferences(body), quoteDiagnostics(body));
 }
