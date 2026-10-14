@@ -75,7 +75,7 @@ finally { writeFileSync(${JSON.stringify(observations)}, JSON.stringify(actions)
 `);
   try {
     const child = spawnSync(process.execPath, ["--experimental-test-module-mocks", fixture], { cwd: output, stdio: "ignore",
-      env: { PATH: process.env.PATH, TRADE_REGRESSION_WALLET_SETUP_OUTPUT: diagnostic,
+      env: { PATH: process.env.PATH, NODE_ENV: "test", TRADE_REGRESSION_WALLET_SETUP_OUTPUT: diagnostic,
         ...(!options.extensionOnly ? { SYNPRESS_WALLET_SEED_PHRASE: "public-fixture-placeholder", SYNPRESS_WALLET_PASSWORD: "public-fixture-password" } : {}) } });
     return { exitCode: child.status, actions: JSON.parse(readFileSync(observations, "utf8")),
       checkpoint: JSON.parse(readFileSync(diagnostic, "utf8")) };
