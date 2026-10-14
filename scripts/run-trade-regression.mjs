@@ -144,7 +144,7 @@ try {
         TRADE_REGRESSION_INDEPENDENT_FIXTURE_OUTPUT: resolve(output, "wallet-fixture-independent.json"),
         TRADE_REGRESSION_FAUCET_REQUEST_ID: report.runId, TRADE_REGRESSION_MODE: "sandbox-execution", TRADE_REGRESSION_TARGET: "sandbox" };
       report.runnerDiagnostics.stage = "wallet-cache";
-      const setupResult = await command(process.execPath, ["scripts/cache-metamask-wallet.mjs"], env);
+      const setupResult = await command(process.execPath, ["scripts/cache-metamask-wallet.mjs", "--extension-only"], env);
       report.runnerDiagnostics = { ...report.runnerDiagnostics, ...setupResult };
       const walletSetup = await readWalletSetupDiagnostic(env.TRADE_REGRESSION_WALLET_SETUP_OUTPUT);
       if (walletSetup) report.runnerDiagnostics.walletSetup = walletSetup;
