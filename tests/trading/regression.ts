@@ -7,7 +7,7 @@ import type { MarketQuote } from "../../app/utils/marketQuote.ts";
 import type { TradeQuote, TradeQuoteRequest } from "../../app/utils/tradeQuote.ts";
 import { fetchQuoteStream } from "../../app/utils/quoteStream.ts";
 import { QuotePreviewError, quoteResponseError } from "../../app/utils/quoteErrors.ts";
-import { diagnosticReferences, retainDiagnosticReferences, type DiagnosticReferences } from "../../app/utils/diagnosticReferences.ts";
+import { diagnosticReferences, quoteDiagnostics, retainDiagnosticReferences, type DiagnosticReferences, type QuoteDiagnostics } from "../../app/utils/diagnosticReferences.ts";
 import { basketFacts, configuredToken, coreIntentRequest, ScenarioUnavailableError, type Scenario } from "./scenarios.ts";
 import type { UiQuoteSnapshot, UiWalletEvidence } from "./uiEconomics.ts";
 import type { WalletRequestDiagnostic } from "./runnerDiagnostics.ts";
@@ -24,6 +24,7 @@ export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "ass
   status: "pass" | "fail" | "unavailable" | "skipped"; actualStrategy: "core" | "market" | "unknown";
   actualOperation?: string; quotedOperation?: string; layer: "api" | "browser" | "execution"; durationMs?: number; firstExecutableMs?: number;
   code?: string; reason?: QuotePreviewError["code"] | UiObservationPhase; refs?: DiagnosticReferences; transactionHash?: string;
+  quoteDiagnostics?: QuoteDiagnostics;
   context?: { chainId: number; blockNumber: string; blockHash: string }; bounds?: Record<string, string | string[]>;
   receipt?: Record<string, string | string[]>; authorization?: string[];
   executionStage?: ExecutionStage; errorClass?: string; errorCode?: string; walletRequestErrorCode?: number; approvalTransactionHashes?: string[];
@@ -66,8 +67,10 @@ export function failureResult(result: ScenarioResult, error: unknown) {
     ? error.code : "unexpected-error";
   const unavailable = error instanceof ScenarioUnavailableError && unexercisedRunnerCodes.has(error.code);
   const timedOut = /Timeout|Abort/.test((error as Error)?.name ?? "");
+  const work = quoteDiagnostics(error) ?? quoteDiagnostics(result);
   return { ...result, status: unavailable ? "unavailable" as const : "fail" as const,
     code: timedOut && code === "unexpected-error" ? "service-unavailable" : code,
+    quoteDiagnostics: work,
     refs: { ...result.refs, ...diagnosticReferences(error) } };
 }
 

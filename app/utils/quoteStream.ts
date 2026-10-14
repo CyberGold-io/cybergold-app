@@ -1,5 +1,5 @@
 import { knownQuoteError, QuotePreviewError, quoteResponseError } from "./quoteErrors.ts";
-import { diagnosticAttemptId, diagnosticReferences, retainDiagnosticReferences } from "./diagnosticReferences.ts";
+import { diagnosticAttemptId, diagnosticReferences, quoteDiagnostics, retainDiagnosticReferences } from "./diagnosticReferences.ts";
 
 type Terminal<Value> = { type: "complete"; value: Value } | { type: "error"; code?: string; error?: string };
 
@@ -41,7 +41,7 @@ export async function fetchQuoteStream<Value, Event extends { type: string }>(
         const event = JSON.parse(line) as Terminal<Value> | Event;
         retainDiagnosticReferences(event, { ...metadata, ...diagnosticReferences(event) });
         if (event.type === "error") throw knownQuoteError(event)
-          ?? new QuotePreviewError("quote-unavailable", "Quote service failed.", diagnosticReferences(event));
+          ?? new QuotePreviewError("quote-unavailable", "Quote service failed.", diagnosticReferences(event), quoteDiagnostics(event));
         if ("value" in event) retainDiagnosticReferences(event.value, diagnosticReferences(event));
         if (event.type === "complete") return (event as { value: Value }).value;
         onEvent(event as Event);

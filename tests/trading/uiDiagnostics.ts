@@ -1,6 +1,6 @@
 import type { Page } from "@playwright/test";
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
-import { safeDiagnosticReferences } from "../../app/utils/diagnosticReferences.ts";
+import { quoteDiagnostics, safeDiagnosticReferences, safeQuoteDiagnostics, type QuoteDiagnostics } from "../../app/utils/diagnosticReferences.ts";
 import { knownQuoteError, type QuotePreviewError } from "../../app/utils/quoteErrors.ts";
 import { failureResult, RegressionAssertionError, tokenRequest, type ScenarioResult, type UiObservationPhase } from "./regression.ts";
 import { ScenarioUnavailableError, type Scenario } from "./scenarios.ts";
@@ -15,6 +15,7 @@ export function createUiQuoteDiagnostics(scenario: Scenario, config: ProtocolCon
   const expected = scenario.asset === "BASKET" ? undefined : tokenRequest(scenario, config, config.contracts.helpers!);
   let refs = {} as ReturnType<typeof safeDiagnosticReferences>;
   let reason: QuotePreviewError["code"] | undefined;
+  let work: QuoteDiagnostics | undefined;
   return {
     request(path: string, body: unknown, attempt: unknown) {
       if (!body || typeof body !== "object") return false;
@@ -31,7 +32,7 @@ export function createUiQuoteDiagnostics(scenario: Scenario, config: ProtocolCon
       }
       const safe = safeDiagnosticReferences({ attemptId: attempt });
       if (!safe.attemptId) return false;
-      refs = safe; reason = undefined; return true;
+      refs = safe; reason = undefined; work = undefined; return true;
     },
     diagnostic(event: unknown) {
       if (!event || typeof event !== "object") return false;
@@ -39,9 +40,10 @@ export function createUiQuoteDiagnostics(scenario: Scenario, config: ProtocolCon
       if (value.operation !== "quote" || !refs.attemptId || safe.attemptId !== refs.attemptId) return false;
       refs = { ...refs, ...safe };
       reason = value.outcome === "failed" ? knownQuoteError({ code: value.errorClassification })?.code : undefined;
+      work = value.outcome === "failed" ? quoteDiagnostics(value) : undefined;
       return true;
     },
-    snapshot() { return { refs: { ...refs }, reason }; },
+    snapshot() { return { refs: { ...refs }, reason, quoteDiagnostics: safeQuoteDiagnostics(work) }; },
   };
 }
 
