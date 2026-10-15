@@ -64,11 +64,13 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
         let observation: QuoteObservation | undefined;
         await expect.poll(async () => {
           const matching = (await quoteObservations(page)).slice(before).filter(matches);
-          observation = matching.find(row => Boolean(row.terminal));
-          const latest = observation ?? matching.at(-1);
-          if (latest) result.refs = { ...result.refs, ...safeDiagnosticReferences({ requestId: latest.requestId }) };
+          const latest = matching.at(-1);
+          observation = matching.find(row => Boolean(row.terminal)) ?? (latest?.interrupted ? latest : undefined);
+          const observed = observation ?? latest;
+          if (observed) result.refs = { ...result.refs, ...safeDiagnosticReferences({ requestId: observed.requestId }) };
           return Boolean(observation);
         }, { timeout: 75_000 }).toBe(true).catch(() => { throw new ScenarioUnavailableError("quote-stream-interrupted"); });
+        if (!observation?.terminal) throw new ScenarioUnavailableError("quote-stream-interrupted");
         const observed = observation!, request = observed.request, terminal = observed.terminal!;
         result.refs = safeDiagnosticReferences({ ...diagnosticReferences(terminal), requestId: observed.requestId });
         if (terminal.type === "error") throw knownQuoteError(terminal)
