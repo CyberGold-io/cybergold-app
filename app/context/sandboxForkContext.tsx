@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { targetChainId } from "@/app/config/chain";
 import { createSandboxForkTracker, resetSandboxQueries } from "@/app/utils/sandboxForkState";
+import { TokenPickerPresentationProvider } from "./tokenPickerPresentationContext";
 
 const SandboxForkContext = createContext<string | null | undefined>(undefined);
 export const useSandboxForkGeneration = () => useContext(SandboxForkContext);
@@ -35,6 +36,9 @@ export function SandboxForkBoundary({ children }: { children: ReactNode }) {
   }, [client, generation]);
 
   return <SandboxForkContext.Provider value={generation}>
-    <div key={resetId} className="contents">{children}</div>
+    {/* Keep only picker disclosure across a fork reset; navigation still closes it. */}
+    <TokenPickerPresentationProvider>
+      <div key={resetId} className="contents">{children}</div>
+    </TokenPickerPresentationProvider>
   </SandboxForkContext.Provider>;
 }
