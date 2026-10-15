@@ -15,7 +15,7 @@ import type { FlowNetworkFeeEstimateHandlers, SubmitBasketFlowParams } from "./s
 export function useTradeFlow({ input, enabled, frozen, onNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange }:
   { input: Omit<TradeQuoteRequest, "deadline" | "retainedPlan">; enabled: boolean; frozen?: TradeQuoteResult } & FlowNetworkFeeEstimateHandlers) {
   const active = enabled && BigInt(input.amount) > 0n;
-  const quote = useTradeQuote(input, active), selected = frozen ?? quote.data;
+  const quote = useTradeQuote(input, active && !frozen), selected = frozen ?? quote.data;
   const { submitTokenPurchase } = useTokenPurchaseExecution({ onNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange });
   const { submitRedemption } = useRedemptionExecution({ onNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange });
   const market = useMarketSwapExecution();

@@ -66,7 +66,7 @@ for (const symbol of ["WETH", "USDC"] as const) {
 }
 function advance(next: typeof phase) { phase = next; for (const [response, request] of active) send(response, request); }
 
-test("wallet preparation freezes displayed terms while a better quote arrives", async ({ page }) => {
+test("wallet preparation pauses quote search, freezes terms and resumes after failure", async ({ page }) => {
   await page.addInitScript(({ chain }) => {
     const state = { hold: false, waiting: false, release: () => {}, rejected: [] as string[] };
     Object.assign(window, { quotePreparationFixture: state });
@@ -107,11 +107,16 @@ test("wallet preparation freezes displayed terms while a better quote arrives", 
   const quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
   const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
   await expect(swap).toBeEnabled(); const displayed = await quoted.inputValue();
+  const searching = [...active.keys()];
+  expect(searching).toHaveLength(1);
   await page.evaluate(() => { (window as unknown as { quotePreparationFixture: { hold: boolean } }).quotePreparationFixture.hold = true; });
   await swap.click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { quotePreparationFixture: { waiting: boolean } }).quotePreparationFixture.waiting)).toBe(true);
+  await expect.poll(() => searching.every(response => !active.has(response))).toBe(true);
+  expect(active.size).toBe(0);
   advance("qualified-better"); await page.waitForTimeout(100);
   await expect(quoted).toHaveValue(displayed);
+  expect(active.size).toBe(0);
   await page.evaluate(() => { (window as unknown as { quotePreparationFixture: { release: () => void } }).quotePreparationFixture.release(); });
   await expect(page.getByText(/^Wrong network — switch to /)).toBeVisible();
   await expect(quoted).not.toHaveValue(displayed);
