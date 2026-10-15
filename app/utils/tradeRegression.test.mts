@@ -309,6 +309,103 @@ test("browser observer captures the emitted terminal before App cancellation wit
   assert.deepEqual(scope.__cybergoldTradeObservations?.[0]?.request, { mode: "exact-out", amount: "10" });
 });
 
+function runBrowserStreamObservation(ending: "eof" | "read-error" | "terminal" | "superseded" | "deferred-headers") {
+  const output = mkdtempSync(join(tmpdir(), "cybergold-browser-stream-"));
+  const fixture = join(output, "stream.mjs"), resultPath = join(output, "result.json");
+  const source = (path: string) => fileURLToPath(new URL(path, import.meta.url));
+  writeFileSync(fixture, `
+import assert from "node:assert/strict";
+import { mock } from "node:test";
+import { writeFileSync } from "node:fs";
+import http from "node:http";
+import https from "node:https";
+import { syncBuiltinESMExports } from "node:module";
+import { chromium } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@playwright/test")))};
+import * as helpers from ${JSON.stringify(source("../../tests/metamask/token-flows/helpers.ts"))};
+import { protocolConfigurationFixture as config } from ${JSON.stringify(source("../../tests/fixtures/protocol-configuration.ts"))};
+import { tradeScenarios } from ${JSON.stringify(source("../../tests/trading/scenarios.ts"))};
+import { tokenRequest } from ${JSON.stringify(source("../../tests/trading/regression.ts"))};
+import { installQuoteObservation } from ${JSON.stringify(source("../../tests/trading/quoteObservation.ts"))};
+import { fetchQuoteStream } from ${JSON.stringify(source("./quoteStream.ts"))};
+http.request = https.request = () => { throw new Error("external-network-forbidden"); };
+syncBuiltinESMExports();
+const ending = ${JSON.stringify(ending)}, encoder = new TextEncoder(), operations = [];
+let calls = 0, navigations = 0;
+const request = tokenRequest(tradeScenarios[0], config, config.contracts.helpers);
+const scope = { location: { href: "https://fixture.invalid/en" }, fetch: async () => {
+  const index = ++calls;
+  if (ending === "deferred-headers" && index === 2) await new Promise(resolve => setTimeout(resolve, 250));
+  let timer;
+  return new Response(new ReadableStream({ start(controller) {
+    controller.enqueue(encoder.encode(JSON.stringify({ type: "progress", strategy: "core" }) + "\\n"));
+    timer = setTimeout(() => {
+      if (ending === "read-error") controller.error(new Error("private-provider-url signed-payload"));
+      else if (ending === "terminal" || ["superseded", "deferred-headers"].includes(ending) && index === 2) {
+        controller.enqueue(encoder.encode(JSON.stringify({ type: "error", code: "quote-timeout" }) + "\\n"));
+        controller.close();
+      } else controller.close();
+    }, ending === "superseded" && index === 2 ? 250 : 0);
+  }, cancel() { clearTimeout(timer); } }), { headers: {
+    "X-CyberGold-Request-Id": index === 1 ? "e9eb96b2-8ecf-429d-9e08-244f43257e8e" : "eb3e6932-a2af-4303-a09e-35831f864a1d",
+  } });
+} };
+installQuoteObservation(scope);
+const input = { click: async () => {}, fill: async () => {
+  for (let count = 0; count < (["superseded", "deferred-headers"].includes(ending) ? 2 : 1); count++)
+    operations.push(fetchQuoteStream("/api/quotes/trade/stream", request, new AbortController().signal, () => {}, scope.fetch).catch(() => {}));
+} };
+mock.module(${JSON.stringify(source("../../tests/metamask/token-flows/helpers.ts"))}, { namedExports: { ...helpers,
+  selectToken: async () => {}, showAllSellTokens: async () => {}, getMainInput: () => input,
+} });
+const page = { setDefaultTimeout() {}, addInitScript: async () => {}, close: async () => {},
+  goto: async () => { if (++navigations > 1) throw new Error("fixture-later-cases-unexercised"); },
+  getByRole: () => ({ waitFor: async () => {} }), evaluate: async () => scope.__cybergoldTradeObservations,
+};
+chromium.launch = async () => ({ newPage: async () => page, close: async () => {} });
+const { observeBrowserQuotes } = await import(${JSON.stringify(source("../../tests/trading/browserQuotes.ts"))});
+const started = performance.now();
+const [result] = await observeBrowserQuotes("https://fixture.invalid", config, {});
+await Promise.all(operations);
+assert.ok(performance.now() - started < 5000);
+writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify({ result, calls }));
+`);
+  try {
+    const child = spawnSync(process.execPath, ["--experimental-test-module-mocks", fixture], {
+      cwd: new URL("../../", import.meta.url), encoding: "utf8", timeout: 10000,
+      env: { PATH: process.env.PATH, NODE_ENV: "test" },
+    });
+    assert.equal(child.status, 0, child.stderr);
+    return JSON.parse(readFileSync(resultPath, "utf8"));
+  } finally { rmSync(output, { recursive: true, force: true }); }
+}
+
+for (const ending of ["eof", "read-error"] as const)
+  test(`quote-only browser case reports definite ${ending} without spending its remaining terminal deadline`, () => {
+    const { result, calls } = runBrowserStreamObservation(ending);
+    assert.equal(result.code, "quote-stream-interrupted");
+    assert.equal(result.status, "fail"); assert.equal(result.executionStage, "ui-prepare-quote");
+    assert.equal(result.refs.requestId, "e9eb96b2-8ecf-429d-9e08-244f43257e8e");
+    assert.equal(calls, 1);
+    assert.doesNotMatch(JSON.stringify(result), /private-provider-url|signed-payload/);
+  });
+
+test("quote-only browser case retains the server terminal error cause", () => {
+  const { result, calls } = runBrowserStreamObservation("terminal");
+  assert.equal(result.code, "quote-timeout"); assert.equal(calls, 1);
+});
+
+test("an interrupted superseded request does not mask its active replacement terminal", () => {
+  const { result, calls } = runBrowserStreamObservation("superseded");
+  assert.equal(result.code, "quote-timeout"); assert.equal(calls, 2);
+  assert.equal(result.refs.requestId, "eb3e6932-a2af-4303-a09e-35831f864a1d");
+});
+
+test("a replacement waiting for response headers supersedes an interrupted request", () => {
+  const { result, calls } = runBrowserStreamObservation("deferred-headers");
+  assert.equal(result.code, "quote-timeout"); assert.equal(calls, 2);
+  assert.equal(result.refs.requestId, "eb3e6932-a2af-4303-a09e-35831f864a1d");
+});
+
 test("a quote runner startup failure retains all36 stable unavailable scenario rows", () => {
   const output = mkdtempSync(join(tmpdir(), "cybergold-trade-regression-"));
   const env = { ...process.env }; delete env.APP_BASE_URL;

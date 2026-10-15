@@ -15,19 +15,25 @@ export function installQuoteObservation(scope: ObservationWindow = window) {
   const originalFetch = scope.fetch;
   scope.__cybergoldTradeObservations = [];
   scope.fetch = async (...args: Parameters<typeof fetch>) => {
-    const response = await originalFetch.apply(scope, args);
+    const operation = originalFetch.apply(scope, args);
     const [input, init] = args;
     const path = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url, scope.location.href).pathname;
-    if (path !== "/api/quotes/trade/stream" && path !== "/api/quotes/basket-preview") return response;
+    if (path !== "/api/quotes/trade/stream" && path !== "/api/quotes/basket-preview") return operation;
     // These App producers submit JSON with RequestInit.body. Other fetches are
     // left untouched, including any wallet, signature or transaction traffic.
-    if (typeof init?.body !== "string") return response;
+    if (typeof init?.body !== "string") return operation;
     let request: Record<string, unknown>;
-    try { request = JSON.parse(init.body); } catch { return response; }
-    const observation: QuoteObservation = { path, request, status: response.status,
-      requestId: response.headers.get("X-CyberGold-Request-Id") ?? undefined,
-      backendRevision: response.headers.get("X-CyberGold-Backend-Revision") ?? undefined };
+    try { request = JSON.parse(init.body); } catch { return operation; }
+    // Record dispatch order before headers arrive, so an active replacement
+    // takes precedence over an interrupted request it superseded.
+    const observation: QuoteObservation = { path, request, status: 0 };
     scope.__cybergoldTradeObservations!.push(observation);
+    let response: Response;
+    try { response = await operation; }
+    catch (error) { observation.interrupted = true; throw error; }
+    observation.status = response.status;
+    observation.requestId = response.headers.get("X-CyberGold-Request-Id") ?? undefined;
+    observation.backendRevision = response.headers.get("X-CyberGold-Backend-Revision") ?? undefined;
     const clone = response.clone();
     void (async () => {
       if (path === "/api/quotes/basket-preview" || !response.ok) {
