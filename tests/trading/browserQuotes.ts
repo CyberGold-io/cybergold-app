@@ -10,6 +10,7 @@ import { QuotePreviewError, knownQuoteError } from "../../app/utils/quoteErrors.
 import { basketFacts, configuredToken, ScenarioUnavailableError, tradeScenarios } from "./scenarios.ts";
 import { failureResult, matchesBasketIntent, requireInvariant, resultFor, tokenRequest, validateBasket, validateTrade, type ScenarioResult } from "./regression.ts";
 import { installQuoteObservation, quoteObservations, type QuoteObservation } from "./quoteObservation.ts";
+import { safeRunnerError } from "./runnerDiagnostics.ts";
 
 /** Real App interactions: no routes, mocked responses or injected wallet. */
 export async function observeBrowserQuotes(origin: string, config: ProtocolConfiguration, facts: ProtocolFacts): Promise<ScenarioResult[]> {
@@ -24,16 +25,20 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
       let result = { ...resultFor(scenario, "browser"), id: `ui-${scenario.id}`, requestedStrategy: "auto" as const };
       const started = performance.now();
       try {
+        result.executionStage = "ui-prepare-navigation";
         await page.goto("/en", { timeout: 45_000, waitUntil: "domcontentloaded" });
         // This existing wallet control is only visible once the App mounts.
         // Waiting for it prevents clicking a server-rendered picker before its
         // React handlers are attached on a cold deployed page.
+        result.executionStage = "ui-prepare-wallet";
         await page.getByRole("button", { name: "Connect Wallet", exact: true }).waitFor({ state: "visible" });
+        result.executionStage = "ui-prepare-tokens";
         await showAllSellTokens(page);
         const buy = scenario.side === "buy", sell = buy ? scenario.asset : "CYGLD", receive = buy ? "CYGLD" : scenario.asset;
         await selectToken(page, "sell", sell); await selectToken(page, "buy", receive);
         const editedSide = scenario.inputMode === "exact-in" ? "sell" : "buy";
         const basketEdited = scenario.asset === "BASKET" && ((buy && scenario.inputMode === "exact-in") || (!buy && scenario.inputMode === "exact-out"));
+        result.executionStage = "ui-prepare-amount";
         const input = basketEdited ? await ensureBasketInputEditable(page, editedSide) : getMainInput(page, editedSide);
         await input.click();
         const intended = scenario.asset === "BASKET" ? undefined : tokenRequest(scenario, config, config.contracts.helpers!);
@@ -53,6 +58,7 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
               && typeof body.counterToken === "string" && body.counterToken.toLowerCase() === intended.counterToken.toLowerCase() && body.native === intended.native)
             && (typeof body.amount === "string" ? BigInt(body.amount) > 0n : true);
         };
+        result.executionStage = "ui-prepare-quote";
         const before = (await quoteObservations(page)).length;
         await input.fill(scenario.displayAmount);
         let observation: QuoteObservation | undefined;
@@ -94,8 +100,8 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
           const decimal = config.tokens.find(token => token.symbol.toUpperCase() === (quotedSide === "buy" ? receive : sell))?.decimals ?? 18;
           await expect.poll(async () => parseUnits(await getMainInput(page, quotedSide).inputValue() || "0", decimal), { timeout: 15_000 }).toBeGreaterThan(0n);
         }
-        result.status = "pass"; delete result.code;
-      } catch (error) { result = { ...failureResult(result, error), requestedStrategy: "auto" }; }
+        result.status = "pass"; result.executionStage = "complete"; delete result.code;
+      } catch (error) { result = { ...failureResult(result, error), ...safeRunnerError(error), requestedStrategy: "auto" }; }
       result.durationMs = Math.round(performance.now() - started); results.push(result);
     }
     await page.close().catch(() => {});
