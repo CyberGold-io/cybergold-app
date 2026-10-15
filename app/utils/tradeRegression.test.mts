@@ -34,6 +34,79 @@ assert.equal(typeof setup.fn, "function");
   assert.equal(child.signal, null);
 });
 
+function runWalletPreparation(options: { extensionOnly?: boolean; cached?: boolean; failExtension?: boolean }) {
+  const output = mkdtempSync(join(tmpdir(), "cybergold-wallet-preparation-"));
+  const fixture = join(output, "preparation.mjs"), observations = join(output, "actions.json");
+  const diagnostic = join(output, "setup.json");
+  const script = fileURLToPath(new URL("../../scripts/cache-metamask-wallet.mjs", import.meta.url));
+  const setupPath = fileURLToPath(new URL("../../wallet-setup/metamask.setup.ts", import.meta.url));
+  writeFileSync(fixture, `
+import { mock } from "node:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import http from "node:http";
+import https from "node:https";
+import { syncBuiltinESMExports } from "node:module";
+import { chromium } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@playwright/test")))};
+import * as cache from ${JSON.stringify(fileURLToPath(import.meta.resolve("@synthetixio/synpress-cache")))};
+const actions = [], options = ${JSON.stringify(options)};
+http.request = https.request = () => { throw new Error("external-network-forbidden"); };
+syncBuiltinESMExports();
+mock.module(${JSON.stringify(fileURLToPath(import.meta.resolve("@synthetixio/synpress-cache")))}, { namedExports: {
+  ...cache, prepareExtension: async () => {
+    actions.push("extension-prepare");
+    if (options.failExtension) throw Object.assign(new Error("private-download-message private-seed private-url"), { code: "EACCES" });
+    return ${JSON.stringify(output)};
+  },
+} });
+chromium.launchPersistentContext = async () => {
+  actions.push("browser-launch");
+  const page = { goto: async () => {}, getByTestId: () => ({ waitFor: async () => {} }) };
+  return { serviceWorkers: () => [{ url: () => "chrome-extension://fixture/service-worker.js" }],
+    newPage: async () => page, close: async () => { actions.push("browser-close"); } };
+};
+if (options.extensionOnly) process.argv.push("--extension-only");
+else {
+  const { default: setup } = await import(${JSON.stringify(setupPath)});
+  setup.fn = async () => { actions.push("wallet-import"); };
+  if (options.cached) mkdirSync(".cache-synpress/" + setup.hash, { recursive: true });
+}
+try { await import(${JSON.stringify(script)}); }
+finally { writeFileSync(${JSON.stringify(observations)}, JSON.stringify(actions)); }
+`);
+  try {
+    const child = spawnSync(process.execPath, ["--experimental-test-module-mocks", fixture], { cwd: output, stdio: "ignore",
+      env: { PATH: process.env.PATH, NODE_ENV: "test", TRADE_REGRESSION_WALLET_SETUP_OUTPUT: diagnostic,
+        ...(!options.extensionOnly ? { SYNPRESS_WALLET_SEED_PHRASE: "public-fixture-placeholder", SYNPRESS_WALLET_PASSWORD: "public-fixture-password" } : {}) } });
+    return { exitCode: child.status, actions: JSON.parse(readFileSync(observations, "utf8")),
+      checkpoint: JSON.parse(readFileSync(diagnostic, "utf8")) };
+  } finally { rmSync(output, { recursive: true, force: true }); }
+}
+
+test("regression extension preparation does not import a wallet or launch a browser without wallet secrets", () => {
+  const result = runWalletPreparation({ extensionOnly: true });
+  assert.equal(result.exitCode, 0);
+  assert.deepEqual(result.actions, ["extension-prepare"]);
+  assert.deepEqual(result.checkpoint, { stage: "extension", result: "pass" });
+});
+
+test("default local wallet preparation preserves fresh import and existing-cache behavior", () => {
+  const fresh = runWalletPreparation({});
+  assert.equal(fresh.exitCode, 0);
+  assert.deepEqual(fresh.actions, ["extension-prepare", "browser-launch", "wallet-import", "browser-close"]);
+  assert.deepEqual(fresh.checkpoint, { stage: "wallet-ready", result: "pass", onboarding: { step: "setup-callback", elapsedMs: fresh.checkpoint.onboarding.elapsedMs } });
+  const cached = runWalletPreparation({ cached: true });
+  assert.equal(cached.exitCode, 0); assert.deepEqual(cached.actions, []);
+  assert.deepEqual(cached.checkpoint, { stage: "wallet-ready", result: "pass" });
+});
+
+test("extension preparation failure retains its ordinary error and safe checkpoint before either wallet suite", () => {
+  const result = runWalletPreparation({ extensionOnly: true, failExtension: true });
+  assert.equal(result.exitCode, 1);
+  assert.deepEqual(result.actions, ["extension-prepare"]);
+  assert.deepEqual(result.checkpoint, { stage: "extension", result: "fail", errorClass: "Error", errorCode: "EACCES" });
+  assert.doesNotMatch(JSON.stringify(result.checkpoint), /private-download|private-seed|private-url/);
+});
+
 test("inventory includes every Core asset/direction/mode and four independent market modes", () => {
   assert.equal(tradeScenarios.length, 20);
   assert.equal(new Set(tradeScenarios.map(scenario => scenario.id)).size, 20);
@@ -298,6 +371,7 @@ childProcess.spawn = (_executable, args, commandOptions) => {
   const child = new EventEmitter();
   child.kill = () => true;
   const cache = args[0] === "scripts/cache-metamask-wallet.mjs";
+  if (cache) assert.deepEqual(args, ["scripts/cache-metamask-wallet.mjs", "--extension-only"]);
   const env = commandOptions.env;
   assert.equal(env.NEXT_PUBLIC_CHAIN_NAME, "CyberGold Sandbox");
   if (cache && options.cacheCheckpoint !== undefined)
@@ -340,6 +414,16 @@ function sandboxSuiteReports() {
       .map(scenario => ({ ...resultFor(scenario, "execution"), id: `ui-${scenario.id}`, requestedStrategy: "auto", status: "pass", code: undefined })) },
   };
 }
+
+test("regression runner retains extension readiness and reaches both fresh wallet suite reports", () => {
+  const suites = sandboxSuiteReports();
+  const { exitCode, report } = runSandboxRunnerFixture({ independent: suites.independent, ui: suites.ui,
+    cacheCheckpoint: { stage: "extension", result: "pass" } });
+  assert.equal(exitCode, 0); assert.equal(report.runnerOutcome, "pass");
+  assert.deepEqual(report.runnerDiagnostics.walletSetup, { stage: "extension", result: "pass" });
+  assert.equal(report.scenarios.length, 36);
+  assert.ok(report.scenarios.every((row: { status: string }) => row.status === "pass"));
+});
 
 test("wallet cache failure fails the runner and leaves all36 cases unstarted with safe setup diagnostics", () => {
   const { exitCode, report } = runSandboxRunnerFixture({ cacheExitCode: 1, factsUnavailable: true,
@@ -505,9 +589,11 @@ test("initial report precedes the suite's navigation", async ({ page }) => {
 });
 
 function runFreshWalletFixture(options: { failAt?: "browser-launch" | "wallet-onboarding" | "fixture-focus" | "other-pages-close"; closeFailure?: boolean; unavailableOutput?: boolean;
+  suite?: "ui" | "independent"; cachedProfileUnavailable?: boolean;
   actualOnboarding?: "import-wallet" | "completion-click" | "complete" }) {
   const output = mkdtempSync(join(tmpdir(), "cybergold-fresh-wallet-fixture-"));
-  const fixture = join(output, "fixed-api-roundtrips.spec.ts"), config = join(output, "playwright.config.mjs");
+  const suiteFile = options.suite === "independent" ? "regression-execution.spec.ts" : "fixed-api-roundtrips.spec.ts";
+  const fixture = join(output, suiteFile), config = join(output, "playwright.config.mjs");
   const diagnostic = options.unavailableOutput ? join(output, "missing-directory", "fixture.json") : join(output, "fixture.json");
   const entered = join(output, "body-entered.json");
   const actionsFile = join(output, "actions.json");
@@ -522,6 +608,7 @@ import { MetaMask } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@sy
 import filesystem from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { writeFileSync } from "node:fs";
+import fsExtra from ${JSON.stringify(fileURLToPath(import.meta.resolve("fs-extra")))};
 const options = ${JSON.stringify(options)};
 const realpath = filesystem.realpath;
 filesystem.realpath = async path => String(path).endsWith(".cache-synpress/metamask-chrome-13.13.1")
@@ -529,6 +616,10 @@ filesystem.realpath = async path => String(path).endsWith(".cache-synpress/metam
 syncBuiltinESMExports();
 const failure = () => Object.assign(new Error("private-wallet-fixture-message"), { name: "TimeoutError", code: "EACCES" });
 const actions: string[] = [];
+if (options.cachedProfileUnavailable) {
+  fsExtra.exists = async () => { actions.push("cached-profile-read"); return false; };
+  fsExtra.copy = async () => { throw new Error("unused-cached-profile-must-not-be-copied"); };
+}
 const home = "chrome-extension://fixture/home.html";
 const otherPage = { url: () => "about:blank", close: async () => { throw failure(); } };
 const extensionPage = { url: () => home, goto: async () => {}, bringToFront: async () => { if (options.failAt === "fixture-focus") throw failure(); }, close: async () => {},
@@ -553,13 +644,14 @@ test("owned fresh wallet fixture reaches its test body", async ({ page }) => {
   writeFileSync(${JSON.stringify(entered)}, JSON.stringify({ entered: true }));
 });
 `);
-  writeFileSync(config, `export default ${JSON.stringify({ testDir: output, testMatch: "fixed-api-roundtrips.spec.ts", workers: 1,
+  writeFileSync(config, `export default ${JSON.stringify({ testDir: output, testMatch: suiteFile, workers: 1,
     timeout: 20_000, reporter: "dot", outputDir: join(output, "playwright-output") })};\n`);
   try {
     const child = spawnSync(process.execPath, ["node_modules/@playwright/test/cli.js", "test", "--config", config],
       { cwd: new URL("../../", import.meta.url), stdio: "ignore", env: { ...process.env,
         SYNPRESS_WALLET_SEED_PHRASE: "public-fixture-placeholder", SYNPRESS_WALLET_PASSWORD: "public-fixture-password",
-        TRADE_REGRESSION_UI_FIXTURE_OUTPUT: diagnostic, PLAYWRIGHT_BASE_URL: "http://fixture.invalid" } });
+        TRADE_REGRESSION_UI_FIXTURE_OUTPUT: diagnostic, TRADE_REGRESSION_INDEPENDENT_FIXTURE_OUTPUT: diagnostic,
+        PLAYWRIGHT_BASE_URL: "http://fixture.invalid" } });
     let checkpoint, bodyEntered = false;
     try { checkpoint = JSON.parse(readFileSync(diagnostic, "utf8")); } catch { /* Optional checkpoint can be absent. */ }
     try { bodyEntered = JSON.parse(readFileSync(entered, "utf8")).entered; } catch { /* A failed fixture has no test body. */ }
@@ -568,6 +660,16 @@ test("owned fresh wallet fixture reaches its test body", async ({ page }) => {
     return { exitCode: child.status, checkpoint, bodyEntered, actions };
   } finally { rmSync(output, { recursive: true, force: true }); }
 }
+
+test("both real regression fixtures import fresh wallets without consuming the absent cached profile", () => {
+  for (const suite of ["ui", "independent"] as const) {
+    const result = runFreshWalletFixture({ suite, cachedProfileUnavailable: true, actualOnboarding: "complete" });
+    assert.equal(result.exitCode, 0); assert.equal(result.bodyEntered, true);
+    assert.equal(result.checkpoint.result, "pass");
+    assert.deepEqual(result.actions, ["import-button-wait", "import-wallet", "completion-check", "completion-click",
+      "completion-hidden-wait", "load-state", "existing-wait:1000"]);
+  }
+});
 
 test("fresh wallet fixture failures retain the exact safe startup stage and preserve its first cause", () => {
   for (const failAt of ["browser-launch", "wallet-onboarding", "fixture-focus", "other-pages-close"] as const) {
