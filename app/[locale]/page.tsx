@@ -10,6 +10,7 @@ import { localBasketQuote } from "@/app/utils/localBasketQuote";
 import { cygldPurchaseCapacity, cygldGrossForNet, cygldBasketPurchaseAmount, cygldBasketPurchaseMax, formatCygldCapacity } from "@/app/utils/cygldSupply";
 import { adapterApprovalFromFacts, adapterCodePresentFromFacts, fetchHelpersRouterFacts } from "../utils/helpersRouterFacts";
 import { useProtocolConfiguration } from "../context/protocolConfigurationContext";
+import { useTokenPickerPresentation } from "../context/tokenPickerPresentationContext";
 import { requireProtocolAddress } from "../utils/protocolConfiguration";
 import { targetChainId, targetChainName } from "../config/chain";
 import { waitForAppTransactionReceipt } from "@/app/utils/receiptWait";
@@ -393,8 +394,7 @@ function TradingScreen() {
   // Preserve exact MAX balances while displaying shortened decimal amounts.
   const [sellAmountRawOverride, setSellAmountRawOverride] = useState<bigint | undefined>(undefined);
   const [driverAmountRawOverride, setDriverAmountRawOverride] = useState<bigint | undefined>(undefined);
-  const [isSellModalOpen, setIsSellModalOpen] = useState(false);
-  const [isBuyModalOpen, setIsBuyModalOpen] = useState(false);
+  const { isSellModalOpen, setIsSellModalOpen, isBuyModalOpen, setIsBuyModalOpen } = useTokenPickerPresentation();
   // The driver is the editable basket component used to derive the other amounts.
   const [driverToken, setDriverToken] = useState<Address | undefined>(undefined);
   const [driverAmountStr, setDriverAmountStr] = useState<string>("");
