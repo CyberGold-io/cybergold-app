@@ -17,7 +17,13 @@ export type UiObservationPhase = "ui-prepare" | "ui-facts" | "ui-balances" | "ui
 export const executionStages = ["execution-plan", "authorization-availability", "allowance-read", "approval-submission",
   "approval-confirmation", "native-permit-read", "permit2-read", "authorization-signature", "execution-simulation",
   "execution-encoding", "execution-submission", "execution-confirmation", "execution-transaction-read",
-  "execution-receipt-assertions", "complete"] as const;
+  "execution-receipt-assertions", "complete", "setup-config", "setup-navigation", "setup-network-add",
+  "setup-network-switch", "setup-connect-request", "setup-connect-confirm", "setup-wallet-ready", "setup-accounts",
+  "setup-funding", "setup-rejection-submit", "setup-rejection-wallet", "setup-rejection-postcheck", "setup-ready",
+  "ui-prepare-navigation", "ui-prepare-wallet", "ui-prepare-tokens", "ui-prepare-amount", "ui-prepare-quote",
+  "ui-prepare-details", "ui-prepare-swap", "ui-prepare", "ui-facts", "ui-balances", "ui-submit", "ui-confirmation",
+  "ui-hash", "ui-receipt-read", "ui-transaction-read", "ui-receipt-assertions", "ui-balance-postchecks",
+  "execution-facts", "execution-quote"] as const;
 export type ExecutionStage = typeof executionStages[number];
 export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "asset"> & {
   requestedStrategy: "core" | "market" | "auto";
@@ -55,6 +61,11 @@ export function uint(value: string, name: string) {
 export function resultFor(scenario: Scenario, layer: ScenarioResult["layer"]): ScenarioResult {
   return { id: scenario.id, family: scenario.family, inputMode: scenario.inputMode, requestedStrategy: scenario.requestedStrategy,
     asset: scenario.asset, status: "unavailable", code: "not-exercised", actualStrategy: "unknown", layer };
+}
+/** Optional local evidence records the latest entered phase, without changing the operation. */
+export async function checkpointExecutionStage(results: readonly ScenarioResult[], stage: ExecutionStage, persist: () => Promise<void>) {
+  for (const result of results) result.executionStage = stage;
+  try { await persist(); } catch { /* An optional observation write cannot reject an existing action. */ }
 }
 // These runner prerequisites prevented a case from starting. Once an expected
 // positive path is attempted, an unavailable dependency is a failed test.
