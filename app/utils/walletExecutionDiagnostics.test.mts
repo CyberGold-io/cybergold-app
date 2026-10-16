@@ -37,7 +37,7 @@ function browserWalletPage(provider: () => Promise<unknown>, returned: unknown[]
 } = {}): Page {
   const button = { click: async (options: { timeout: number }) => controls.click?.(options), or: () => button };
   const popup = { url: () => "chrome-extension://fixture/notification.html", bringToFront: async () => controls.notificationReady?.(),
-    setDefaultTimeout: () => undefined, getByTestId: () => button };
+    setDefaultTimeout: () => undefined, getByTestId: () => button, locator: () => button };
   return { bringToFront: async () => undefined,
     context: () => ({ pages: () => [popup], serviceWorkers: () => [{ url: () => "chrome-extension://fixture/background.js" }] }),
     evaluate: async (callback: (input: unknown) => Promise<unknown>, input: unknown) => {
@@ -384,6 +384,43 @@ test("a request still pending after notification keeps its confirm click and exi
   } finally { expect.poll = originalPoll; pending.resolve(approvalHash); }
 });
 
+for (const [control, stages] of [["confirm-footer-button", 1], ["confirm-btn", 1],
+  ["page-container-footer-next", 1], ["page-container-footer-next", 2]] as const)
+  test(`${control} with ${stages} confirmation stage(s) settles one native request without resubmission`, async () => {
+    const originalPoll = expect.poll;
+    expect.poll = ((callback: () => Promise<boolean>, options: unknown) => ({ toBe: async () => {
+      assert.deepEqual(options, { timeout: 90_000, intervals: [250, 500, 1000] });
+      for (let attempt = 0; attempt < 3; attempt++) if (await callback()) return;
+      assert.fail("The existing native request did not settle through its confirmation controls.");
+    } })) as unknown as typeof expect.poll;
+    const pending = Promise.withResolvers<unknown>(), result = basketObservation().result;
+    let requests = 0, clicks = 0;
+    type FixtureLocator = { available: boolean; or(other: FixtureLocator): FixtureLocator; click(options: { timeout: number }): Promise<void> };
+    const locator = (available: boolean): FixtureLocator => ({
+      available, or: other => locator(available || other.available),
+      click: async options => {
+        assert.deepEqual(options, { timeout: 1000 });
+        if (!available) throw Object.assign(new Error("fixture-missing-confirmation-control"), { name: "TimeoutError" });
+        if (++clicks === stages) pending.resolve(approvalHash);
+        await new Promise(resolve => setImmediate(resolve));
+      },
+    });
+    const popup = { url: () => "chrome-extension://fixture/notification.html", bringToFront: async () => undefined,
+      setDefaultTimeout: () => undefined, getByTestId: (id: string) => locator(id === control),
+      locator: (selector: string) => locator(control === "page-container-footer-next"
+        && selector === '.page-container__footer [data-testid="page-container-footer-next"]') };
+    const page = { bringToFront: async () => undefined, evaluate: async () => { requests++; return pending.promise; },
+      context: () => ({ pages: () => [popup], serviceWorkers: () => [{ url: () => "chrome-extension://fixture/background.js" }] }) } as unknown as Page;
+    try {
+      assert.equal(await requestWallet(page, { method: "eth_sendTransaction", params: [] }, false, result), approvalHash);
+      assert.equal(requests, 1); assert.equal(clicks, stages);
+      assert.equal(result.walletRequest?.settlement, "fulfilled");
+      assert.equal(result.walletRequest?.clickCompleted, stages);
+      assert.equal(result.walletRequest?.pendingBefore, 0); assert.equal(result.walletRequest?.pendingAfter, 0);
+      assert.equal(result.walletRequest?.deadlineExpired, undefined);
+    } finally { expect.poll = originalPoll; pending.resolve(approvalHash); }
+  });
+
 test("a timed-out native request stays pending and the next case observes it without changing the original case", async () => {
   const originalPoll = expect.poll;
   expect.poll = ((callback: () => Promise<boolean>) => ({ toBe: async () => {
@@ -394,7 +431,7 @@ test("a timed-out native request stays pending and the next case observes it wit
   const ambiguity = new Error("strict mode violation: private-DOM private-signature");
   const button = { or: () => button, click: async () => { clickCalls++; throw ambiguity; } };
   const popup = { url: () => "chrome-extension://fixture/notification.html", bringToFront: async () => undefined,
-    setDefaultTimeout: () => undefined, getByTestId: () => button };
+    setDefaultTimeout: () => undefined, getByTestId: () => button, locator: () => button };
   const page = { bringToFront: async () => undefined,
     context: () => ({ pages: () => { pageSnapshots++; return [popup]; },
       serviceWorkers: () => [{ url: () => "chrome-extension://fixture/background.js" }] }),
@@ -429,7 +466,7 @@ test("successful native confirmation records its existing click and optional obs
   const pending = new Promise(resolve => { resolvePending = resolve; });
   const button = { or: () => button, click: async () => { clicks++; resolvePending(approvalHash); } };
   const popup = { url: () => "chrome-extension://fixture/notification.html", bringToFront: async () => undefined,
-    setDefaultTimeout: () => undefined, getByTestId: () => button };
+    setDefaultTimeout: () => undefined, getByTestId: () => button, locator: () => button };
   const page = { bringToFront: async () => undefined, evaluate: async () => { requests++; return pending; },
     context: () => ({ pages: () => [popup], serviceWorkers: () => [{ url: () => "chrome-extension://fixture/background.js" }] }) } as unknown as Page;
   try {

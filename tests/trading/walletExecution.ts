@@ -92,7 +92,8 @@ export async function requestWallet(page: Page, request: { method: string; param
       const popup = await notification(page, value => { if (diagnostic) Object.assign(diagnostic, value); snapshot(); });
       if (settled) return true;
       const button = reject ? popup.getByTestId("confirm-footer-cancel-button")
-        : popup.getByTestId("confirm-footer-button").or(popup.getByTestId("confirm-btn"));
+        : popup.getByTestId("confirm-footer-button").or(popup.getByTestId("confirm-btn"))
+          .or(popup.locator('.page-container__footer [data-testid="page-container-footer-next"]'));
       if (diagnostic) diagnostic.clickAttempts++;
       snapshot();
       await button.click({ timeout: 1000 }).then(() => {
