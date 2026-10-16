@@ -1,10 +1,11 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
+import { safeWalletUiState, type WalletUiState } from "./walletUiState.ts";
 
 export const runnerStages = ["origin", "config-facts", "wallet-cache", "wallet-tests", "independent-report", "ui-report", "fork-qualification", "complete"] as const;
 export const walletSetupStages = ["setup-import", "profile", "extension", "browser-launch", "extension-worker", "wallet-onboarding", "wallet-ready", "browser-close"] as const;
 export const walletOnboardingSteps = ["navigation", "focus", "other-pages-close", "setup-callback", "import-button", "import-wallet", "completion-check", "completion-click", "completion-hidden", "completion-settle", "complete"] as const;
-export type WalletOnboardingDiagnostic = { step: typeof walletOnboardingSteps[number]; elapsedMs: number };
+export type WalletOnboardingDiagnostic = { step: typeof walletOnboardingSteps[number]; elapsedMs: number; uiState?: WalletUiState };
 const errorClasses = new Set(["Error", "TypeError", "SyntaxError", "TimeoutError", "AbortError", "ReferenceError", "RangeError", "AggregateError", "UnknownError", "SystemError"]);
 const errorCodes = new Set(["ENOENT", "EACCES", "EROFS", "ENOSPC", "ENOMEM", "ERR_MODULE_NOT_FOUND"]);
 const signals = new Set(["SIGINT", "SIGTERM", "SIGKILL", "SIGABRT", "SIGSEGV", "SIGILL", "SIGTRAP"]);
@@ -16,6 +17,7 @@ export type WalletRequestDiagnostic = {
   notificationSelection?: "existing-notification" | "existing-extension" | "created"; notificationViewCount?: number;
   clickAttempts: number; clickCompleted: number; lastClickErrorClass?: string;
   lastClickErrorKind?: "ambiguous" | "timeout" | "closed" | "other";
+  uiState?: WalletUiState;
 };
 export type WalletTestDiagnostics = Partial<Record<"ui" | "independent", WalletSetupDiagnostic>>;
 export type RunnerDiagnostic = { stage: typeof runnerStages[number]; exitCode?: number; signal?: string;
@@ -26,9 +28,12 @@ const onboardingObservers = new WeakMap<object, (step: WalletOnboardingDiagnosti
 export function observeWalletOnboarding(context: object) {
   const started = performance.now();
   let step: WalletOnboardingDiagnostic["step"] = "navigation", finished: number | undefined;
+  let uiState: WalletUiState | undefined;
   onboardingObservers.set(context, value => { step = value; });
   return {
-    snapshot: (): WalletOnboardingDiagnostic => ({ step, elapsedMs: Math.max(0, Math.round((finished ?? performance.now()) - started)) }),
+    uiState: (value: unknown) => { if (finished === undefined) uiState = safeWalletUiState(value); },
+    snapshot: (): WalletOnboardingDiagnostic => ({ step, elapsedMs: Math.max(0, Math.round((finished ?? performance.now()) - started)),
+      ...(uiState ? { uiState: safeWalletUiState(uiState) } : {}) }),
     stop: () => { finished ??= performance.now(); onboardingObservers.delete(context); },
   };
 }
@@ -76,7 +81,8 @@ export async function readWalletSetupDiagnostic(path: string): Promise<WalletSet
       ...(errorClasses.has(value.errorClass) ? { errorClass: value.errorClass } : {}),
       ...(errorCodes.has(value.errorCode) ? { errorCode: value.errorCode } : {}),
       ...(walletOnboardingSteps.includes(value.onboarding?.step) && Number.isSafeInteger(value.onboarding?.elapsedMs)
-        && value.onboarding.elapsedMs >= 0 ? { onboarding: { step: value.onboarding.step, elapsedMs: value.onboarding.elapsedMs } } : {}) };
+        && value.onboarding.elapsedMs >= 0 ? { onboarding: { step: value.onboarding.step, elapsedMs: value.onboarding.elapsedMs,
+          ...(safeWalletUiState(value.onboarding.uiState) ? { uiState: safeWalletUiState(value.onboarding.uiState) } : {}) } } : {}) };
   } catch { /* A missing diagnostic is independent of the operation. */ }
 }
 

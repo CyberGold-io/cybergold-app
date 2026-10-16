@@ -9,6 +9,7 @@ import {
 } from "@synthetixio/synpress-metamask/playwright";
 import metamaskSetup from "../../wallet-setup/metamask.setup";
 import { observeWalletOnboarding, safeRunnerError, walletFixtureOutput, walletOnboardingStep, writeWalletSetupDiagnostic, type WalletSetupDiagnostic } from "../trading/runnerDiagnostics";
+import { observeWalletPageUiState } from "../trading/walletUiState";
 
 type MetaMaskConstructor = ConstructorParameters<typeof MetaMask>;
 
@@ -27,6 +28,7 @@ export const test = testWithSynpress(metaMaskFixtures(metamaskSetup)).extend<{
     let context: BrowserContext | undefined;
     let failed = false;
     let onboarding: ReturnType<typeof observeWalletOnboarding> | undefined;
+    let uiObservation: ReturnType<typeof observeWalletPageUiState> | undefined;
     const observations = () => onboarding ? { onboarding: onboarding.snapshot() } : {};
     const checkpoint = (result: WalletSetupDiagnostic["result"]) => writeWalletSetupDiagnostic(diagnosticOutput, { stage, result, ...observations() });
     try {
@@ -45,6 +47,7 @@ export const test = testWithSynpress(metaMaskFixtures(metamaskSetup)).extend<{
       const home = `chrome-extension://${extensionId}/home.html`;
       const page = context.pages().find(candidate => candidate.url().startsWith(home)) ?? await context.newPage();
       onboarding = observeWalletOnboarding(context);
+      uiObservation = observeWalletPageUiState(page, value => onboarding?.uiState(value));
       stage = "wallet-onboarding"; await checkpoint("running");
       await page.goto(home, { waitUntil: "domcontentloaded" });
       walletOnboardingStep(context, "focus");
@@ -57,7 +60,7 @@ export const test = testWithSynpress(metaMaskFixtures(metamaskSetup)).extend<{
         context as unknown as Parameters<typeof metamaskSetup.fn>[0],
         page as unknown as Parameters<typeof metamaskSetup.fn>[1]
       );
-      onboarding.stop();
+      uiObservation.stop(); onboarding.stop();
       stage = "wallet-ready"; await checkpoint("running");
       await page.goto(`chrome-extension://${extensionId}/home.html`, { waitUntil: "domcontentloaded" });
       await page.getByTestId("account-menu-icon").waitFor({ timeout: 30000 });
@@ -66,7 +69,7 @@ export const test = testWithSynpress(metaMaskFixtures(metamaskSetup)).extend<{
       await fixtureUse(context);
     } catch (error) {
       failed = true;
-      onboarding?.stop();
+      uiObservation?.stop(); onboarding?.stop();
       await writeWalletSetupDiagnostic(diagnosticOutput, { stage, result: "fail", ...safeRunnerError(error), ...observations() });
       throw error;
     } finally {
