@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { EventEmitter } from "node:events";
 import { expect, type Page } from "@playwright/test";
 import { decodeFunctionData, erc20Abi, type Address, type Hex } from "viem";
 import { appEnvironment, withEnvironment } from "../../tests/fixtures/environment.mts";
@@ -582,4 +583,127 @@ test("an unresponsive optional UI read never delays native polling and cannot mu
     pending.resolve(approvalHash); await new Promise(resolve => setImmediate(resolve));
     assert.deepEqual(result.walletRequest, frozen);
   } finally { expect.poll = originalPoll; observation.resolve(undefined); pending.resolve(approvalHash); }
+});
+
+const rpcEndpoint = "http://127.0.0.1:12345/";
+function rpcContext(page: Page) {
+  const extension = page.context();
+  const context = Object.assign(new EventEmitter(), { pages: () => extension.pages(),
+    serviceWorkers: () => extension.serviceWorkers() });
+  Object.assign(page, { context: () => context });
+  return context;
+}
+function rpcRequest(response: () => Promise<unknown> = async () => ({ status: () => 200 })) {
+  return { url: () => rpcEndpoint, postDataJSON: () => ({ method: "eth_getCode", id: 123456789,
+    params: ["private-address", "private-payload"] }), response };
+}
+function noRpcListeners(context: EventEmitter) {
+  for (const event of ["request", "requestfinished", "requestfailed"]) assert.equal(context.listenerCount(event), 0);
+}
+
+for (const method of ["eth_sendTransaction", "eth_signTypedData_v4"] as const)
+  for (const outcome of ["fulfilled", "rejected"] as const)
+  test(`passive RPC observations retain ${outcome} ${method} outcome and freeze after ordinary cleanup`, async () => {
+    const originalPoll = expect.poll, pending = Promise.withResolvers<unknown>();
+    const metadata = Promise.withResolvers<{ status(): number }>();
+    const result = basketObservation().result;
+    let requests = 0, clicks = 0;
+    const held = rpcRequest(() => metadata.promise);
+    const page = browserWalletPage(async () => { requests++; context.emit("request", held); return pending.promise; }, [], {
+      click: async options => {
+        assert.deepEqual(options, { timeout: 1000 }); clicks++;
+        assert.equal(result.walletRequest?.rpc?.methods.eth_getCode?.pending, 1);
+        context.emit("requestfinished", held);
+        if (outcome === "fulfilled") pending.resolve(approvalHash);
+        else pending.reject(Object.assign(new Error("private native rejection"), { code: 4001 }));
+        await new Promise(resolve => setImmediate(resolve));
+      },
+    });
+    const context = rpcContext(page);
+    expect.poll = ((callback: () => Promise<boolean>, options: unknown) => ({ toBe: async () => {
+      assert.deepEqual(options, { timeout: 90_000, intervals: [250, 500, 1000] });
+      assert.equal(await callback(), true);
+    } })) as unknown as typeof expect.poll;
+    try {
+      await withEnvironment({ NEXT_PUBLIC_WALLET_RPC_URL: rpcEndpoint }, async () => {
+        if (outcome === "fulfilled") assert.equal(await requestWallet(page, { method, params: [] }, false, result), approvalHash);
+        else await assert.rejects(requestWallet(page, { method, params: [] }, false, result), error =>
+          error instanceof Error && (error as Error & { walletRequestErrorCode?: number }).walletRequestErrorCode === 4001);
+      });
+      assert.equal(requests, 1); assert.equal(clicks, 1);
+      assert.equal(result.walletRequest?.settlement, outcome);
+      assert.equal(result.walletRequest?.clickCompleted, 1);
+      assert.equal(result.walletRequest?.rpc?.methods.eth_getCode?.started, 1);
+      assert.equal(result.walletRequest?.rpc?.methods.eth_getCode?.finished, 1);
+      assert.equal(result.walletRequest?.rpc?.methods.eth_getCode?.pending, 0);
+      noRpcListeners(context);
+      const frozen = structuredClone(result.walletRequest);
+      metadata.resolve({ status: () => 200 }); await Promise.resolve(); await Promise.resolve();
+      context.emit("request", rpcRequest()); context.emit("requestfinished", held);
+      assert.deepEqual(result.walletRequest, frozen);
+      assert.doesNotMatch(JSON.stringify(result), /private-|123456789|127\.0\.0\.1|params|payload/);
+    } finally { expect.poll = originalPoll; metadata.resolve({ status: () => 200 }); pending.resolve(approvalHash); }
+  });
+
+test("a timed-out native observation retains a held RPC and never cancels or alters its late settlement", async () => {
+  const originalPoll = expect.poll, pending = Promise.withResolvers<unknown>();
+  const result = basketObservation().result;
+  const held = rpcRequest();
+  let requests = 0, clicks = 0;
+  const page = browserWalletPage(async () => { requests++; context.emit("request", held); return pending.promise; }, [], {
+    click: async () => { clicks++; throw Object.assign(Error("private missing control"), { name: "TimeoutError" }); },
+  });
+  const context = rpcContext(page);
+  expect.poll = ((callback: () => Promise<boolean>, options: unknown) => ({ toBe: async () => {
+    assert.deepEqual(options, { timeout: 90_000, intervals: [250, 500, 1000] });
+    assert.equal(await callback(), false); throw Error("private observation deadline");
+  } })) as unknown as typeof expect.poll;
+  try {
+    await withEnvironment({ NEXT_PUBLIC_WALLET_RPC_URL: rpcEndpoint }, () => assert.rejects(
+      requestWallet(page, { method: "eth_sendTransaction", params: [] }, false, result),
+      error => error instanceof ScenarioUnavailableError && error.code === "wallet-submission-timeout"));
+    assert.equal(requests, 1); assert.equal(clicks, 1);
+    assert.equal(result.walletRequest?.settlement, "pending");
+    assert.equal(result.walletRequest?.rpc?.methods.eth_getCode?.pending, 1);
+    assert.equal(result.walletRequest?.pendingAfter, 1); noRpcListeners(context);
+    const frozen = structuredClone(result.walletRequest);
+    context.emit("requestfinished", held); pending.resolve(approvalHash);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(result.walletRequest, frozen);
+  } finally { expect.poll = originalPoll; pending.resolve(approvalHash); }
+});
+
+test("synchronous native evaluation failure detaches its optional RPC listeners and preserves the error", async () => {
+  const failure = Error("private evaluate failure"), result = basketObservation().result;
+  const page = browserWalletPage(async () => approvalHash);
+  const context = rpcContext(page); let evaluations = 0;
+  Object.assign(page, { evaluate: () => { evaluations++; throw failure; } });
+  await withEnvironment({ NEXT_PUBLIC_WALLET_RPC_URL: rpcEndpoint }, () => assert.rejects(
+    requestWallet(page, { method: "eth_sendTransaction", params: [] }, false, result), error => error === failure));
+  assert.equal(evaluations, 1); noRpcListeners(context);
+});
+
+test("optional RPC setup and detach failures cannot reject a successful native hash", async () => {
+  for (const fault of ["setup", "detach", "no-report", "no-config"] as const) {
+    const page = browserWalletPage(async () => approvalHash), result = basketObservation().result;
+    const context = rpcContext(page), on = context.on, off = context.off;
+    let registrations = 0;
+    context.on = ((event, listener) => {
+      registrations++; on.call(context, event, listener);
+      if (fault === "setup") throw Error("private setup failure");
+      return context;
+    }) as typeof context.on;
+    context.off = ((event, listener) => {
+      off.call(context, event, listener);
+      if (fault === "detach") throw Error("private detach failure");
+      return context;
+    }) as typeof context.off;
+    await withEnvironment({ NEXT_PUBLIC_WALLET_RPC_URL: fault === "no-config" ? undefined : rpcEndpoint }, async () => {
+      assert.equal(await requestWallet(page, { method: "eth_sendTransaction", params: [] }, false,
+        fault === "no-report" ? undefined : result), approvalHash);
+    });
+    noRpcListeners(context);
+    assert.equal(registrations, fault === "no-report" || fault === "no-config" ? 0 : fault === "setup" ? 1 : 3);
+    if (fault === "setup") assert.equal(result.walletRequest?.rpc, undefined);
+  }
 });

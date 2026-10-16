@@ -1,6 +1,7 @@
 import { readFile, rename, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { safeWalletUiState, type WalletUiState } from "./walletUiState.ts";
+import type { WalletRpcObservation } from "./walletRpcObservation.ts";
 
 export const runnerStages = ["origin", "config-facts", "wallet-cache", "wallet-tests", "independent-report", "ui-report", "fork-qualification", "complete"] as const;
 export const walletSetupStages = ["setup-import", "profile", "extension", "browser-launch", "extension-worker", "wallet-onboarding", "wallet-ready", "browser-close"] as const;
@@ -18,6 +19,7 @@ export type WalletRequestDiagnostic = {
   clickAttempts: number; clickCompleted: number; lastClickErrorClass?: string;
   lastClickErrorKind?: "ambiguous" | "timeout" | "closed" | "other";
   uiState?: WalletUiState;
+  rpc?: WalletRpcObservation;
 };
 export type WalletTestDiagnostics = Partial<Record<"ui" | "independent", WalletSetupDiagnostic>>;
 export type RunnerDiagnostic = { stage: typeof runnerStages[number]; exitCode?: number; signal?: string;
