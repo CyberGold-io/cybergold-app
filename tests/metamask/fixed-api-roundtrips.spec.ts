@@ -34,7 +34,7 @@ async function approveUntilMined(page: Page, submitted: () => boolean) {
     }
     if (popup) {
       // Current extension controls for transaction and typed-signature requests.
-      const confirm = popup.getByTestId("confirm-footer-button").or(popup.getByTestId("confirm-btn"));
+      const confirm = popup.getByTestId("confirm-footer-button").or(popup.getByTestId("confirm-btn")).or(popup.locator('.page-container__footer [data-testid="page-container-footer-next"]'));
       // A native request can navigate or close between polls. Let one click
       // check visibility/enabled state atomically, then re-read the App result.
       try {
