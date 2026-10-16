@@ -65,15 +65,20 @@ export async function connectWallet(page: Page) {
 }
 
 export async function requestConnection(page: Page) {
-  await page.getByRole("button", { name: "Connect Wallet", exact: true }).first().click();
   const option = page.getByRole("button", { name: /^MetaMask\b/ });
   const connected = page.getByRole("button", { name: "Open wallet menu" });
-  await expect.poll(async () => {
+  const ready = async () => {
     if (await option.isVisible() || await connected.isVisible()) return true;
     for (const popup of page.context().pages().filter(candidate => candidate.url().includes("notification.html"))) {
       if (await popup.getByTestId("confirm-btn").isVisible()) return true;
     }
     return false;
-  }, { timeout: 15000 }).toBeTruthy();
-  if (await option.isVisible()) await option.click();
+  };
+  // A connected wallet or an open chooser/prompt already satisfies this step.
+  // Bound ordinary UI actions by the existing connection-readiness allowance,
+  // including when the regression project's action timeout is unlimited.
+  if (await connected.isVisible()) return;
+  if (!await ready()) await page.getByRole("button", { name: "Connect Wallet", exact: true }).first().click({ timeout: 15000 });
+  await expect.poll(ready, { timeout: 15000 }).toBeTruthy();
+  if (await option.isVisible()) await option.click({ timeout: 15000 });
 }
