@@ -218,7 +218,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   await checkpoint("setup-rejection-wallet");
   await expect(await getSwapButton(page)).toHaveText(/^MetaMask \d+ of \d+:/, { timeout: 60000 });
   const rejected = await notification(page);
-  await rejected.getByTestId("confirm-footer-cancel-button").click();
+  await rejected.getByTestId("confirm-footer-cancel-button").or(rejected.locator('.page-container__footer [data-testid="page-container-footer-cancel"]')).click();
   await expect(page.getByText(/^Wallet request cancelled$/i)).toBeVisible({ timeout: 20000 });
   await checkpoint("setup-rejection-postcheck");
   expect((await readWalletBalances(page, ["cygld"])).cygld).toBe(beforeRejected.cygld);
