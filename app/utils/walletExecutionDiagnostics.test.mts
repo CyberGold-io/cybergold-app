@@ -34,10 +34,11 @@ function walletPage(request: () => Promise<unknown>): Page {
 
 function browserWalletPage(provider: () => Promise<unknown>, returned: unknown[] = [], controls: {
   notificationReady?: () => Promise<void>; click?: (options: { timeout: number }) => Promise<void>;
+  uiState?: () => Promise<unknown>;
 } = {}): Page {
   const button = { click: async (options: { timeout: number }) => controls.click?.(options), or: () => button };
   const popup = { url: () => "chrome-extension://fixture/notification.html", bringToFront: async () => controls.notificationReady?.(),
-    setDefaultTimeout: () => undefined, getByTestId: () => button, locator: () => button };
+    setDefaultTimeout: () => undefined, getByTestId: () => button, locator: () => button, evaluate: controls.uiState };
   return { bringToFront: async () => undefined,
     context: () => ({ pages: () => [popup], serviceWorkers: () => [{ url: () => "chrome-extension://fixture/background.js" }] }),
     evaluate: async (callback: (input: unknown) => Promise<unknown>, input: unknown) => {
@@ -507,4 +508,65 @@ test("click failures expose only a fixed class and classification, never private
   }
   assert.deepEqual(safeWalletClickError(Object.defineProperty({}, "message", { get: () => { throw new Error("private-getter"); } })),
     { lastClickErrorClass: "UnknownError", lastClickErrorKind: "other" });
+});
+
+test("a failed signature click records optional closed UI state without changing the native failure or budgets", async () => {
+  const originalPoll = expect.poll;
+  expect.poll = ((callback: () => Promise<boolean>, options: unknown) => ({ toBe: async () => {
+    assert.deepEqual(options, { timeout: 90_000, intervals: [250, 500, 1000] });
+    assert.equal(await callback(), false); await new Promise(resolve => setImmediate(resolve));
+    throw new Error("fixture-observation-deadline");
+  } })) as unknown as typeof expect.poll;
+  try {
+    for (const mode of ["state", "sync-failure", "async-failure"] as const) {
+      const pending = Promise.withResolvers<unknown>(), result = basketObservation().result;
+      let requests = 0, clicks = 0, snapshots = 0;
+      const page = browserWalletPage(async () => { requests++; return pending.promise; }, [], {
+        click: async options => { assert.deepEqual(options, { timeout: 1000 }); clicks++;
+          throw Object.assign(new Error("private-DOM-text"), { name: "TimeoutError" }); },
+        uiState: () => { snapshots++;
+          if (mode === "sync-failure") throw new Error("private-observer-failure");
+          if (mode === "async-failure") return Promise.reject(new Error("private-observer-failure"));
+          return Promise.resolve({ route: "confirmation", rawUrl: "private-url", controls: {
+            confirmation: { matched: 1, visible: 1, enabled: 0, text: "private-signature" }, alert: { visible: 1 } } });
+        },
+      });
+      try {
+        await assert.rejects(requestWallet(page, { method: "eth_signTypedData_v4", params: [] }, false, result),
+          error => error instanceof ScenarioUnavailableError && error.code === "wallet-authorization-timeout");
+        assert.equal(requests, 1); assert.equal(clicks, 1); assert.equal(snapshots, 1);
+        assert.equal(result.walletRequest?.settlement, "pending"); assert.equal(result.walletRequest?.deadlineExpired, true);
+        assert.equal(result.walletRequest?.clickCompleted, 0); assert.equal(result.walletRequest?.lastClickErrorKind, "timeout");
+        assert.deepEqual(result.walletRequest?.uiState, mode === "state" ? { route: "confirmation", controls: {
+          confirmation: { matched: 1, visible: 1, enabled: 0 }, alert: { visible: 1 } } } : undefined);
+        assert.doesNotMatch(JSON.stringify(result), /private-|fixture-observation-deadline/);
+      } finally { pending.resolve(approvalHash); await new Promise(resolve => setImmediate(resolve)); }
+    }
+  } finally { expect.poll = originalPoll; }
+});
+
+test("an unresponsive optional UI read never delays native polling and cannot mutate a finished case", async () => {
+  const originalPoll = expect.poll, pending = Promise.withResolvers<unknown>(), observation = Promise.withResolvers<unknown>();
+  let requests = 0, clicks = 0, snapshots = 0;
+  expect.poll = ((callback: () => Promise<boolean>, options: unknown) => ({ toBe: async () => {
+    assert.deepEqual(options, { timeout: 90_000, intervals: [250, 500, 1000] });
+    for (let attempt = 0; attempt < 3; attempt++) assert.equal(await callback(), false);
+    assert.equal(snapshots, 1, "Only one optional UI read may remain in flight.");
+    throw new Error("fixture-observation-deadline");
+  } })) as unknown as typeof expect.poll;
+  const result = basketObservation().result;
+  const page = browserWalletPage(async () => { requests++; return pending.promise; }, [], {
+    click: async options => { assert.deepEqual(options, { timeout: 1000 }); clicks++;
+      throw Object.assign(new Error("private-DOM"), { name: "TimeoutError" }); },
+    uiState: () => { snapshots++; return observation.promise; },
+  });
+  try {
+    await assert.rejects(requestWallet(page, { method: "eth_signTypedData_v4", params: [] }, false, result),
+      error => error instanceof ScenarioUnavailableError && error.code === "wallet-authorization-timeout");
+    assert.equal(requests, 1); assert.equal(clicks, 3); assert.equal(result.walletRequest?.uiState, undefined);
+    const frozen = structuredClone(result.walletRequest);
+    observation.resolve({ route: "confirmation", controls: { confirmation: { matched: 1, visible: 1, enabled: 0 } } });
+    pending.resolve(approvalHash); await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(result.walletRequest, frozen);
+  } finally { expect.poll = originalPoll; observation.resolve(undefined); pending.resolve(approvalHash); }
 });

@@ -13,6 +13,7 @@ import { notification } from "../metamask/wallet-ui.ts";
 import { ScenarioUnavailableError } from "./scenarios.ts";
 import { readJson, requireInvariant, type QuoteObservation, type ScenarioResult } from "./regression.ts";
 import { safeRunnerError, safeWalletClickError, type WalletRequestDiagnostic } from "./runnerDiagnostics.ts";
+import { readWalletUiState } from "./walletUiState.ts";
 import { protocolConfigurationValues, type ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
 import type { HelpersExecutionOperation } from "../../app/utils/helpersExecutionGas.ts";
 import type { QuoteIntent } from "../../app/utils/quoteIntent.ts";
@@ -38,7 +39,7 @@ export async function requestWallet(page: Page, request: { method: string; param
   let settled = false;
   const started = performance.now(), pendingBefore = pendingWalletRequests.get(page) ?? 0;
   pendingWalletRequests.set(page, pendingBefore + 1);
-  let observing = true;
+  let observing = true, observingUiState = false;
   const diagnostic: WalletRequestDiagnostic | undefined = request.method === "eth_sendTransaction" || request.method === "eth_signTypedData_v4"
     ? { method: request.method, settlement: "pending", elapsedMs: 0, pendingBefore, pendingAfter: pendingBefore + 1,
       clickAttempts: 0, clickCompleted: 0 } : undefined;
@@ -102,6 +103,16 @@ export async function requestWallet(page: Page, request: { method: string; param
       }).catch(error => {
         if (diagnostic) Object.assign(diagnostic, safeWalletClickError(error));
         snapshot();
+        // Optional DOM evidence follows this selected popup without delaying
+        // the native poll or changing a click, request or acceptance condition.
+        if (diagnostic && observing && !observingUiState) {
+          observingUiState = true;
+          try {
+            void readWalletUiState(popup).then(uiState => {
+              if (observing && uiState) { diagnostic.uiState = uiState; snapshot(); }
+            }).catch(() => {}).finally(() => { observingUiState = false; });
+          } catch { observingUiState = false; }
+        }
       });
       return settled;
     }, { timeout: 90_000, intervals: [250, 500, 1000] }).toBe(true);
