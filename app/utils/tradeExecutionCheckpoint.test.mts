@@ -63,7 +63,8 @@ export const addLocalNetwork = async () => state.action("network-add");
 export const switchLocalNetwork = async () => state.action("network-switch");
 export const requestConnection = async () => state.action("connect-request");
 export const connectWallet = async () => state.action("connect-confirm");
-export const notification = async () => ({ getByTestId: () => ({ click: async () => state.action("rejection-cancel") }) });
+const cancel = { click: async () => state.action("rejection-cancel"), or: () => cancel };
+export const notification = async () => ({ getByTestId: () => cancel, locator: () => cancel });
 `;
   const stubHelpers = `
 const state = globalThis.__bodyFixture;
