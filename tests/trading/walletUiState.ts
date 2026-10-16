@@ -109,7 +109,22 @@ export function walletUiInPage(options: BrowserOptions): WalletUiState | undefin
 }
 
 export async function readWalletUiState(page: Page): Promise<WalletUiState | undefined> {
-  try { return safeWalletUiState(await page.evaluate(walletUiInPage, { mode: "snapshot" as const, selectors: confirmationControls })); }
+  try {
+    const path = new URL(page.url()).hash.slice(1).split("?")[0];
+    const route = /^\/?onboarding(?:\/|$)/.test(path) ? "onboarding"
+      : /^\/?(?:confirm|confirm-transaction|confirmation|signature-request|permissions-connect|connect)(?:\/|$)/.test(path) ? "confirmation"
+      : /^\/?unlock(?:\/|$)/.test(path) ? "unlock" : path === "" || path === "/" ? "home" : "other";
+    const controls: NonNullable<WalletUiState["controls"]> = {};
+    // MetaMask scuttles main-world eval. Built-in locator counts run in the
+    // isolated utility world without changing the wallet's security policy.
+    for (const [group, selector] of Object.entries(confirmationControls)) {
+      const nodes = page.locator(selector);
+      controls[group as ControlGroup] = { matched: await nodes.count(),
+        visible: await nodes.and(page.locator(":visible")).count(),
+        enabled: await nodes.and(page.locator(':not(:disabled):not([aria-disabled="true"], [aria-disabled="true"] *)')).count() };
+    }
+    return safeWalletUiState({ route, controls });
+  }
   catch { /* Closed or unresponsive optional observations cannot replace a click error. */ }
 }
 

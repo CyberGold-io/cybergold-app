@@ -37,8 +37,20 @@ function browserWalletPage(provider: () => Promise<unknown>, returned: unknown[]
   uiState?: () => Promise<unknown>;
 } = {}): Page {
   const button = { click: async (options: { timeout: number }) => controls.click?.(options), or: () => button };
-  const popup = { url: () => "chrome-extension://fixture/notification.html", bringToFront: async () => controls.notificationReady?.(),
-    setDefaultTimeout: () => undefined, getByTestId: () => button, locator: () => button, evaluate: controls.uiState };
+  let uiState: Promise<unknown> | undefined;
+  const locator = (selector: string, filter?: string): { selector: string; count: () => Promise<number>; and: (other: { selector: string }) => unknown } & typeof button => ({
+    ...button, selector, and: other => locator(selector, other.selector), count: async () => {
+      if (!controls.uiState) throw new Error("fixture-ui-state-unavailable");
+      uiState ??= Promise.resolve().then(controls.uiState);
+      const state = await uiState as { controls?: Record<string, Record<string, number>> };
+      const group = selector.includes("confirm-footer-button") ? "confirmation"
+        : selector.includes("acknowledge-checkbox") ? "alertAcknowledge"
+        : selector.includes("submit-button") ? "alertSubmit" : "alert";
+      return state?.controls?.[group]?.[filter === ":visible" ? "visible" : filter ? "enabled" : "matched"] ?? 0;
+    },
+  });
+  const popup = { url: () => "chrome-extension://fixture/notification.html#/confirm-transaction", bringToFront: async () => controls.notificationReady?.(),
+    setDefaultTimeout: () => undefined, getByTestId: () => button, locator };
   return { bringToFront: async () => undefined,
     context: () => ({ pages: () => [popup], serviceWorkers: () => [{ url: () => "chrome-extension://fixture/background.js" }] }),
     evaluate: async (callback: (input: unknown) => Promise<unknown>, input: unknown) => {
@@ -538,7 +550,8 @@ test("a failed signature click records optional closed UI state without changing
         assert.equal(result.walletRequest?.settlement, "pending"); assert.equal(result.walletRequest?.deadlineExpired, true);
         assert.equal(result.walletRequest?.clickCompleted, 0); assert.equal(result.walletRequest?.lastClickErrorKind, "timeout");
         assert.deepEqual(result.walletRequest?.uiState, mode === "state" ? { route: "confirmation", controls: {
-          confirmation: { matched: 1, visible: 1, enabled: 0 }, alert: { visible: 1 } } } : undefined);
+          confirmation: { matched: 1, visible: 1, enabled: 0 }, alert: { matched: 0, visible: 1, enabled: 0 },
+          alertSubmit: { matched: 0, visible: 0, enabled: 0 }, alertAcknowledge: { matched: 0, visible: 0, enabled: 0 } } } : undefined);
         assert.doesNotMatch(JSON.stringify(result), /private-|fixture-observation-deadline/);
       } finally { pending.resolve(approvalHash); await new Promise(resolve => setImmediate(resolve)); }
     }
