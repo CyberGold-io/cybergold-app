@@ -107,13 +107,33 @@ test("optional observer setup, bridge and consumer failures never escape into wa
   fixture.setup.resolve(); await turn(); assert.doesNotThrow(() => fixture.bindings[0]({}, privateState)); observation.stop();
 });
 
-test("confirmation snapshot reads are optional and project browser data before returning", async () => {
-  let options: unknown;
-  assert.deepEqual(await readWalletUiState({ evaluate: async (_callback: unknown, value: unknown) => {
-    options = value; return privateState;
-  } } as unknown as Page), closedState);
-  assert.equal((options as { mode: string }).mode, "snapshot");
-  assert.deepEqual(Object.keys((options as { selectors: object }).selectors), ["confirmation", "alert", "alertSubmit", "alertAcknowledge"]);
-  for (const evaluate of [() => { throw new Error("private-snapshot"); }, () => Promise.reject(new Error("private-snapshot"))])
-    assert.equal(await readWalletUiState({ evaluate } as unknown as Page), undefined);
+test("confirmation snapshots retain bounded counts without evaluating in the wallet's main world", async () => {
+  const selectors: string[] = [];
+  type SnapshotLocator = { selector: string; and: (other: { selector: string }) => SnapshotLocator; count: () => Promise<number> };
+  const locator = (selector: string, filter?: string): SnapshotLocator => ({ selector,
+    and: (other: { selector: string }) => locator(selector, other.selector),
+    count: async () => {
+      selectors.push(selector);
+      if (!selector.includes('data-testid="confirm-footer-button"')) return 0;
+      return filter === ":visible" ? 1 : filter ? 0 : 2;
+    },
+  });
+  const page = { url: () => "chrome-extension://private-extension/notification.html#/confirm-transaction?private-request",
+    locator, evaluate: () => { assert.fail("Main-world eval is unavailable under MetaMask hardening."); } } as unknown as Page;
+  const observed = await readWalletUiState(page);
+  assert.deepEqual(observed, { route: "confirmation", controls: {
+    confirmation: { matched: 2, visible: 1, enabled: 0 }, alert: { matched: 0, visible: 0, enabled: 0 },
+    alertSubmit: { matched: 0, visible: 0, enabled: 0 }, alertAcknowledge: { matched: 0, visible: 0, enabled: 0 },
+  } });
+  assert.equal(new Set(selectors).size, 4);
+  assert.doesNotMatch(JSON.stringify(observed), /private|notification\.html/);
+});
+
+test("confirmation locator failures remain optional and reveal no wallet data", async () => {
+  for (const failure of [() => { throw new Error("private-snapshot"); }, () => Promise.reject(new Error("private-snapshot"))]) {
+    const page = { url: () => "chrome-extension://private-extension/notification.html#/confirm-transaction",
+      locator: () => ({ count: failure }) } as unknown as Page;
+    assert.equal(await readWalletUiState(page), undefined);
+  }
+  assert.equal(await readWalletUiState({ url: () => "private-invalid-url" } as unknown as Page), undefined);
 });
