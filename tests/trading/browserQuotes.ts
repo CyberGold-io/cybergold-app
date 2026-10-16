@@ -65,7 +65,11 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
         await expect.poll(async () => {
           const matching = (await quoteObservations(page)).slice(before).filter(matches);
           const latest = matching.at(-1);
-          observation = matching.find(row => Boolean(row.terminal)) ?? (latest?.interrupted ? latest : undefined);
+          // A completed matching quote still supplies the checked bounds. An
+          // obsolete error or intentional input cancellation cannot preempt
+          // its replacement while the existing terminal deadline continues.
+          observation = matching.find(row => row.terminal?.type === "complete")
+            ?? (latest?.terminal || latest?.interrupted && !latest.aborted ? latest : undefined);
           const observed = observation ?? latest;
           if (observed) result.refs = { ...result.refs, ...safeDiagnosticReferences({ requestId: observed.requestId }) };
           return Boolean(observation);

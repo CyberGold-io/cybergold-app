@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 export type QuoteObservation = {
   path: string; request: Record<string, unknown>; status: number;
   requestId?: string; backendRevision?: string;
-  terminal?: Record<string, unknown>; interrupted?: boolean;
+  terminal?: Record<string, unknown>; interrupted?: boolean; aborted?: boolean;
 };
 type ObservationWindow = Window & typeof globalThis & { __cybergoldTradeObservations?: QuoteObservation[] };
 
@@ -28,9 +28,13 @@ export function installQuoteObservation(scope: ObservationWindow = window) {
     // takes precedence over an interrupted request it superseded.
     const observation: QuoteObservation = { path, request, status: 0 };
     scope.__cybergoldTradeObservations!.push(observation);
+    const interrupted = () => {
+      observation.interrupted = true;
+      observation.aborted = init.signal?.aborted === true;
+    };
     let response: Response;
     try { response = await operation; }
-    catch (error) { observation.interrupted = true; throw error; }
+    catch (error) { interrupted(); throw error; }
     observation.status = response.status;
     observation.requestId = response.headers.get("X-CyberGold-Request-Id") ?? undefined;
     observation.backendRevision = response.headers.get("X-CyberGold-Backend-Revision") ?? undefined;
@@ -41,7 +45,7 @@ export function installQuoteObservation(scope: ObservationWindow = window) {
         observation.terminal = response.ok ? { type: "complete", value } : { type: "error", ...value };
         return;
       }
-      if (!clone.body) { observation.interrupted = true; return; }
+      if (!clone.body) { interrupted(); return; }
       const reader = clone.body.getReader(), decoder = new TextDecoder();
       let pending = "";
       try {
@@ -57,14 +61,14 @@ export function installQuoteObservation(scope: ObservationWindow = window) {
               observation.terminal = frame; return;
             }
           }
-          if (done) { observation.interrupted = true; return; }
+          if (done) { interrupted(); return; }
         }
       } finally {
         // Cancelling this clone after the terminal preserves the App's own
         // producer cancellation; the observer never holds it open for a retry.
         void reader.cancel().catch(() => {}); reader.releaseLock();
       }
-    })().catch(() => { observation.interrupted = true; });
+    })().catch(interrupted);
     return response;
   };
 }
