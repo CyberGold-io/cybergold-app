@@ -406,6 +406,131 @@ test("a replacement waiting for response headers supersedes an interrupted reque
   assert.equal(result.refs.requestId, "eb3e6932-a2af-4303-a09e-35831f864a1d");
 });
 
+function runBrowserReplacement(mode: "aborted-replacement" | "before-snapshot-abort" | "obsolete-error"
+  | "completed-before-error" | "aborted-without-replacement" | "nonaborted-abort-error" | "qualified-eof") {
+  const output = mkdtempSync(join(tmpdir(), "cybergold-browser-replacement-"));
+  const fixture = join(output, "replacement.mjs"), resultPath = join(output, "result.json");
+  const source = (path: string) => fileURLToPath(new URL(path, import.meta.url));
+  writeFileSync(fixture, `
+import assert from "node:assert/strict";
+import { mock } from "node:test";
+import { writeFileSync } from "node:fs";
+import http from "node:http";
+import https from "node:https";
+import { syncBuiltinESMExports } from "node:module";
+import { chromium, expect } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@playwright/test")))};
+import * as helpers from ${JSON.stringify(source("../../tests/metamask/token-flows/helpers.ts"))};
+import * as scenarios from ${JSON.stringify(source("../../tests/trading/scenarios.ts"))};
+import { protocolConfigurationFixture as config } from ${JSON.stringify(source("../../tests/fixtures/protocol-configuration.ts"))};
+import { tokenRequest, validateTrade } from ${JSON.stringify(source("../../tests/trading/regression.ts"))};
+import { coreTrade } from ${JSON.stringify(source("../../tests/fixtures/trade-quote.mts"))};
+import { installQuoteObservation } from ${JSON.stringify(source("../../tests/trading/quoteObservation.ts"))};
+import { fetchQuoteStream } from ${JSON.stringify(source("./quoteStream.ts"))};
+http.request = https.request = () => { throw new Error("external-network-forbidden"); };
+syncBuiltinESMExports();
+const mode = ${JSON.stringify(mode)}, scenario = scenarios.tradeScenarios.find(row => row.id === "core-redeem-paxg-exact-in");
+const request = tokenRequest(scenario, config, config.contracts.helpers), encoder = new TextEncoder();
+const terminal = { type: "complete", value: coreTrade("sell", "exact-in") };
+validateTrade(terminal.value, request);
+const ids = ["e9eb96b2-8ecf-429d-9e08-244f43257e8e", "eb3e6932-a2af-4303-a09e-35831f864a1d"];
+let calls = 0, terminalDeadline, pollCalls = 0;
+const operations = [], controllers = [];
+const scope = { location: { href: "https://fixture.invalid/en" }, fetch: async (_url, init) => {
+  const index = ++calls;
+  return new Response(new ReadableStream({ start(controller) {
+    controller.enqueue(encoder.encode(JSON.stringify(mode === "qualified-eof" ? { type: "qualified", value: terminal.value }
+      : { type: "progress", strategy: "core" }) + "\\n"));
+    init.signal.addEventListener("abort", () => controller.error(init.signal.reason), { once: true });
+    if (index === 1 && ["aborted-replacement", "before-snapshot-abort", "aborted-without-replacement"].includes(mode)) return;
+    setTimeout(() => {
+      if (mode === "nonaborted-abort-error") { controller.error(new DOMException("private transport detail", "AbortError")); return; }
+      if (mode !== "qualified-eof") controller.enqueue(encoder.encode(JSON.stringify(
+        index === 1 && mode === "obsolete-error" || index === 2 && mode === "completed-before-error"
+          ? { type: "error", code: "quote-timeout" } : terminal) + "\\n"));
+      controller.close();
+    }, index === 1 ? 0 : 250);
+  }, cancel() {} }), { headers: { "X-CyberGold-Request-Id": ids[index - 1] } });
+} };
+installQuoteObservation(scope);
+function start() {
+  const controller = new AbortController(); controllers.push(controller);
+  operations.push(fetchQuoteStream("/api/quotes/trade/stream", request, controller.signal, () => {}, scope.fetch).catch(() => {}));
+}
+let replacement;
+const input = { click: async () => {
+  if (mode === "before-snapshot-abort") { start(); await new Promise(resolve => setImmediate(resolve)); }
+}, inputValue: async () => "1", fill: async () => {
+  if (mode !== "before-snapshot-abort") start();
+  if (["aborted-replacement", "before-snapshot-abort", "aborted-without-replacement"].includes(mode)) {
+    await new Promise(resolve => setImmediate(resolve)); controllers[0].abort();
+    if (mode !== "aborted-without-replacement") replacement = new Promise(resolve => setTimeout(() => { start(); resolve(); }, 100));
+    await new Promise(resolve => setImmediate(resolve));
+  } else if (["obsolete-error", "completed-before-error"].includes(mode)) start();
+} };
+// This control compresses observation callbacks only after asserting the
+// production75s deadline. It never starts a replacement or changes acceptance.
+if (mode === "aborted-without-replacement") expect.poll = (callback, options) => {
+  terminalDeadline = options.timeout; assert.equal(terminalDeadline, 75_000);
+  return { toBe: async () => {
+    for (let index = 0; index < 3; index++) { pollCalls++; assert.equal(await callback(), false); }
+    throw new Error("inert-observation-deadline");
+  } };
+};
+mock.module(${JSON.stringify(source("../../tests/trading/scenarios.ts"))}, { namedExports: { ...scenarios, tradeScenarios: [scenario] } });
+mock.module(${JSON.stringify(source("../../tests/metamask/token-flows/helpers.ts"))}, { namedExports: { ...helpers,
+  selectToken: async () => {}, showAllSellTokens: async () => {}, getMainInput: () => input,
+} });
+const page = { setDefaultTimeout() {}, addInitScript: async () => {}, close: async () => {}, goto: async () => {},
+  getByRole: () => ({ waitFor: async () => {} }), evaluate: async () => scope.__cybergoldTradeObservations,
+};
+chromium.launch = async () => ({ newPage: async () => page, close: async () => {} });
+const { observeBrowserQuotes } = await import(${JSON.stringify(source("../../tests/trading/browserQuotes.ts"))});
+const [result] = await observeBrowserQuotes("https://fixture.invalid", config, {});
+await replacement; await Promise.all(operations); await new Promise(resolve => setImmediate(resolve));
+writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify({ result, calls, terminalDeadline, pollCalls,
+  observations: scope.__cybergoldTradeObservations, callerAborted: controllers.map(value => value.signal.aborted) }));
+`);
+  try {
+    const child = spawnSync(process.execPath, ["--experimental-test-module-mocks", fixture], {
+      cwd: new URL("../../", import.meta.url), encoding: "utf8", timeout: 10000,
+      env: { PATH: process.env.PATH, NODE_ENV: "test" },
+    });
+    assert.equal(child.status, 0, child.stderr);
+    return JSON.parse(readFileSync(resultPath, "utf8"));
+  } finally { rmSync(output, { recursive: true, force: true }); }
+}
+
+for (const mode of ["aborted-replacement", "before-snapshot-abort", "obsolete-error"] as const)
+  test(`quote-only browser waits for its replacement complete after ${mode}`, () => {
+    const { result, calls, observations } = runBrowserReplacement(mode);
+    assert.equal(result.status, "pass"); assert.equal(result.executionStage, "complete");
+    assert.equal(result.refs.requestId, "eb3e6932-a2af-4303-a09e-35831f864a1d");
+    assert.equal(calls, 2); assert.equal(observations[1].terminal.type, "complete");
+    if (mode !== "obsolete-error") assert.equal(observations[0].aborted, true);
+  });
+
+test("a completed matching browser quote retains its checked success before a newer error", () => {
+  const { result, calls } = runBrowserReplacement("completed-before-error");
+  assert.equal(result.status, "pass"); assert.equal(calls, 2);
+  assert.equal(result.refs.requestId, "e9eb96b2-8ecf-429d-9e08-244f43257e8e");
+});
+
+test("an aborted browser quote without replacement still fails at its unchanged terminal deadline", () => {
+  const { result, calls, terminalDeadline, pollCalls, observations } = runBrowserReplacement("aborted-without-replacement");
+  assert.equal(result.status, "fail"); assert.equal(result.code, "quote-stream-interrupted");
+  assert.equal(calls, 1); assert.equal(terminalDeadline, 75_000); assert.equal(pollCalls, 3);
+  assert.equal(observations[0].interrupted, true); assert.equal(observations[0].aborted, true);
+});
+
+for (const mode of ["nonaborted-abort-error", "qualified-eof"] as const)
+  test(`a nonaborted ${mode} remains an immediate browser interruption`, () => {
+    const { result, calls, observations, callerAborted } = runBrowserReplacement(mode);
+    assert.equal(result.status, "fail"); assert.equal(result.code, "quote-stream-interrupted");
+    assert.equal(calls, 1); assert.deepEqual(callerAborted, [false]);
+    assert.equal(observations[0].interrupted, true); assert.equal(observations[0].aborted, false);
+    assert.doesNotMatch(JSON.stringify(result), /private transport detail/);
+  });
+
 test("a quote runner startup failure retains all36 stable unavailable scenario rows", () => {
   const output = mkdtempSync(join(tmpdir(), "cybergold-trade-regression-"));
   const env = { ...process.env }; delete env.APP_BASE_URL;
