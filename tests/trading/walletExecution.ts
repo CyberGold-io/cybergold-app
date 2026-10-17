@@ -9,11 +9,12 @@ import { fetchTokenPermit, tokenPermitTypedData, tokenPurchaseApprovalAmounts, t
 import { getTokensNeedingPermit2Approval } from "../../app/utils/tokensApproval.ts";
 import { fetchBasketPermitIssuanceInstalled, fetchHelpersRouterFacts, fetchTokenPermitIssuanceInstalled, permit2FromFacts } from "../../app/utils/helpersRouterFacts.ts";
 import { fetchPermit2Context } from "../../app/utils/permit2/context.ts";
-import { notification } from "../metamask/wallet-ui.ts";
+import { notification, walletRequestButton } from "../metamask/wallet-ui.ts";
 import { ScenarioUnavailableError } from "./scenarios.ts";
 import { readJson, requireInvariant, type QuoteObservation, type ScenarioResult } from "./regression.ts";
 import { safeRunnerError, safeWalletClickError, type WalletRequestDiagnostic } from "./runnerDiagnostics.ts";
 import { readWalletUiState } from "./walletUiState.ts";
+import { observeWalletRpc } from "./walletRpcObservation.ts";
 import { protocolConfigurationValues, type ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
 import type { HelpersExecutionOperation } from "../../app/utils/helpersExecutionGas.ts";
 import type { QuoteIntent } from "../../app/utils/quoteIntent.ts";
@@ -43,10 +44,15 @@ export async function requestWallet(page: Page, request: { method: string; param
   const diagnostic: WalletRequestDiagnostic | undefined = request.method === "eth_sendTransaction" || request.method === "eth_signTypedData_v4"
     ? { method: request.method, settlement: "pending", elapsedMs: 0, pendingBefore, pendingAfter: pendingBefore + 1,
       clickAttempts: 0, clickCompleted: 0 } : undefined;
+  let rpc: ReturnType<typeof observeWalletRpc>;
+  try { if (diagnostic && result) rpc = observeWalletRpc(page.context(), process.env.NEXT_PUBLIC_WALLET_RPC_URL); }
+  catch { /* Optional setup cannot replace a native request. */ }
   const snapshot = () => {
     if (!diagnostic || !observing) return;
     diagnostic.elapsedMs = Math.max(0, Math.round(performance.now() - started));
     diagnostic.pendingAfter = pendingWalletRequests.get(page) ?? 0;
+    try { const value = rpc?.snapshot(); if (value) diagnostic.rpc = value; }
+    catch { /* Optional observations cannot replace the wallet's outcome. */ }
     try { if (result) result.walletRequest = { ...diagnostic }; }
     catch { /* Optional observations cannot replace the wallet's outcome. */ }
   };
@@ -57,7 +63,8 @@ export async function requestWallet(page: Page, request: { method: string; param
     snapshot();
   };
   snapshot();
-  const pending = page.evaluate(async input => {
+  let pending: Promise<unknown>;
+  try { pending = page.evaluate(async input => {
     try { return await (window as unknown as { ethereum: { request: (input: unknown) => Promise<unknown> } }).ethereum.request(input); }
     catch (error) {
       // Capture only owned metadata before Playwright serializes Error fields.
@@ -85,16 +92,16 @@ export async function requestWallet(page: Page, request: { method: string; param
     }
     settlement("fulfilled");
     return value;
-  }, error => { settlement("rejected"); throw error; });
+  }, error => { settlement("rejected"); throw error; }); }
+  catch (error) { try { rpc?.stop(); } catch {} throw error; }
   void pending.catch(() => undefined);
   try {
     await expect.poll(async () => {
       if (settled) return true;
-      const popup = await notification(page, value => { if (diagnostic) Object.assign(diagnostic, value); snapshot(); });
+      const buttonFor = (view: Page) => walletRequestButton(view, reject);
+      const popup = await notification(page, value => { if (diagnostic) Object.assign(diagnostic, value); snapshot(); }, buttonFor);
       if (settled) return true;
-      const button = reject ? popup.getByTestId("confirm-footer-cancel-button")
-        : popup.getByTestId("confirm-footer-button").or(popup.getByTestId("confirm-btn"))
-          .or(popup.locator('.page-container__footer [data-testid="page-container-footer-next"]'));
+      const button = buttonFor(popup);
       if (diagnostic) diagnostic.clickAttempts++;
       snapshot();
       await button.click({ timeout: 1000 }).then(() => {
@@ -126,6 +133,7 @@ export async function requestWallet(page: Page, request: { method: string; param
   } finally {
     snapshot();
     observing = false; // Freeze this case; a later native settlement only updates the page's count.
+    try { rpc?.stop(); } catch { /* Optional cleanup cannot replace a wallet outcome. */ }
   }
   return pending;
 }

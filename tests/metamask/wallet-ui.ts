@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import type { WalletRequestDiagnostic } from "../trading/runnerDiagnostics";
 
 export async function addLocalNetwork(page: Page, node: { rpcUrl: string; chainId: number }, name: string) {
@@ -17,12 +17,34 @@ export async function addLocalNetwork(page: Page, node: { rpcUrl: string; chainI
   await pending;
 }
 
-export async function notification(page: Page, observe?: (value: Pick<WalletRequestDiagnostic, "notificationSelection" | "notificationViewCount">) => void) {
+/** Keep the native click locator identical for selection and confirmation. */
+export function walletRequestButton(page: Page, reject = false) {
+  return reject ? page.getByTestId("confirm-footer-cancel-button")
+    : page.getByTestId("confirm-footer-button").or(page.getByTestId("confirm-btn"))
+      .or(page.locator('.page-container__footer [data-testid="page-container-footer-next"]'));
+}
+
+export async function notification(page: Page, observe?: (value: Pick<WalletRequestDiagnostic, "notificationSelection" | "notificationViewCount">) => void,
+  action?: (view: Page) => Locator) {
   const context = page.context();
   const extensionId = new URL(context.serviceWorkers()[0].url()).host;
   const views = context.pages();
-  let popup = views.find(candidate => candidate.url().includes("notification.html"));
+  let popup: Page | undefined;
+  let selectedAction = false;
   let selection: WalletRequestDiagnostic["notificationSelection"] = "existing-notification";
+  // Prefer this caller's visible native control over an older blank view.
+  // The actual click retains its ordinary strictness, enabled wait and errors.
+  if (action) for (const candidate of views) {
+    if (!candidate.url().startsWith(`chrome-extension://${extensionId}/`)) continue;
+    try {
+      if (await action(candidate).isVisible()) {
+        popup = candidate; selectedAction = true;
+        selection = candidate.url().includes("notification.html") ? "existing-notification" : "existing-extension";
+        break;
+      }
+    } catch { /* Closed or ambiguous views retain the ordinary fallback. */ }
+  }
+  if (!popup) popup = views.find(candidate => candidate.url().includes("notification.html"));
   if (!popup) {
     popup = context.pages().find(candidate => candidate.url().startsWith(`chrome-extension://${extensionId}/`));
     selection = "existing-extension";
@@ -35,7 +57,7 @@ export async function notification(page: Page, observe?: (value: Pick<WalletRequ
   // extension's own request navigation. Foreground the view so headed Linux
   // Chromium can render and interact with its controls normally.
   await popup.bringToFront();
-  if (!popup.url().includes("notification.html")) {
+  if (!selectedAction && !popup.url().includes("notification.html")) {
     await popup.goto(`chrome-extension://${extensionId}/notification.html`, { waitUntil: "domcontentloaded" });
   }
   popup.setDefaultTimeout(30000);
