@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { EventEmitter } from "node:events";
 import { expect, type Page } from "@playwright/test";
-import { decodeFunctionData, erc20Abi, type Address, type Hex } from "viem";
+import { decodeFunctionData, encodeFunctionData, erc20Abi, type Address, type Hex } from "viem";
 import { appEnvironment, withEnvironment } from "../../tests/fixtures/environment.mts";
 import { protocolConfigurationFixture, tokenAddresses } from "../../tests/fixtures/protocol-configuration.ts";
 import { failureResult, RegressionAssertionError, resultFor, type QuoteObservation, type ScenarioResult } from "../../tests/trading/regression.ts";
@@ -705,5 +705,32 @@ test("optional RPC setup and detach failures cannot reject a successful native h
     noRpcListeners(context);
     assert.equal(registrations, fault === "no-report" || fault === "no-config" ? 0 : fault === "setup" ? 1 : 3);
     if (fault === "setup") assert.equal(result.walletRequest?.rpc, undefined);
+  }
+});
+
+test("the real independent executor rejects changed mined calldata even with the same valid selector", async () => {
+  const { HELPERS_EXECUTION_ABI } = await import("../contracts/cybergold-helpers/execution.ts");
+  for (const changed of [false, true]) {
+    const scenario = tradeScenarios.find(row => row.id === "core-redeem-usdc-exact-in")!;
+    const observation = { scenario, request: { native: false, counterToken: tokenAddresses.USDC }, value: {
+      executionAmount: "100", expectedCoreOutputs: [], preview: {}, quotes: [],
+    }, result: { ...resultFor(scenario, "execution"), bounds: { inputMaximum: "100", outputMinimum: "90" } } } as unknown as QuoteObservation;
+    let sent: Hex | undefined, requests = 0;
+    const page = { bringToFront: async () => {}, evaluate: async (_callback: unknown, request: {params: {data: Hex}[]}) => {
+      requests++; sent=request.params[0].data; return approvalHash;
+    } } as unknown as Page;
+    const altered = encodeFunctionData({ abi: HELPERS_EXECUTION_ABI, functionName: "redeemToTokenExactIn", args: [{
+      grossCygldIn: 200n, recipient: owner, minimumAmountOut: 90n, expectedCoreOutputs: [], outputToken: tokenAddresses.USDC,
+    }, []] });
+    const fetcher = (async path => {
+      const url=String(path);
+      if(url.startsWith("/api/account/token-permit")) return Response.json({allowance:{status:"success",value:"1000"}});
+      if(url.startsWith("/api/transaction/helpers-execution")) return Response.json({helpers:protocolConfigurationFixture.contracts.helpers,gas:"100000"});
+      if(url.startsWith("/api/transaction/receipt")) return Response.json({receipt:{status:"success",transactionHash:approvalHash,blockNumber:"1",blockHash:`0x${"c".repeat(64)}`,logs:[]}});
+      if(url.startsWith("/api/transaction/wait/transaction")) return Response.json({transaction:{from:owner,to:protocolConfigurationFixture.contracts.helpers,input:changed?altered:sent}});
+      assert.fail("unexpected test-only API path");
+    }) as typeof fetch;
+    await assert.rejects(executeScenario(observation,page,owner,protocolConfigurationFixture,fetcher), error => error instanceof RegressionAssertionError && error.code === (changed ? "execution-calldata-mismatch" : "operation-event-missing"));
+    assert.equal(requests,1);assert.equal(observation.result.transactionHash,approvalHash);
   }
 });

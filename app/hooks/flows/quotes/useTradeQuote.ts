@@ -10,7 +10,7 @@ import { useQuoteCacheScope } from "@/app/context/chainHeadContext";
 import { usePageVisible } from "@/app/hooks/usePageVisible";
 import { buildQuoteDeadline } from "@/app/utils/swapPolicy";
 import { QuotePreviewError, quoteErrorMessage } from "@/app/utils/quoteErrors";
-import { fetchTradeQuote, receiveTradeModel, tradeAdapter, tradeQuoteResult,
+import { fetchTradeQuote, receiveTradeModel, tradeAdapter, tradeQuoteResult, withTradeProviderEvent,
   type TradeQuoteRequest, type TradeQuoteResult } from "@/app/utils/tradeQuote";
 import { useBoundQuoteState } from "./useBoundQuoteState";
 
@@ -48,6 +48,10 @@ export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retai
         if (signal.aborted || sequence.current !== attempt) return;
         if (event.type === "model") receiveTradeModel(event.value, configurationIdentity);
         if (event.type === "qualified") publishQualified(tradeQuoteResult(event.value), attempt);
+        if (event.type === "provider-qualified" || event.type === "provider-assessment") accept(previous => {
+          if (previous?.identity !== identity || previous.attempt !== attempt) return previous;
+          return { ...previous, value: { ...previous.value, value: withTradeProviderEvent(previous.value.value, event) } };
+        });
         if (event.type === "invalidated") accept(previous => previous?.identity === identity
           && previous.value.value.strategy === event.strategy ? undefined : previous);
         if (event.type === "estimate") publishEstimate(BigInt(event.amount));

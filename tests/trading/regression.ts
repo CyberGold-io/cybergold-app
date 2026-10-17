@@ -25,11 +25,18 @@ export const executionStages = ["execution-plan", "authorization-availability", 
   "ui-hash", "ui-receipt-read", "ui-transaction-read", "ui-receipt-assertions", "ui-balance-postchecks",
   "execution-facts", "execution-quote"] as const;
 export type ExecutionStage = typeof executionStages[number];
+import type { ProviderSummary, AlternateExecution, Provider } from "./providerEvidence.ts";
+
 export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "asset"> & {
+  size?: "small" | "medium" | "large"; nominalUsd?: string; valuationId?: string; amountRaw?: string; basketAmounts?: string[]; basketAssets?: string[];
+  deployment?: import("../../app/utils/protocolConfiguration.ts").ProtocolDeployment;
+  providers?: Record<Provider, ProviderSummary>; alternateExecution?: AlternateExecution;
+  selectedProvider?: Provider; planDigest?: string; revalidatedPlanDigest?: string; executionAttempted?: boolean;
+  transactionDisposition?: "not-submitted" | "submitted" | "confirmed" | "unknown";
   requestedStrategy: "core" | "market" | "auto";
   status: "pass" | "fail" | "unavailable" | "skipped"; actualStrategy: "core" | "market" | "unknown";
   actualOperation?: string; quotedOperation?: string; layer: "api" | "browser" | "execution"; durationMs?: number; firstExecutableMs?: number;
-  code?: string; reason?: QuotePreviewError["code"] | UiObservationPhase; refs?: DiagnosticReferences; transactionHash?: string;
+  code?: string; reason?: QuotePreviewError["code"] | UiObservationPhase | "unsupported" | "no-qualified-plan" | "quote-observation-unavailable" | "predecessor-submission-unknown"; refs?: DiagnosticReferences; transactionHash?: string;
   quoteDiagnostics?: QuoteDiagnostics;
   context?: { chainId: number; blockNumber: string; blockHash: string }; bounds?: Record<string, string | string[]>;
   receipt?: Record<string, string | string[]>; authorization?: string[];
@@ -60,6 +67,7 @@ export function uint(value: string, name: string) {
 }
 export function resultFor(scenario: Scenario, layer: ScenarioResult["layer"]): ScenarioResult {
   return { id: scenario.id, family: scenario.family, inputMode: scenario.inputMode, requestedStrategy: scenario.requestedStrategy,
+    ...(scenario.size ? { size: scenario.size, nominalUsd: scenario.nominalUsd, valuationId: scenario.valuationId, amountRaw: scenario.amountRaw, ...(scenario.basketAmounts ? { basketAmounts: [...scenario.basketAmounts] } : {}), ...(scenario.basketAssets ? { basketAssets: [...scenario.basketAssets] } : {}) } : {}),
     asset: scenario.asset, status: "unavailable", code: "not-exercised", actualStrategy: "unknown", layer };
 }
 /** Optional local evidence records the latest entered phase, without changing the operation. */
@@ -71,7 +79,7 @@ export async function checkpointExecutionStage(results: readonly ScenarioResult[
 // positive path is attempted, an unavailable dependency is a failed test.
 const unexercisedRunnerCodes = new Set([
   "app-origin-unavailable", "fork-fixture-configuration-unavailable", "browser-unavailable",
-  "wallet-setup-unavailable", "wallet-rpc-unavailable",
+  "wallet-setup-unavailable", "wallet-rpc-unavailable", "valuation-unavailable",
 ]);
 export function failureResult(result: ScenarioResult, error: unknown) {
   const code = error instanceof QuotePreviewError || error instanceof RegressionAssertionError || error instanceof ScenarioUnavailableError
@@ -106,7 +114,7 @@ export function tokenRequest(scenario: Scenario, config: ProtocolConfiguration, 
   const wrapped = scenario.asset === "ETH" ? configuredToken(config, "WETH") : counter;
   requireInvariant(wrapped.type === "erc20", "token-unavailable");
   return { side: scenario.side, mode: scenario.inputMode, counterToken: wrapped.address, native: scenario.asset === "ETH",
-    amount: String(parseUnits(scenario.displayAmount, cygldAmount ? cygld.decimals : counter.decimals)),
+    amount: scenario.amountRaw ?? String(parseUnits(scenario.displayAmount, cygldAmount ? cygld.decimals : counter.decimals)),
     recipient, deadline: String(Math.floor(Date.now() / 1000) + 1200), slippageBps: 100 };
 }
 
@@ -143,6 +151,10 @@ export function validateTrade(value: Pick<TradeQuote, "mode" | "side" | "quotedI
 export function matchesBasketIntent(request: unknown, scenario: Scenario, amount: string, assets: readonly string[]) {
   if (!request || typeof request !== "object") return false;
   const value = request as BasketPreviewRequest;
+  if (scenario.basketAmounts) {
+    if (value.mode === "issue-exact-in") return JSON.stringify(value.maximumAmountsIn) === JSON.stringify(scenario.basketAmounts);
+    if (value.mode === "redeem-exact-out") return scenario.basketAmounts.every((amount, i) => value.minimumOutputs.some(row => row.kind === 0 && row.token.toLowerCase() === scenario.basketAssets?.[i].toLowerCase() && row.minimumAmount === amount));
+  }
   if (value.mode !== `${scenario.side === "buy" ? "issue" : "redeem"}-${scenario.inputMode}`) return false;
   if (value.mode === "issue-exact-out") return value.netCygldOut === amount;
   if (value.mode === "redeem-exact-in") return value.grossCygldIn === amount;

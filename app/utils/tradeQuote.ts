@@ -31,6 +31,19 @@ export function captureTradeQuote<Value extends TradeQuote>(value: TradeQuoteRes
   return { ...tradeQuoteResult(structuredClone(value.value)), diagnostics: value.diagnostics && { ...value.diagnostics }, deployment: value.deployment && { ...value.deployment } };
 }
 
+/** Refresh observations without replacing the selected economic tuple. */
+export function withTradeProviderEvent(value: TradeQuote,
+  event: Extract<TradeQuoteEvent, { type: "provider-qualified" | "provider-assessment" }>): TradeQuote {
+  const providerCandidates: Partial<Record<"core" | "market", components["schemas"]["TradeProviderCandidate"]>> = { ...value.providerCandidates };
+  if (event.type === "provider-qualified") {
+    providerCandidates[event.strategy] = structuredClone(event.value);
+    return { ...value, providerCandidates } as TradeQuote;
+  }
+  if (event.value.availability !== "qualified") delete providerCandidates[event.strategy];
+  return { ...value, providerCandidates,
+    providerAssessments: { ...value.providerAssessments, [event.strategy]: structuredClone(event.value) } } as TradeQuote;
+}
+
 export function retainedTradePlan(value: TradeQuoteResult): NonNullable<TradeQuoteRequest["retainedPlan"]> {
   const selected = value.value;
   return selected.strategy === "core"

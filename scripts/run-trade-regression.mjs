@@ -6,11 +6,13 @@ import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { ScenarioUnavailableError, tradeScenarios } from "../tests/trading/scenarios.ts";
 import { failureResult, observeScenario, originFetch, readJson, resultFor } from "../tests/trading/regression.ts";
+import { executionCoverage } from "../tests/trading/providerEvidence.ts";
+import { buildMatrix, readValuation, matrixCounts, matrixTemplates } from "../tests/trading/matrix.ts";
 import { observeBrowserQuotes } from "../tests/trading/browserQuotes.ts";
 import { readWalletSetupDiagnostic, readWalletTestDiagnostics, safeCommandResult, safeRunnerError } from "../tests/trading/runnerDiagnostics.ts";
 
 const { values } = parseArgs({ options: { target: { type: "string" }, mode: { type: "string", default: "quotes" },
-  "output-dir": { type: "string" }, "base-url": { type: "string" } } });
+  "diagnostic-scenario": { type: "string" }, "output-dir": { type: "string" }, "base-url": { type: "string" } } });
 if (!values.target) throw new Error("--target is required");
 if (!["sandbox", "mainnet"].includes(values.target)) throw new Error("--target must be sandbox or mainnet");
 if (!["quotes", "sandbox-execution", "fork-execution"].includes(values.mode)) throw new Error("--mode must be quotes, sandbox-execution or fork-execution");
@@ -18,7 +20,9 @@ if (!values["output-dir"]) throw new Error("--output-dir is required");
 const output = resolve(values["output-dir"]);
 await mkdir(output, { recursive: true });
 const report = { schema: "cybergold.trade-regression.v1", runId: randomUUID(), target: values.target, mode: values.mode,
-  startedAt: new Date().toISOString(), runnerOutcome: "pass", runnerDiagnostics: { stage: "origin" }, scenarios: [] };
+  startedAt: new Date().toISOString(), matrix: matrixCounts, runnerOutcome: "pass", runnerDiagnostics: { stage: "origin" }, scenarios: [] };
+
+let inventory = matrixTemplates();
 
 async function walletResults() {
   const walletTests = await readWalletTestDiagnostics({ ui: resolve(output, "wallet-fixture-ui.json"),
@@ -26,10 +30,11 @@ async function walletResults() {
   if (Object.keys(walletTests).length) report.runnerDiagnostics.walletTests = walletTests;
   let firstProblem;
   report.fixtures = [];
-  for (const [file, stage, ui] of [["regression-execution.json", "independent-report", false], ["regression-ui.json", "ui-report", true]]) {
+  for (const [file, stage, ui] of [...(values["diagnostic-scenario"] ? [["regression-execution.json", "independent-report", false]] : [["regression-ui.json", "ui-report", true]])]) {
     try {
       const native = JSON.parse(await readFile(resolve(output, file), "utf8"));
       report.scenarios.push(...native.scenarios);
+      if (native.valuation) report.valuation = native.valuation;
       if (native.observations) report.observations = { ...report.observations, ...native.observations };
       if (Array.isArray(native.fixtures)) report.fixtures.push(...native.fixtures);
     } catch (error) {
@@ -46,9 +51,8 @@ async function walletResults() {
   return !firstProblem;
 }
 
-function unobservedRows(code, ui) {
-  return tradeScenarios.filter(s => !ui || s.requestedStrategy === "core").map(scenario => ({
-    ...resultFor(scenario, "execution"), code,
+function unobservedRows(code, ui = true) {
+  return inventory.map(scenario => ({ ...resultFor(scenario, "execution"), code,
     ...(ui ? { id: `ui-${scenario.id}`, requestedStrategy: "auto" } : {}) }));
 }
 
@@ -115,20 +119,33 @@ try {
     } catch { /* Optional deployed release observation never admits a run. */ }
     report.runnerDiagnostics.stage = "config-facts";
     const [config, facts] = await Promise.all([readJson(fetcher, "/api/protocol/config"),
-      values.mode === "quotes" ? readJson(fetcher, "/api/protocol/facts") : undefined]);
+      readJson(fetcher, "/api/protocol/facts")]);
     report.observations = { chainId: config.chainId, forkGeneration: config.sandboxForkGeneration };
+    const diagnosticId = values["diagnostic-scenario"]?.replace(/^ui-/, "");
+    const legacy = diagnosticId && tradeScenarios.find(s => s.id === diagnosticId);
+    if (legacy) inventory = [legacy];
+    else {
+      report.valuation = await readValuation(config, facts, fetcher);
+      inventory = buildMatrix(config, report.valuation);
+      if (diagnosticId) inventory = inventory.filter(s => s.id === diagnosticId);
+    }
+    const diagnostic = diagnosticId ? inventory[0] : undefined;
+    if (diagnosticId) {
+      if (!diagnostic) throw new ScenarioUnavailableError("diagnostic-scenario-unavailable");
+      report.matrix = { scenarioCount: 1, providerAssessmentCount: 1, maximumTradeExecutions: 1 };
+      report.diagnostic = { scenarioId: diagnostic.id, source: legacy ? "legacy-scenario" : "matrix-scenario", newAttempt: true };
+      if (diagnostic.sizingError) throw new ScenarioUnavailableError(diagnostic.sizingError);
+    }
+    const matrixPath = resolve(output, "matrix.json");
+    await writeFile(matrixPath, JSON.stringify({ matrix: matrixCounts, valuation: report.valuation, scenarios: inventory }) + "\n");
     if (values.mode === "quotes") {
-      for (const scenario of tradeScenarios) {
-        const started = performance.now();
-        try { report.scenarios.push((await observeScenario(scenario, config, facts, fetcher)).result); }
-        catch (error) { report.scenarios.push({ ...failureResult(resultFor(scenario, "api"), error), durationMs: Math.round(performance.now() - started) }); }
-      }
-      try { report.scenarios.push(...await observeBrowserQuotes(origin, config, facts)); }
+      try { report.scenarios.push(...(diagnostic ? [(await observeScenario(diagnostic, config, facts, fetcher)).result]
+        : await observeBrowserQuotes(origin, config, facts, inventory))); }
       catch (error) {
         if (error instanceof ScenarioUnavailableError && error.code === "browser-unavailable") {
           report.runnerOutcome = "unavailable"; report.runnerCode = error.code;
         }
-        for (const scenario of tradeScenarios.filter(s => s.requestedStrategy === "core"))
+        for (const scenario of inventory)
           report.scenarios.push({ ...failureResult(resultFor(scenario, "browser"), error), id: `ui-${scenario.id}`, requestedStrategy: "auto" });
       }
       report.observations.correlationAvailable = report.scenarios.some(row => row.refs?.requestId);
@@ -137,7 +154,7 @@ try {
       // transactions are outside the owner's authorization; fork mode above
       // creates its own disposable chain through the established qualifier.
       if (values.target !== "sandbox" || config.chainId === 1) throw new Error("sandbox-execution-target-required");
-      const env = { PLAYWRIGHT_BASE_URL: origin, PLAYWRIGHT_EXTERNAL_SERVER: "1", NEXT_PUBLIC_CHAIN_ID: String(config.chainId), NEXT_PUBLIC_CHAIN_NAME: "CyberGold Sandbox",
+      const env = { TRADE_REGRESSION_MATRIX: matrixPath, ...(values["diagnostic-scenario"] ? { TRADE_REGRESSION_DIAGNOSTIC_SCENARIO: values["diagnostic-scenario"] } : {}), PLAYWRIGHT_BASE_URL: origin, PLAYWRIGHT_EXTERNAL_SERVER: "1", NEXT_PUBLIC_CHAIN_ID: String(config.chainId), NEXT_PUBLIC_CHAIN_NAME: "CyberGold Sandbox",
         TRADE_REGRESSION_OUTPUT: resolve(output, "regression-execution.json"), TRADE_REGRESSION_UI_OUTPUT: resolve(output, "regression-ui.json"),
         TRADE_REGRESSION_WALLET_SETUP_OUTPUT: resolve(output, "wallet-setup.json"),
         TRADE_REGRESSION_UI_FIXTURE_OUTPUT: resolve(output, "wallet-fixture-ui.json"),
@@ -150,7 +167,7 @@ try {
       if (walletSetup) report.runnerDiagnostics.walletSetup = walletSetup;
       if (setupResult.exitCode !== 0) {
         report.runnerOutcome = "fail"; report.runnerCode = "wallet-setup-failed";
-        report.scenarios = [...unobservedRows("wallet-setup-unavailable", false), ...unobservedRows("wallet-setup-unavailable", true)];
+        report.scenarios = unobservedRows("wallet-setup-unavailable");
       } else {
         report.runnerDiagnostics = { stage: "wallet-tests", ...(walletSetup ? { walletSetup } : {}) };
         const childResult = await command(process.execPath, ["node_modules/@playwright/test/cli.js", "test", "--config", "playwright.regression.config.ts"], env);
@@ -166,19 +183,18 @@ try {
   report.runnerDiagnostics = { ...report.runnerDiagnostics, ...safeRunnerError(error) };
   if (values.mode === "quotes") {
     const observed = new Set(report.scenarios.map(row => row.id));
-    for (const scenario of tradeScenarios) if (!observed.has(scenario.id))
-      report.scenarios.push(failureResult(resultFor(scenario, "api"), error));
-    for (const scenario of tradeScenarios.filter(row => row.requestedStrategy === "core")) if (!observed.has(`ui-${scenario.id}`))
+    for (const scenario of inventory) if (!observed.has(`ui-${scenario.id}`))
       report.scenarios.push({ ...failureResult(resultFor(scenario, "browser"), error), id: `ui-${scenario.id}`, requestedStrategy: "auto" });
   } else if (!report.scenarios.length) {
     const code = report.runnerDiagnostics.stage === "wallet-cache" ? "wallet-setup-unavailable" : "execution-results-unavailable";
-    report.scenarios = [...unobservedRows(code, false), ...unobservedRows(code, true)];
+    report.scenarios = unobservedRows(code);
   }
 }
 if (report.runnerOutcome === "pass") report.runnerDiagnostics.stage = "complete";
+report.coverage = executionCoverage(report.scenarios);
 report.finishedAt = new Date().toISOString();
 await writeFile(resolve(output, "report.json.tmp"), JSON.stringify(report, null, 2) + "\n");
 await rename(resolve(output, "report.json.tmp"), resolve(output, "report.json"));
 console.log(JSON.stringify({ schema: report.schema, runId: report.runId, target: report.target, mode: report.mode,
   counts: Object.fromEntries(["pass", "fail", "unavailable", "skipped"].map(status => [status, report.scenarios.filter(row => row.status === status).length])) }));
-process.exitCode = report.runnerOutcome !== "pass" || report.scenarios.some(row => row.status === "fail" || row.status === "unavailable") ? 1 : 0;
+process.exitCode = report.runnerOutcome !== "pass" || report.scenarios.some(row => row.status === "fail" || row.status === "unavailable" || row.alternateExecution?.status === "fail") ? 1 : 0;

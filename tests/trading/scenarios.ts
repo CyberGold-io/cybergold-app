@@ -7,6 +7,7 @@ import type { TradeQuoteRequest } from "../../app/utils/tradeQuote.ts";
 export type Scenario = {
   id: string; family: "issue-token" | "redeem-token" | "issue-basket" | "redeem-basket" | "market-buy" | "market-sell";
   requestedStrategy: "core" | "market"; inputMode: "exact-in" | "exact-out";
+  sizingError?: "valuation-unavailable"; size?: "small" | "medium" | "large"; nominalUsd?: string; amountRaw?: string; valuationId?: string; basketAmounts?: string[]; basketAssets?: string[];
   side: "buy" | "sell"; asset: "PAXG" | "USDC" | "ETH" | "BASKET"; displayAmount: string;
 };
 export class ScenarioUnavailableError extends Error {
@@ -14,7 +15,8 @@ export class ScenarioUnavailableError extends Error {
   constructor(code: string) { super(code); this.code = code; }
 }
 
-/** One inventory for independent producers, real wallet execution and UI selection. */
+/** Legacy producer cases retained for focused contract tests and explicit diagnostic replay.
+ * Operating quote/execution batches use buildMatrix() in matrix.ts. */
 export const tradeScenarios: readonly Scenario[] = [
   ...(["PAXG", "USDC", "ETH"] as const).flatMap(asset => (["buy", "sell"] as const).flatMap(side =>
     (["exact-in", "exact-out"] as const).map(inputMode => ({

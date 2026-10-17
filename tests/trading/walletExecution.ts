@@ -315,6 +315,7 @@ export async function executeScenario(observation: QuoteObservation, page: Page,
   const observed = await readJson<{ transaction: { input: Hex; to: string; from: string } | null }>(fetcher, `/api/transaction/wait/transaction?hash=${hash}`);
   result.executionStage = "execution-receipt-assertions";
   requireInvariant(observed.transaction?.to.toLowerCase() === config.contracts.helpers!.toLowerCase() && observed.transaction?.from.toLowerCase() === owner.toLowerCase(), "transaction-party-mismatch");
+  requireInvariant(observed.transaction!.input.toLowerCase() === data.toLowerCase(), "execution-calldata-mismatch");
   requireInvariant(decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: observed.transaction!.input }).functionName === operation, "execution-selector-mismatch");
   result.actualOperation = operation;
   if (observation.scenario.asset === "BASKET") {

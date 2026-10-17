@@ -31,7 +31,7 @@ export function useBasketPreview<M extends BasketPreviewRequest["mode"]>(
   useEffect(() => {
     if (!visible) void client.cancelQueries({ queryKey: JSON.parse(serializedKey), exact: true });
   }, [client, visible, serializedKey]);
-  return { ...query, error: query.error instanceof QuotePreviewError
+  return { ...query, previewRequest: request, error: query.error instanceof QuotePreviewError
     ? new QuotePreviewError(query.error.code, quoteErrorMessage(query.error, t), diagnosticReferences(query.error), quoteDiagnostics(query.error))
     : query.error ? new Error(quoteErrorMessage(query.error, t)) : query.error };
 }

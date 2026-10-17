@@ -1,4 +1,4 @@
-import { writeFile, rename, mkdir } from "node:fs/promises";
+import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 import { expect, test } from "./testWithMetaMask";
@@ -11,13 +11,18 @@ import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguratio
 import type { ProtocolFacts } from "../../app/utils/protocolFacts";
 import type { Address } from "viem";
 
+test.skip(!process.env.TRADE_REGRESSION_DIAGNOSTIC_SCENARIO, "Independent execution is an explicit diagnostic replay, not a second operating matrix");
+const diagnosticScenarios: typeof tradeScenarios = process.env.TRADE_REGRESSION_MATRIX
+  ? JSON.parse(await readFile(process.env.TRADE_REGRESSION_MATRIX, "utf8")).scenarios
+  : tradeScenarios.filter(s => s.id === process.env.TRADE_REGRESSION_DIAGNOSTIC_SCENARIO);
+
 test("independent producer matrix signs with MetaMask and proves mined family and bounds", async ({ page }) => {
   test.setTimeout(3_600_000);
   const output = process.env.TRADE_REGRESSION_OUTPUT!;
   const report: RegressionReport = { schema: "cybergold.trade-regression.v1", runId: randomUUID(),
     target: process.env.TRADE_REGRESSION_TARGET === "mainnet" ? "mainnet" : "sandbox",
     mode: process.env.TRADE_REGRESSION_MODE === "sandbox-execution" ? "sandbox-execution" : "fork-execution",
-    startedAt: new Date().toISOString(), scenarios: tradeScenarios.map(scenario => resultFor(scenario, "execution")) };
+    startedAt: new Date().toISOString(), scenarios: diagnosticScenarios.map(scenario => resultFor(scenario, "execution")) };
   async function persist() {
     await mkdir(dirname(output), { recursive: true });
     await writeFile(output + ".tmp", JSON.stringify(report, null, 2) + "\n"); await rename(output + ".tmp", output);
@@ -49,7 +54,7 @@ test("independent producer matrix signs with MetaMask and proves mined family an
     await checkpointExecutionStage(report.scenarios, "setup-funding", persist);
     await fundSandboxWallet(owner, fetcher);
     await checkpointExecutionStage(report.scenarios, "setup-ready", persist);
-    for (const [index, scenario] of tradeScenarios.entries()) {
+    for (const [index, scenario] of diagnosticScenarios.entries()) {
       const started = performance.now();
       let result = report.scenarios[index];
       try {
