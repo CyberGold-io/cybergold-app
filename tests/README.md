@@ -4,7 +4,7 @@ doc_type: test-guide
 status: active
 owner: app-maintainer
 created: 2026-07-11
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-17
 canonical_for: App Playwright and Synpress end-to-end test operation
 ---
 
@@ -129,28 +129,17 @@ registry access first, or pass an already-built local Python image. On Linux
 run the command under `xvfb-run -a` if no desktop display is available. The
 extension runs in headed mode; a virtual display supplies its browser windows.
 
-The command runs the three session/network scenarios plus
-[fixed-api-roundtrips.spec.ts](./metamask/fixed-api-roundtrips.spec.ts): sixteen
-PAXG/USDC/ETH/basket UI paths across both amount modes, typed signatures, native wallet
-confirmations and transaction rejection. Successful balance changes and mined
-receipts are real observations from the Python API and owned fork. Funded
-responses are not intercepted. Every case asserts zero attempted App
-`/api/rpc` calls. This focused qualification does not claim every case in the
-broader token/basket acceptance specifications. It also runs
-`regression-execution.spec.ts` using the shared 20-case inventory: PAXG, USDC,
-ETH and basket Core issue/redeem exact-in/out, plus PAXG market buy/sell
-exact-in/out. Independent provider tests use the existing intent/market APIs;
-they never force a route in the production UI. MetaMask signs the constructed
-operation, and the suite verifies the mined selector, Helpers operation event,
-integer input ceiling/output floor, fees/refunds and basket ordering. Native
-permit, Permit2, ordinary allowance and mixed-basket funding are recorded.
-Core exact-output USDC issuance uses native permit and PAXG issuance uses
-Permit2. Core exact-input token issuance uses ordinary allowances; basket
-exact-input issuance mixes an ordinary allowance with Permit2 inputs, while
-basket exact-output issuance uses existing ordinary allowances.
-Every scenario remains unavailable until its receipt assertions pass. The
-sixteen UI trades remain separate evidence of automatic route selection, with
-actual mined operation and bound assertions recorded in `regression-ui.json`.
+The command runs the session/network scenarios and the shared 48-scenario UI
+matrix in [fixed-api-roundtrips.spec.ts](./metamask/fixed-api-roundtrips.spec.ts).
+It enters PAXG, USDC, native ETH and basket buy/sell intents in both amount modes
+at three nominal sizes, signs through MetaMask, and checks actual operation,
+integer bounds, fees, refunds, native gas and wallet effects on its owned fork.
+The other qualified provider plan receives a separate retained-plan execution
+check. The existing ordinary allowance, permit/Permit2, mixed-basket funding,
+rejection and cleanup assertions remain in component tests and explicit
+independent diagnostic cases; the legacy 20 producer inventory is not a second
+operating matrix. Controlled browser fixtures with synthetic providers/receipts
+are UI integration evidence, not qualification of actual provider settlement.
 
 The cache command uses Synpress's extension download and wallet setup with the
 same current Chromium as the tests; an old browser's Linux profile is not reused.
@@ -173,23 +162,57 @@ are separate workstreams; this command introduces no required CI job.
 
 ### Deployed regression runner
 
-`tests/trading/scenarios.ts` is the common inventory. `tests/trading/regression.ts`
-checks actual fixed API responses, including terminal NDJSON errors inside
-HTTP 200; an indicative model or provisional estimate cannot satisfy a case.
-`tests/trading/browserQuotes.ts` additionally opens the public App and enters
-both amount modes for each supported token/basket pair without interception or
-a wallet. It records the family actually selected by the unified form.
+[matrix.ts](./trading/matrix.ts) builds one inventory: four counterasset choices
+(PAXG, USDC, native ETH, basket), two directions, two amount modes and three
+nominal dollar tiers ($1/$100/$10,000). This means **48 primary UI journeys,
+96 Core/Market assessment slots and up to 96 trade executions**, comprising
+48 UI winners and 48 retained alternates when qualified. Setup, approvals,
+supplementary tests and diagnostic repetitions have separate counts.
 
-Run public-origin read-only checks with the pinned Node/runtime/browser:
+Case IDs retain the existing `core-issue` and `core-redeem` economic-family
+labels for report compatibility. Those labels do not choose the provider:
+`selectedProvider` and the separate provider/execution records identify whether
+Core or Market supplied and executed the selected plan.
+
+One recorded valuation snapshot sizes the edited side using rational integer
+arithmetic and floor rounding to token raw units. It declares USDC=$1, derives
+marginal prices from the product's configured reference-pool observations,
+treats ETH as WETH for valuation, and values CYGLD through the observed basket
+weights/conversions. This is an indicative sizing basis, not a guaranteed
+execution price or liquidation value; gas is excluded. Basket edits retain the
+complete ordered vector produced by the UI's target-weight/decimal rule.
+Failed observations do not block unrelated scenarios: cases lacking their
+required valuation report `valuation-unavailable` before entering an amount.
+Amounts are never silently raised, shrunk or replaced with invented prices.
+
+Quote mode drives this inventory in an unconnected browser and records the
+actual unified-form selection. Complete mode enters the same inventory through
+the connected UI and captures the exact selected plan at Swap. Provider
+availability and search outcome remain independent; a retained qualified plan
+can coexist with a later search timeout. Current automatic Market eligibility
+is typed-adapter non-native PAXG. Other token and basket Market assessments
+remain explicitly unsupported until product capability changes; missing
+evidence is unknown, not successful or unsupported by inference.
+
+For an already-running **local** App/backend fixture, read-only examples are:
 
 ```bash
-APP_BASE_URL=https://sandbox.cybergold.io npm run test:deployed -- \
-  --target sandbox --mode quotes --output-dir out/deployed-sandbox
-APP_BASE_URL=https://app.cybergold.io npm run test:deployed -- \
-  --target mainnet --mode quotes --output-dir out/deployed-mainnet
+APP_BASE_URL=http://127.0.0.1:3098 npm run test:deployed -- \
+  --target sandbox --mode quotes --output-dir out/matrix-quotes
+APP_BASE_URL=http://127.0.0.1:3098 npm run test:deployed -- \
+  --target sandbox --mode quotes --diagnostic-scenario core-redeem-usdc-exact-out-small \
+  --output-dir out/diagnostic-usdc
 ```
 
-Use the actual configured public origins when they differ from these examples.
+The diagnostic example is one new forced-Core producer request using the resolved
+small scenario's raw amount and recorded valuation; it does not replay an old quote or overwrite a previous result. The
+legacy definitions remain in [scenarios.ts](./trading/scenarios.ts) for explicit
+producer checks and unique contract controls. Both legacy IDs and current resolved
+matrix IDs (with optional `ui-` prefix) are accepted for a single new diagnostic attempt. A declared repetition manifest
+records repetitions, concurrency and cold/warm reset/preserve conditions;
+ordinary matrix operation adds no hidden retry.
+
+Configure the local fixture origin before using these examples.
 No Backend bearer or wallet seed is required. Older releases may lack diagnostic
 headers; `observations.correlationAvailable` records whether they were observed.
 Missing routes/capabilities are explicit unavailable results, never passing
@@ -201,7 +224,7 @@ wallet through the runner's private environment (`SYNPRESS_WALLET_SEED_PHRASE`,
 `SYNPRESS_WALLET_PASSWORD`, `NEXT_PUBLIC_WALLET_RPC_URL`) and invoke
 `--target sandbox --mode sandbox-execution`. That mode never signs chain 1.
 The runner funds that dedicated wallet through the existing public faucet after
-each fork refresh, sharing one request ID across both serial suites. Ambiguous
+each fork refresh, using the batch request identity. Ambiguous
 funding results reuse that identity; the runner never resets the shared fork.
 Do not reuse a wallet that has held real assets. Mainnet execution uses
 `--target mainnet --mode fork-execution` on a host with Python, Docker and
@@ -210,13 +233,30 @@ private tooling `MAINNET_RPC_URL`. This delegates to the canonical qualifier,
 which creates its own chain. An arbitrary origin is never relabeled a fork.
 
 The stable output is `report.json`, schema `cybergold.trade-regression.v1`, with
-per-case pass/fail/unavailable/skipped status, layer/family/mode, safe references,
+per-case pass/fail/unavailable/skipped status, size/valuation identity, provider summaries, separate alternate execution, layer/family/mode, safe references,
 amount bounds, block context and receipt/authorization observations. Any failure
-or unavailable case gives exit code 1 after saving the report. Wallet runs keep
+or unavailable primary case gives exit code 1 after saving the report; an attempted alternate failure also fails the runner without changing a successful primary journey. Wallet runs keep
 trace, screenshot, video and write retries off; no raw HTTP bodies, signatures,
 onboarding or private provider URLs enter the regression report. Runtime output
 belongs in ignored `out/`; scheduled B2B execution and retention are owned by
 Ops and remain advisory rather than a new CI/release gate.
+Alternate execution uses the captured losing plan through the existing retained-plan
+revalidation API. Its original and revalidated plan digests, references and
+`comparisonState: sequential-state` remain separate. The winner can already
+have moved pools, spent balances or changed approvals: this is not an equal
+prestate experiment and the shared Sandbox is never reset. A changed or failed
+revalidation is its own observed attempt, not proof the original quote executed.
+If the winning submission is unknown, the alternate is not attempted and records
+`predecessor-submission-unknown`; this preserves completion of the active trade.
+A missing transaction hash after wallet submission may still mean an unknown
+outcome; it is not automatically classified as nothing submitted.
+
+Funding behavior is unchanged. The existing faucet and fixed 5-CYGLD bootstrap
+are not assumed sufficient for every $10,000 case. Ordinary funding, balance,
+capacity and setup failures remain visible; no test silently resizes a size or
+increases a quota. Full settlement qualification needs a declared sufficiently
+funded disposable fixture and actual receipts before claiming coverage.
+
 `runnerOutcome` also retains a failed child process when completed scenarios
 passed; partial scenario evidence is preserved. Cancellation is forwarded to
 the qualifier so its owned child processes, containers and credentials are

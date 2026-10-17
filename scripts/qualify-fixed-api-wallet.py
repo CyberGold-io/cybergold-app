@@ -223,7 +223,7 @@ def main() -> None:
         test_paths = ["scripts/qualify-fixed-api-wallet.py", "scripts/cache-metamask-wallet.mjs", "wallet-setup/metamask.setup.ts",
                       "tests/metamask/testWithMetaMask.ts", "tests/metamask/fixed-api-roundtrips.spec.ts",
                       "tests/metamask/wallet-session.spec.ts", "tests/metamask/wallet-ui.ts", "tests/metamask/token-flows/helpers.ts",
-                      "tests/metamask/regression-execution.spec.ts", "tests/trading/scenarios.ts", "tests/trading/regression.ts", "tests/trading/runnerDiagnostics.ts", "tests/trading/walletExecution.ts",
+                      "tests/metamask/regression-execution.spec.ts", "tests/trading/scenarios.ts", "tests/trading/matrix.ts", "tests/trading/providerEvidence.ts", "tests/trading/planAssertions.ts", "tests/trading/quoteObservation.ts", "tests/trading/regression.ts", "tests/trading/runnerDiagnostics.ts", "tests/trading/walletExecution.ts",
                       "tests/trading/uiReceipt.ts", "tests/trading/uiEconomics.ts", "tests/trading/uiQuoteCapture.ts", "tests/trading/uiGas.ts", "tests/trading/uiDiagnostics.ts", "tests/trading/sandboxFunding.ts"]
         try:
             image_environment = json.loads(docker("image", "inspect", args.backend_image, "--format", "{{json .Config.Env}}"))

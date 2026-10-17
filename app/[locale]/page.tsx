@@ -4,6 +4,7 @@ import { useCachedTradeQuote } from "@/app/hooks/flows/quotes/useCachedTradeQuot
 import { useTradeModel } from "@/app/hooks/flows/quotes/useTradeModel";
 import { useTradeFlow } from "@/app/hooks/flows/useTradeFlow";
 import { captureTradeQuote, type TradeQuoteResult, type TradeQuoteRequest } from "@/app/utils/tradeQuote";
+import { observeTradeSelection } from "@/app/utils/tradeSelectionObservation";
 import { tradeReceipt, type TradeReceipt } from "@/app/utils/tradeReceipt";
 import { useLocalBasketModel } from "@/app/hooks/flows/quotes/useLocalBasketModel";
 import { localBasketQuote } from "@/app/utils/localBasketQuote";
@@ -2102,7 +2103,15 @@ const computedSellPrefill = useMemo(() : Prefill => {
     const receiptInput = isNativeOrErc20Token(sellToken) ? sellToken : undefined;
     const receiptOutput = isNativeOrErc20Token(buyToken) ? buyToken : undefined;
     setConfirmedTrade(undefined);
-    setFrozenTrade(selectedTrade && captureTradeQuote(selectedTrade));
+    const frozenSelection = selectedTrade && captureTradeQuote(selectedTrade);
+    setFrozenTrade(frozenSelection);
+    if (frozenSelection) {
+      observeTradeSelection({ attemptId: diagnostics.id, quote: frozenSelection.value,
+        deployment: frozenSelection.deployment, diagnostics: frozenSelection.diagnostics,
+        intent: { ...tradeInput, deadline: frozenSelection.value.providerRequest.deadline } });
+    } else if ("previewRequest" in executionFlow) {
+      observeTradeSelection({ attemptId: diagnostics.id, basketRequest: executionFlow.previewRequest });
+    }
     const confirmSelectedTransaction = async (hash: Hex) => {
       const receipt = await confirmTransaction(hash);
       if (selectedTrade && receiptInput && receiptOutput) {

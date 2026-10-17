@@ -9,6 +9,7 @@ import { build } from "esbuild";
 import { checkpointExecutionStage, executionStages, resultFor } from "../../tests/trading/regression.ts";
 import { tradeScenarios } from "../../tests/trading/scenarios.ts";
 import { protocolConfigurationFixture } from "../../tests/fixtures/protocol-configuration.ts";
+import { matrixTemplates } from "../../tests/trading/matrix.ts";
 
 test("execution checkpoints preserve pending outcomes and persist before the original wait", async () => {
   const rows = tradeScenarios.map(scenario => resultFor(scenario, "execution"));
@@ -49,12 +50,14 @@ test("active fixture checkpoints do not rewrite matrix stages or successful econ
 // outer process termination without a browser, RPC, wallet signature or timer.
 async function heldSuite(suite: "ui" | "independent", stop: "network-add" | "faucet" | "bootstrap-quote") {
   const output = mkdtempSync(join(tmpdir(), "cybergold-body-checkpoint-"));
-  const report = join(output, "report.json"), proof = join(output, "proof.json"), script = join(output, "fixture.mjs");
+  const report = join(output, "report.json"), proof = join(output, "proof.json"), script = join(output, "fixture.mjs"), matrix = join(output, "matrix.json");
+  writeFileSync(matrix, JSON.stringify({ valuation: { id: "synthetic-checkpoint-only" },
+    scenarios: suite === "ui" ? matrixTemplates() : [tradeScenarios[0]] }));
   const source = fileURLToPath(new URL(`../../tests/metamask/${suite === "ui" ? "fixed-api-roundtrips" : "regression-execution"}.spec.ts`, import.meta.url));
   const stubTest = `
 const state = globalThis.__bodyFixture;
 export const expect = state.expect;
-export const test = Object.assign((_name, body) => { state.body = body; }, { setTimeout() {}, step: async (_name, run) => run() });
+export const test = Object.assign((_name, body) => { state.body = body; }, { skip() {}, setTimeout() {}, step: async (_name, run) => run() });
 export const errors = { TimeoutError: class TimeoutError extends Error {} };
 `;
   const stubWallet = `
@@ -65,6 +68,7 @@ export const requestConnection = async () => state.action("connect-request");
 export const connectWallet = async () => state.action("connect-confirm");
 const cancel = { click: async () => state.action("rejection-cancel"), or: () => cancel };
 export const notification = async () => ({ getByTestId: () => cancel, locator: () => cancel });
+export const walletRequestButton = () => { throw new Error("native-confirmation-outside-held-setup"); };
 `;
   const stubHelpers = `
 const state = globalThis.__bodyFixture;
@@ -93,7 +97,7 @@ fixtureState.expect = value => ({ not: { toBe: other => assert.notEqual(value, o
   toBeVisible: async () => {}, toBeEnabled: async () => {}, toHaveText: async () => {}, toEqual: other => assert.deepEqual(value, other) });
 fixtureState.expect.poll = read => ({ toBeGreaterThan: async value => assert.ok(await read() > value),
   toBeTruthy: async () => assert.ok(await read()), toBe: async value => assert.equal(await read(), value) });
-fixtureState.page = { setDefaultTimeout() {}, on() {}, getByRole: () => ({}), getByText: () => ({}),
+fixtureState.page = { setDefaultTimeout() {}, addInitScript: async () => {}, on() {}, getByRole: () => ({}), getByText: () => ({}),
   goto: async () => { fixtureState.navigations++; fixtureState.action("navigation"); },
   evaluate: async () => { fixtureState.action("accounts"); return ["0x1111111111111111111111111111111111111111"]; } };
 globalThis.fetch = async url => {
@@ -119,6 +123,8 @@ globalThis.fetch = async url => {
       NEXT_PUBLIC_CHAIN_ID: "31337", NEXT_PUBLIC_WALLET_RPC_URL: "http://private-wallet-rpc.invalid",
       TRADE_REGRESSION_MODE: "sandbox-execution", TRADE_REGRESSION_TARGET: "sandbox",
       TRADE_REGRESSION_FAUCET_REQUEST_ID: "public-fixture-request", TRADE_REGRESSION_OUTPUT: report, TRADE_REGRESSION_UI_OUTPUT: report,
+      TRADE_REGRESSION_MATRIX: matrix,
+      ...(suite === "independent" ? { TRADE_REGRESSION_DIAGNOSTIC_SCENARIO: tradeScenarios[0].id } : {}),
     } });
     assert.equal(child.status, 0, child.stderr);
     return JSON.parse(readFileSync(proof, "utf8"));
@@ -128,7 +134,7 @@ globalThis.fetch = async url => {
 test("both real suite bodies persist setup stages before held original network and funding actions", async () => {
   for (const suite of ["ui", "independent"] as const) for (const stop of ["network-add", "faucet"] as const) {
     const value = await heldSuite(suite, stop);
-    assert.equal(value.report.scenarios.length, suite === "ui" ? 16 : 20);
+    assert.equal(value.report.scenarios.length, suite === "ui" ? 48 : 1);
     assert.ok(value.report.scenarios.every((row: { status: string; code: string; executionStage: string }) =>
       row.status === "unavailable" && row.code === "not-exercised"
       && row.executionStage === (stop === "network-add" ? "setup-network-add" : "setup-funding")));

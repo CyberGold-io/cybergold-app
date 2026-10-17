@@ -112,7 +112,7 @@ export type BasketComponentsMapString = Record<`0x${string}`, string>;
 
 export type QuoteMode = "exact-in" | "exact-out";
 
-export type QuoteRoute = "direct" | "viaWeth" | "mixed";
+export type QuoteRoute = NonNullable<components["schemas"]["RouteSearch"]["results"][number]["best"]>["route"];
 export type QuoteDex = components["schemas"]["PoolSnapshot"]["dex"];
 
 export type QuoteTarget = {

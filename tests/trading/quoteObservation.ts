@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 export type QuoteObservation = {
   path: string; request: Record<string, unknown>; status: number;
   requestId?: string; backendRevision?: string;
-  terminal?: Record<string, unknown>; interrupted?: boolean; aborted?: boolean;
+  frames?: Record<string, unknown>[]; terminal?: Record<string, unknown>; interrupted?: boolean; aborted?: boolean;
 };
 type ObservationWindow = Window & typeof globalThis & { __cybergoldTradeObservations?: QuoteObservation[] };
 
@@ -57,6 +57,7 @@ export function installQuoteObservation(scope: ObservationWindow = window) {
           for (const line of lines) {
             if (!line.trim()) continue;
             const frame = JSON.parse(line);
+            if (["provider-qualified", "provider-assessment", "qualified", "invalidated"].includes(frame.type)) (observation.frames ??= []).push(frame);
             if (frame.type === "complete" || frame.type === "error") {
               observation.terminal = frame; return;
             }

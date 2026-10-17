@@ -142,9 +142,15 @@ test("gold and FX display fallback retain acquisition age across reload and ordi
     expect((await cached(page, fxKey)).fetchedAt).toBe(fxTime);
     await page.clock.fastForward(61_000);
     const expiredAt = Math.max(Date.parse(goldTime) + 3_600_000, Date.parse(fxTime) + 300_000);
-    await expect.poll(() => page.evaluate(expiredAt =>
-      (window as unknown as { __displayCacheFreshness: { at: number; feeds: string[] }[] }).__displayCacheFreshness
-        .some(value => value.at >= expiredAt && value.feeds.includes("gold quote") && value.feeds.includes("FX rates")), expiredAt)).toBe(true);
+    if (process.env.PLAYWRIGHT_APP_MODE === "production") {
+      // Production deliberately omits debug-only freshness diagnostics. The
+      // cache age, retained display and subsequent refresh checks still apply.
+      expect(await page.evaluate(() => (window as unknown as { __displayCacheFreshness: unknown[] }).__displayCacheFreshness)).toEqual([]);
+    } else {
+      await expect.poll(() => page.evaluate(expiredAt =>
+        (window as unknown as { __displayCacheFreshness: { at: number; feeds: string[] }[] }).__displayCacheFreshness
+          .some(value => value.at >= expiredAt && value.feeds.includes("gold quote") && value.feeds.includes("FX rates")), expiredAt)).toBe(true);
+    }
     await expect(reference).toHaveText(previousReference!);
     expect((await cached(page, goldKey)).fetchedAt).toBe(goldTime);
     expect((await cached(page, fxKey)).fetchedAt).toBe(fxTime);
