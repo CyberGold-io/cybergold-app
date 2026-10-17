@@ -13,6 +13,7 @@ import { installQuoteObservation, quoteObservations, type QuoteObservation } fro
 import { providerSummaries, planDigest, type ProviderQuote } from "./providerEvidence.ts";
 import { semanticDigest } from "./matrix.ts";
 import { safeRunnerError } from "./runnerDiagnostics.ts";
+import { positiveDisplayedAmount } from "./uiEconomics.ts";
 
 /** Real App interactions: no routes, mocked responses or injected wallet. */
 export async function observeBrowserQuotes(origin: string, config: ProtocolConfiguration, facts: ProtocolFacts, inventory: readonly Scenario[] = tradeScenarios.filter(s => s.requestedStrategy === "core")): Promise<ScenarioResult[]> {
@@ -107,10 +108,10 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
         if (scenario.asset === "BASKET" && !basketEdited) {
           await expect.poll(() => page.locator(`#${quotedSide}-basket-composition`).getByRole("button", {
             name: new RegExp(`^Edit ${quotedSide} amount \\(`),
-          }).evaluateAll(buttons => buttons.some(button => Number(button.textContent?.replace(/,/g, "")) > 0)), { timeout: 15_000 }).toBe(true);
+          }).allTextContents().then(amounts => amounts.some(amount => positiveDisplayedAmount(amount, 18))), { timeout: 15_000 }).toBe(true);
         } else {
           const decimal = config.tokens.find(token => token.symbol.toUpperCase() === (quotedSide === "buy" ? receive : sell))?.decimals ?? 18;
-          await expect.poll(async () => parseUnits(await getMainInput(page, quotedSide).inputValue() || "0", decimal), { timeout: 15_000 }).toBeGreaterThan(0n);
+          await expect.poll(async () => positiveDisplayedAmount(await getMainInput(page, quotedSide).inputValue(), decimal), { timeout: 15_000 }).toBe(true);
         }
         result.status = "pass"; result.executionStage = "complete"; delete result.code;
       } catch (error) { result = { ...failureResult(result, error), ...safeRunnerError(error), requestedStrategy: "auto" }; }

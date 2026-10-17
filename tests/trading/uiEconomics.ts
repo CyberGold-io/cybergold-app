@@ -1,5 +1,6 @@
-import { zeroAddress, type Address } from "viem";
+import { formatUnits, zeroAddress, type Address } from "viem";
 import { applySlippageCeil, applySlippageFloor } from "../../app/utils/swapPolicy.ts";
+import { formatNumberWithCustomGrouping } from "../../app/utils/formatting.ts";
 import type { WalletBalancesSnapshot } from "../../app/utils/walletBalanceSnapshot.ts";
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
 import { requireInvariant, uint } from "./regression.ts";
@@ -38,6 +39,27 @@ export function displayedAmount(text: string, decimals: number, quoted: boolean)
   }
   const roundingUnit = quoted && digits < decimals ? 10n ** BigInt(decimals - digits) : 1n;
   return { amount: String(amount), roundingUnit: String(roundingUnit), rounding: !quoted ? "exact" : compact ? "truncated" : "rounded" };
+}
+
+/** Readiness observes the same grouped/compact presentation as click-time economics. */
+export function positiveDisplayedAmount(text: string, decimals: number): boolean {
+  try { return BigInt(displayedAmount(text, decimals, true).amount) > 0n; }
+  catch { return false; }
+}
+
+/** Wallet modal amounts have three decimal places; their rounding interval can hide a real small trade. */
+export function walletDisplayMatches(text: string, raw: bigint, decimals: number, symbol: string): boolean {
+  const suffix = ` ${symbol}`;
+  if (!text.trim().endsWith(suffix)) return false;
+  try {
+    const shown = BigInt(displayedAmount(text.trim().slice(0, -suffix.length), decimals, false).amount);
+    // Reproduce the modal's presentation, including Number/Intl rounding at
+    // binary floating-point boundaries. Settlement checks keep exact integers.
+    const formatted = formatNumberWithCustomGrouping(Number(formatUnits(raw, decimals)), "en", {
+      minimumFractionDigits: 3, maximumFractionDigits: 3,
+    });
+    return raw >= 0n && shown === BigInt(displayedAmount(formatted, decimals, false).amount);
+  } catch { return false; }
 }
 
 export function selectedTolerance(text: string): number {

@@ -2113,7 +2113,7 @@ const computedSellPrefill = useMemo(() : Prefill => {
       observeTradeSelection({ attemptId: diagnostics.id, basketRequest: executionFlow.previewRequest });
     }
     const confirmSelectedTransaction = async (hash: Hex) => {
-      const receipt = await confirmTransaction(hash);
+      const receipt = await diagnostics.confirm(() => confirmTransaction(hash));
       if (selectedTrade && receiptInput && receiptOutput) {
         const measured = tradeReceipt(receipt.logs, executionHelpers, address, selectedTrade.value.strategy,
           selectedTrade.value.tokenIn as Address);
@@ -2200,7 +2200,7 @@ const computedSellPrefill = useMemo(() : Prefill => {
     let submittedHash: Hex | undefined;
     let submittedBatch: WalletBatchSubmission | undefined;
     const confirmBatch = async (submission: WalletBatchSubmission) => {
-      const result = await submission.wait();
+      const result = await diagnostics.confirm(() => submission.wait());
       announceTransactionSuccess(result.transactionHash);
       if (result.logs && selectedTrade && receiptInput && receiptOutput) {
         const measured = tradeReceipt(result.logs, executionHelpers, address, selectedTrade.value.strategy, selectedTrade.value.tokenIn as Address);
@@ -2239,8 +2239,8 @@ const computedSellPrefill = useMemo(() : Prefill => {
       // later confirmation outage does not make this attempt safe to resend.
       shouldCleanUpSubmittedSwap = true;
       resetWalletConfirmationProgress();
-      const receipt = typeof submission === "string" ? await confirmSelectedTransaction(submission) : await confirmBatch(submission);
-      diagnostics.confirmed(receipt.transactionHash);
+      if (typeof submission === "string") await confirmSelectedTransaction(submission);
+      else await confirmBatch(submission);
 
     } catch (error) {
       if (error instanceof WalletRequestBatchStoppedError) {

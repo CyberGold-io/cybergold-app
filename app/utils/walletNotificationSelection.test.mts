@@ -168,6 +168,7 @@ await check('UI confirmation polls select and click the same native control', as
   }) as (page: Page, submitted: () => boolean) => Promise<void>;
   const page = f.page as unknown as { getByText: () => { isVisible: () => Promise<boolean> } };
   page.getByText = () => ({ isVisible: async () => false });
+  (page as unknown as { getByRole: () => unknown }).getByRole = () => ({ isVisible: async () => false });
   await approve(f.page, () => submitted);
   assert.deepEqual(f.actions, ['focus:active', 'click:active']);
 });

@@ -67,7 +67,15 @@ export function diagnosticFailure(error: unknown): Pick<ClientDiagnostic, "reaso
     ...(requestId ? { requestId } : {}), ...(correlationId ? { correlationId } : {}) };
 }
 
+export const CLIENT_DIAGNOSTIC_EVENT = "cybergold:diagnostic";
+
 function emit(reporter: Reporter, event: ClientDiagnostic) {
+  // The same safe producer payload is available synchronously in this page.
+  // Collection is best effort, so receipt/hash observation cannot depend on its
+  // network request. A listener receives a clone and cannot alter the producer.
+  try {
+    if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(CLIENT_DIAGNOSTIC_EVENT, { detail: structuredClone(event) }));
+  } catch { /* Optional local observation cannot interrupt the original action. */ }
   try { reporter(event); } catch { /* Including instrumentation injected by tests. */ }
 }
 
@@ -114,13 +122,25 @@ export function createSwapDiagnostics(context: DiagnosticContext, quoteId?: stri
   let stage: DiagnosticStage = "preparation";
   const record = (event: ClientDiagnostic) => emit(reporter, { ...context, quoteId, attemptId,
     operation: "swap", durationMs: Math.round(performance.now() - started), transactionHash, stage, ...event });
+  const confirmed = (hash?: string) => {
+    if (hash) transactionHash = hash;
+    stage = "confirmation";
+    record({ outcome: "succeeded" });
+  };
   record({ outcome: "started" });
   return {
     get id() { return attemptId; },
     stage(value: DiagnosticStage) { stage = value; },
     walletStep(walletStep: ClientDiagnostic["walletStep"]) { stage = walletStep === "transaction" ? "submission" : "authorization"; record({ operation: "wallet", outcome: "requested", walletStep }); },
     submitted(hash?: string) { submitted = true; transactionHash = hash; stage = "submission"; record({ outcome: "submitted" }); stage = "confirmation"; },
-    confirmed(hash?: string) { if (hash) transactionHash = hash; record({ outcome: "succeeded" }); },
+    confirmed,
+    async confirm<T extends { transactionHash?: string }>(read: () => Promise<T>): Promise<T> {
+      // Primary confirmation and a user's later recheck retain one attempt.
+      // This helper only observes; it never submits or retries a transaction.
+      const receipt = await read();
+      confirmed(receipt.transactionHash);
+      return receipt;
+    },
     failed(error: unknown) {
       record({ outcome: swapFailureOutcome(error, submitted), ...diagnosticFailure(error) });
     },
