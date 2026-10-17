@@ -1,6 +1,6 @@
 import { errors, type Page } from "@playwright/test";
 import { expect, test } from "./testWithMetaMask";
-import { addLocalNetwork, connectWallet, notification, requestConnection, switchLocalNetwork } from "./wallet-ui";
+import { addLocalNetwork, connectWallet, notification, walletRequestButton, requestConnection, switchLocalNetwork } from "./wallet-ui";
 import { ensureBasketInputEditable, getMainInput, getSwapButton, openFeeDetails, parseAmount, readWalletBalances, selectToken, showAllSellTokens } from "./token-flows/helpers";
 import { writeFile, rename } from "node:fs/promises";
 import { type Address, type Hex } from "viem";
@@ -21,20 +21,15 @@ import { confirmedTransactionText, createUiQuoteDiagnostics, uiCompletionAsserti
 async function approveUntilMined(page: Page, submitted: () => boolean) {
   const success = confirmedTransactionText(page);
   const failure = page.getByText(/^Transaction failed$/i);
-  let openedStep = "";
   await uiCompletionAssertion(() => expect.poll(async () => {
     if (await failure.isVisible()) throw new Error((await page.locator("[data-sonner-toast]").allTextContents()).join(" | "));
     if (await success.isVisible()) return true;
     const step = await (await getSwapButton(page)).innerText();
     if (!/^MetaMask \d+ of \d+:/.test(step)) return false;
-    let popup = page.context().pages().find(candidate => candidate.url().includes("notification.html"));
-    if (step !== openedStep || !popup) {
-      popup = await notification(page);
-      openedStep = step;
-    }
+    const popup = await notification(page, undefined, walletRequestButton);
     if (popup) {
-      // Current extension controls for transaction and typed-signature requests.
-      const confirm = popup.getByTestId("confirm-footer-button").or(popup.getByTestId("confirm-btn")).or(popup.locator('.page-container__footer [data-testid="page-container-footer-next"]'));
+      // Selection and click use the same native request control.
+      const confirm = walletRequestButton(popup);
       // A native request can navigate or close between polls. Let one click
       // check visibility/enabled state atomically, then re-read the App result.
       try {

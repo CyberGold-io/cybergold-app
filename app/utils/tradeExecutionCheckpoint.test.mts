@@ -65,6 +65,7 @@ export const requestConnection = async () => state.action("connect-request");
 export const connectWallet = async () => state.action("connect-confirm");
 const cancel = { click: async () => state.action("rejection-cancel"), or: () => cancel };
 export const notification = async () => ({ getByTestId: () => cancel, locator: () => cancel });
+export const walletRequestButton = () => { throw new Error("native-confirmation-outside-held-setup"); };
 `;
   const stubHelpers = `
 const state = globalThis.__bodyFixture;

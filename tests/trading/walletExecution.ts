@@ -9,7 +9,7 @@ import { fetchTokenPermit, tokenPermitTypedData, tokenPurchaseApprovalAmounts, t
 import { getTokensNeedingPermit2Approval } from "../../app/utils/tokensApproval.ts";
 import { fetchBasketPermitIssuanceInstalled, fetchHelpersRouterFacts, fetchTokenPermitIssuanceInstalled, permit2FromFacts } from "../../app/utils/helpersRouterFacts.ts";
 import { fetchPermit2Context } from "../../app/utils/permit2/context.ts";
-import { notification } from "../metamask/wallet-ui.ts";
+import { notification, walletRequestButton } from "../metamask/wallet-ui.ts";
 import { ScenarioUnavailableError } from "./scenarios.ts";
 import { readJson, requireInvariant, type QuoteObservation, type ScenarioResult } from "./regression.ts";
 import { safeRunnerError, safeWalletClickError, type WalletRequestDiagnostic } from "./runnerDiagnostics.ts";
@@ -98,11 +98,10 @@ export async function requestWallet(page: Page, request: { method: string; param
   try {
     await expect.poll(async () => {
       if (settled) return true;
-      const popup = await notification(page, value => { if (diagnostic) Object.assign(diagnostic, value); snapshot(); });
+      const buttonFor = (view: Page) => walletRequestButton(view, reject);
+      const popup = await notification(page, value => { if (diagnostic) Object.assign(diagnostic, value); snapshot(); }, buttonFor);
       if (settled) return true;
-      const button = reject ? popup.getByTestId("confirm-footer-cancel-button")
-        : popup.getByTestId("confirm-footer-button").or(popup.getByTestId("confirm-btn"))
-          .or(popup.locator('.page-container__footer [data-testid="page-container-footer-next"]'));
+      const button = buttonFor(popup);
       if (diagnostic) diagnostic.clickAttempts++;
       snapshot();
       await button.click({ timeout: 1000 }).then(() => {
