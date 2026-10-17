@@ -5,7 +5,7 @@ import type { Page } from "@playwright/test";
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, zeroAddress, type Hex, type Address } from "viem";
 import { HELPERS_EXECUTION_ABI } from "../contracts/cybergold-helpers/execution.ts";
 import { formatMeaningfulDecimalString } from "./formatting.ts";
-import { actualAmount, assertUiEconomics, assertWalletEconomics, displayedAmount, selectedTolerance, uiAmountLimits,
+import { actualAmount, assertUiEconomics, assertWalletEconomics, displayedAmount, positiveDisplayedAmount, walletDisplayMatches, selectedTolerance, uiAmountLimits,
   walletEvidence, type UiAmount, type UiQuoteSnapshot } from "../../tests/trading/uiEconomics.ts";
 import { observeUiReceipt, uiReceiptResult } from "../../tests/trading/uiReceipt.ts";
 import { observeUiGas, ownedReceiptGas } from "../../tests/trading/uiGas.ts";
@@ -41,6 +41,32 @@ test("integer display parsing retains full user input, rounded and truncated vis
   assert.deepEqual(displayedAmount("0.123", 6, true), { amount: "123000", roundingUnit: "1000", rounding: "rounded" });
   assert.equal(selectedTolerance("0.555"), 56); assert.equal(selectedTolerance("0"), 0); assert.equal(selectedTolerance("1"), 100);
   assert.throws(() => displayedAmount("private-provider-body", 18, true), /ui-displayed-amount-invalid/);
+});
+
+test("quote readiness accepts grouped large amounts and compact native amounts without parsing display syntax as raw decimal input", () => {
+  for (const value of ["9 921.398", "0.0₄4469", "0.000096", "0.0001437"]) assert.equal(positiveDisplayedAmount(value, 18), true);
+  for (const value of ["", "...", "0", "not-ready", "-1"]) assert.equal(positiveDisplayedAmount(value, 18), false);
+});
+
+test("wallet display checks preserve settled sub-display-precision gold movements and reject stale observable balances", () => {
+  // Retained $1 PAXG cases: both raw balances round to the same three-place modal value.
+  for (const raw of [5598763902343388700n, 5599004135968125793n])
+    assert.equal(walletDisplayMatches("5.599 PAXG", raw, 18, "PAXG"), true);
+  for (const raw of [4839129009683146782n, 4838983884460492100n])
+    assert.equal(walletDisplayMatches("4.839 PAXG", raw, 18, "PAXG"), true);
+  assert.equal(walletDisplayMatches("9 921.398 USDC", 9921397856n, 6, "USDC"), true);
+  assert.equal(walletDisplayMatches("0.000 PAXG", 499999999999999n, 18, "PAXG"), true);
+  assert.equal(walletDisplayMatches("0.000 PAXG", 500000000000000n, 18, "PAXG"), false);
+  assert.equal(walletDisplayMatches("0.001 PAXG", 500000000000000n, 18, "PAXG"), true);
+  assert.equal(walletDisplayMatches("5.599 PAXG", 5600000000000000000n, 18, "PAXG"), false);
+  assert.equal(walletDisplayMatches("... PAXG", 1n, 18, "PAXG"), false);
+  assert.equal(walletDisplayMatches("5.599 CYGLD", 5599004135968125793n, 18, "PAXG"), false);
+});
+
+test("wallet display checks follow the product formatter at binary floating-point rounding boundaries", () => {
+  const raw = 1234499999999999999n;
+  assert.equal(walletDisplayMatches("1.235 PAXG", raw, 18, "PAXG"), true);
+  assert.equal(walletDisplayMatches("1.234 PAXG", raw, 18, "PAXG"), false);
 });
 
 test("zero tolerance permits only the formatter's quantization and integer boundary", () => {

@@ -3,10 +3,13 @@ import type { TradeSelectionObservation } from '../../app/utils/tradeSelectionOb
 import type { TradeQuote, TradeQuoteRequest } from '../../app/utils/tradeQuote.ts';
 import { diagnosticReferences, safeDiagnosticReferences } from '../../app/utils/diagnosticReferences.ts';
 import { fetchQuoteStream } from '../../app/utils/quoteStream.ts';
+import { knownQuoteError } from '../../app/utils/quoteErrors.ts';
+import type { BasketPreview } from '../../app/utils/basketPreview.ts';
 import type { ProtocolConfiguration } from '../../app/utils/protocolConfiguration.ts';
 import type { Page } from '@playwright/test';
-import { semanticDigest } from './matrix.ts';
-import { resultFor, validateTrade, failureResult, requireInvariant, type QuoteObservation, type ScenarioResult } from './regression.ts';
+import { semanticDigest, type MatrixScenario } from './matrix.ts';
+import type { QuoteObservation as BrowserQuoteObservation } from './quoteObservation.ts';
+import { resultFor, validateTrade, failureResult, requireInvariant, matchesBasketIntent, type QuoteObservation, type ScenarioResult } from './regression.ts';
 import type { Scenario } from './scenarios.ts';
 
 export type Provider = 'core' | 'market';
@@ -120,6 +123,29 @@ export function observedProviderEvidence(observation: { frames?: Record<string, 
   return terminal?.providerAssessments ? terminal : { providerAssessments, providerCandidates };
 }
 
+/** A later UI failure cannot erase the original basket provider observation. */
+export function observedBasketProviderEvidence(observations: readonly BrowserQuoteObservation[], scenario: MatrixScenario): Record<Provider, ProviderSummary> {
+  const matching = observations.filter(row => row.path === '/api/quotes/basket-preview'
+    && row.request.mode === `${scenario.side === 'buy' ? 'issue' : 'redeem'}-${scenario.inputMode}`
+    && matchesBasketIntent(row.request, scenario, scenario.amountRaw, scenario.basketAssets ?? []));
+  const observed = matching.findLast(row => row.terminal?.type === 'complete') ?? matching.at(-1);
+  const providers = emptyProviders();
+  providers.market = { availability: 'unsupported', searchOutcome: 'not-run' };
+  if (!observed) return providers;
+  const refs = { ...diagnosticReferences(observed.terminal), ...safeDiagnosticReferences({ requestId: observed.requestId }) };
+  if (observed.terminal?.type === 'complete') {
+    const preview = observed.terminal.value as BasketPreview;
+    providers.core = { availability: 'qualified', searchOutcome: 'complete', planDigest: semanticDigest(preview), context: preview.context, refs };
+  } else if (observed.terminal?.type === 'error') {
+    const error = knownQuoteError(observed.terminal);
+    providers.core = { availability: 'unavailable', searchOutcome: error?.code === 'quote-timeout' ? 'timeout' : 'error', refs,
+      ...(error ? { code: error.code } : {}) };
+  } else {
+    providers.core = { availability: observed.interrupted ? 'unavailable' : 'pending', searchOutcome: observed.interrupted ? 'cancelled' : 'running', refs };
+  }
+  return providers;
+}
+
 export function executionCoverage(rows: readonly ScenarioResult[]) {
   const count = (values: { status: string }[]) => Object.fromEntries(['pass', 'fail', 'unavailable', 'skipped'].map(status => [status, values.filter(v => v.status === status).length]));
   const alternates = rows.flatMap(row => row.alternateExecution ? [row.alternateExecution] : []);
@@ -130,9 +156,10 @@ export function executionCoverage(rows: readonly ScenarioResult[]) {
 }
 
 /** Absence of a hash does not establish that a wallet submitted nothing. */
-export function transactionDisposition(result: Pick<ScenarioResult, 'status' | 'transactionHash' | 'executionAttempted' | 'executionStage' | 'walletRequestErrorCode'>): NonNullable<ScenarioResult['transactionDisposition']> {
+export function transactionDisposition(result: Pick<ScenarioResult, 'status' | 'transactionHash' | 'executionAttempted' | 'executionStage' | 'walletRequestErrorCode' | 'transactionDisposition'>): NonNullable<ScenarioResult['transactionDisposition']> {
   if (result.status === 'pass' && result.executionAttempted) return 'confirmed';
-  if (result.transactionHash) return ['execution-receipt-assertions', 'ui-receipt-assertions', 'ui-balance-postchecks'].includes(result.executionStage ?? '') ? 'confirmed' : 'unknown';
+  if (result.transactionHash) return result.transactionDisposition === 'confirmed'
+    || ['execution-receipt-assertions', 'ui-receipt-assertions', 'ui-balance-postchecks'].includes(result.executionStage ?? '') ? 'confirmed' : 'unknown';
   if (!result.executionAttempted || result.walletRequestErrorCode === 4001) return 'not-submitted';
   const stage = result.executionStage;
   if (!stage || stage.startsWith('setup-') || stage.startsWith('ui-prepare') || ['ui-facts', 'ui-balances', 'execution-facts', 'execution-quote', 'execution-plan', 'authorization-availability', 'allowance-read', 'approval-submission', 'approval-confirmation', 'native-permit-read', 'permit2-read', 'authorization-signature', 'execution-simulation', 'execution-encoding'].includes(stage)) return 'not-submitted';

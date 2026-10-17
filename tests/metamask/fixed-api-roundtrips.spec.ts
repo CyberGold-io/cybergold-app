@@ -1,7 +1,7 @@
 import { errors, type Page } from "@playwright/test";
 import { expect, test } from "./testWithMetaMask";
 import { addLocalNetwork, connectWallet, notification, walletRequestButton, requestConnection, switchLocalNetwork } from "./wallet-ui";
-import { ensureBasketInputEditable, getMainInput, getSwapButton, openFeeDetails, parseAmount, readWalletBalances, selectToken, showAllSellTokens } from "./token-flows/helpers";
+import { ensureBasketInputEditable, getMainInput, getSwapButton, openFeeDetails, readWalletBalances, selectToken, showAllSellTokens } from "./token-flows/helpers";
 import { readFile, writeFile, rename } from "node:fs/promises";
 import { type Address, type Hex } from "viem";
 import { tradeScenarios, configuredToken, basketFacts, ScenarioUnavailableError } from "../trading/scenarios";
@@ -9,25 +9,38 @@ import { checkpointExecutionStage, failureResult, originFetch, readJson, require
 import { observeUiReceipt } from "../trading/uiReceipt";
 import { assertCapturedTradeInput } from "../trading/planAssertions";
 import { armUiQuoteCapture, capturedUiQuote, quoteAssets } from "../trading/uiQuoteCapture";
-import { assertWalletEconomics, walletAmounts, walletEvidence } from "../trading/uiEconomics";
+import { assertWalletEconomics, positiveDisplayedAmount, walletAmounts, walletEvidence } from "../trading/uiEconomics";
+import { expectWalletBalanceDisplay } from "../trading/uiWalletDisplay";
 import { observeUiGas, ownedReceiptGas } from "../trading/uiGas";
 import { fetchWalletBalances, type WalletBalancesSnapshot } from "../../app/utils/walletBalanceSnapshot";
 import { fundSandboxWallet } from "../trading/sandboxFunding";
 import { fetchTransactionReceipt } from "../../app/utils/transactionReceipt";
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration";
 import type { ProtocolFacts } from "../../app/utils/protocolFacts";
-import { buildMatrix, readValuation, matrixTemplates, matrixCounts, semanticDigest, assertMatrixIntent, type MatrixScenario } from "../trading/matrix";
-import { installSelectionCapture, selectionCaptures, captureSelection, executeAlternate, notAttemptedAlternate, providerSummaries, observedProviderEvidence, executionCoverage, transactionDisposition, type SelectionCapture } from "../trading/providerEvidence";
+import { buildMatrix, readValuation, matrixTemplates, matrixCounts, assertMatrixIntent, type MatrixScenario } from "../trading/matrix";
+import { installSelectionCapture, selectionCaptures, captureSelection, executeAlternate, notAttemptedAlternate, providerSummaries, observedProviderEvidence, observedBasketProviderEvidence, executionCoverage, transactionDisposition, type SelectionCapture } from "../trading/providerEvidence";
 import { installQuoteObservation, quoteObservations } from "../trading/quoteObservation";
 import { safeDiagnosticReferences } from "../../app/utils/diagnosticReferences";
+import { installUiSwapObservation, uiSwapObservation } from "../trading/uiSwapObservation";
 import { confirmedTransactionText, createUiQuoteDiagnostics, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion } from "../trading/uiDiagnostics";
 
-async function approveUntilMined(page: Page, submitted: () => boolean) {
+async function approveUntilMined(page: Page, submitted: () => boolean, observe: () => Promise<void> = async () => {}) {
   const success = confirmedTransactionText(page);
   const failure = page.getByText(/^Transaction failed$/i);
   await uiCompletionAssertion(() => expect.poll(async () => {
+    await observe();
     if (await failure.isVisible()) throw new Error((await page.locator("[data-sonner-toast]").allTextContents()).join(" | "));
     if (await success.isVisible()) return true;
+    // A temporary confirmation read failure exposes the product's existing
+    // receipt-only recovery. Exercise it within this same completion window;
+    // never click Swap again or create another wallet request.
+    const recheck = page.getByRole("button", { name: /^Check confirmation$/i });
+    if (await recheck.isVisible() && await recheck.isEnabled()) {
+      await recheck.click({ timeout: 1000 }).catch(error => {
+        if (!(error instanceof errors.TimeoutError)) throw error;
+      });
+      return false;
+    }
     const step = await (await getSwapButton(page)).innerText();
     if (!/^MetaMask \d+ of \d+:/.test(step)) return false;
     const popup = await notification(page, undefined, walletRequestButton);
@@ -44,15 +57,6 @@ async function approveUntilMined(page: Page, submitted: () => boolean) {
     }
     return false;
   }, { timeout: 90000, intervals: [250, 500, 1000] }).toBe(true), submitted);
-}
-
-async function balancesAfter(page: Page, ids: string[], accept: (value: Record<string, number>) => boolean) {
-  let balances: Record<string, number> = {};
-  await expect.poll(async () => {
-    balances = await readWalletBalances(page, ids);
-    return accept(balances);
-  }, { timeout: 30000, intervals: [250, 500, 1000] }).toBe(true);
-  return balances;
 }
 
 // Run with the disposable local protocol/backend fixture described in the E2E
@@ -82,6 +86,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   const scenarios = matrixTemplates() as MatrixScenario[];
   await page.addInitScript(installSelectionCapture as () => void);
   await page.addInitScript(installQuoteObservation as () => void);
+  await page.addInitScript(installUiSwapObservation as () => void);
   let clickedSelection: SelectionCapture | undefined;
   const results: ScenarioResult[] = scenarios.map(scenario => ({ ...resultFor(scenario, "execution"), id: `ui-${scenario.id}`, requestedStrategy: "auto", executionAttempted: false, transactionDisposition: "not-submitted" }));
   const fixtures: ScenarioResult[] = [];
@@ -116,7 +121,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       if (!setupComplete && ["quote", "swap"].includes(event?.operation)) setupRefs = { ...setupRefs, ...safeDiagnosticReferences(event) };
       if (current && !activeSwapAttempt && activeQuoteDiagnostics?.diagnostic(event))
         Object.assign(current, activeQuoteDiagnostics.snapshot());
-      if (event?.operation === "swap" && event.outcome === "started") activeSwapAttempt = event.attemptId;
+      if (!activeSwapAttempt && event?.operation === "swap" && event.outcome === "started") activeSwapAttempt = event.attemptId;
       if (current && event?.operation === "swap" && event.attemptId === activeSwapAttempt)
         current.refs = { ...current.refs, ...safeDiagnosticReferences(event) };
       if (event?.operation === "swap" && ["submitted", "succeeded"].includes(event.outcome)
@@ -176,10 +181,11 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       // buttons, while the editable token side retains its ordinary input.
       await expect(amounts).toHaveCount(2);
       for (const amount of await amounts.all()) {
-        await uiPreparationAssertion("ui-quoted-amount-not-ready", () => expect.poll(async () => parseAmount(await amount.innerText()), { timeout: 60000 }).toBeGreaterThan(0));
+        await uiPreparationAssertion("ui-quoted-amount-not-ready", () => expect.poll(async () => positiveDisplayedAmount(await amount.innerText(), 18), { timeout: 60000 }).toBe(true));
       }
     } else {
-      await uiPreparationAssertion("ui-quoted-amount-not-ready", () => expect.poll(async () => Number(await getMainInput(page, quotedSide).inputValue()), { timeout: 60000 }).toBeGreaterThan(0));
+      const decimals = configuredToken(config, quotedToken).decimals;
+      await uiPreparationAssertion("ui-quoted-amount-not-ready", () => expect.poll(async () => positiveDisplayedAmount(await getMainInput(page, quotedSide).inputValue(), decimals), { timeout: 60000 }).toBe(true));
     }
     // The existing accordion contains the committed tolerance and exact
     // min/max labels. Expose them without editing the chosen trade intent.
@@ -209,6 +215,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     let quote, captureError;
     try {
       clickedSelection = (await selectionCaptures(page)).at(-1);
+      activeSwapAttempt = clickedSelection?.attemptId ?? activeSwapAttempt;
       if (activeScenarioIndex !== undefined) {
         requireInvariant(clickedSelection, "selection-not-observed");
         assertMatrixIntent(scenarios[activeScenarioIndex], clickedSelection, config);
@@ -217,7 +224,19 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       quote = await capturedUiQuote(page, assets, mode); activeResult()!.uiQuote = quote;
     } catch (error) { captureError = error; }
     observationPhase = "ui-confirmation"; await checkpoint(observationPhase);
-    await approveUntilMined(page, () => Boolean(helpersHash));
+    await approveUntilMined(page, () => Boolean(helpersHash), async () => {
+      try {
+        const observed = await uiSwapObservation(page, activeSwapAttempt);
+        if (observed) {
+          activeSwapAttempt = observed.attemptId;
+          if (observed.transactionHash) helpersHash = observed.transactionHash;
+          // A mined receipt and the UI confirmation are separate assertions.
+          // Preserve observed settlement even if the toast/card check later fails.
+          if (observed.outcome === "succeeded" && observed.transactionHash && activeResult())
+            activeResult()!.transactionDisposition = "confirmed";
+        }
+      } catch { /* Optional observation cannot interrupt the native flow. */ }
+    });
     if (captureError) throw captureError;
     requireInvariant(quote, "ui-click-quote-not-observed");
     return quote;
@@ -232,7 +251,12 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     if ([...quote.input, ...quote.output].some(value => value.type === "native"))
       requireInvariant(ownedReceiptGas(observedGas, owner), "receipt-gas-unavailable");
     result.wallet = walletEvidence(quote, walletAmounts(before, config, quote), walletAmounts(after, config, quote), gas.paid, gas.hashes);
-    return () => assertWalletEconomics(result.wallet!, (result.receipt!.netPaid as string[]).map(BigInt), (result.receipt!.netReceived as string[]).map(BigInt));
+    return async () => {
+      assertWalletEconomics(result.wallet!, (result.receipt!.netPaid as string[]).map(BigInt), (result.receipt!.netReceived as string[]).map(BigInt));
+      const ids = [...quote.input, ...quote.output].map(amount => config.tokens.find(token => amount.type === "native"
+        ? token.type === "native" : token.type === "erc20" && token.address.toLowerCase() === amount.token.toLowerCase())!.id);
+      await expectWalletBalanceDisplay(page, ids, after, config);
+    };
   }
 
   await prepare("ETH", "CYGLD", "0.25", "buy");
@@ -280,7 +304,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       BigInt(uiQuote.output[0].amount), [], uiQuote, fixtures[0]);
     const validateWallet = await walletPostcheck(walletBefore, fixtures[0]);
     observationPhase = "ui-receipt-assertions"; await checkpoint(observationPhase); measuredReceipt.validate();
-    observationPhase = "ui-balance-postchecks"; await checkpoint(observationPhase); validateWallet();
+    observationPhase = "ui-balance-postchecks"; await checkpoint(observationPhase); await validateWallet();
   } catch (error) { fixtures[0] = { ...uiObservationFailure(fixtures[0], error, observationPhase), ...(helpersHash ? { transactionHash: helpersHash } : {}) }; }
   fixtures[0].durationMs = Math.round(performance.now() - bootstrapStarted); await persist();
   activeFixtureIndex = undefined; activeQuoteDiagnostics = undefined; activeSwapAttempt = undefined;
@@ -300,7 +324,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       const basketTokens = basket.map(address => config.tokens.find(token => token.type === "erc20" && token.address.toLowerCase() === address.toLowerCase())!);
       const ids = scenario.asset === "BASKET" ? basketTokens.map(token => token.id) : [configuredToken(config, scenario.asset).id];
       observationPhase = "ui-balances"; await checkpoint(observationPhase);
-      const before = await readWalletBalances(page, [...ids, "cygld"]);
+      await readWalletBalances(page, [...ids, "cygld"]);
       const walletBefore = await fetchWalletBalances(owner, undefined, fetcher, "swap-preflight");
       helpersHash = undefined;
       results[index].code = "execution-not-completed"; await persist();
@@ -324,13 +348,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       if (receiptSelection?.quote) requireInvariant(results[index].actualStrategy === receiptSelection.quote.strategy, "captured-provider-mismatch");
       const validateWallet = await walletPostcheck(walletBefore, results[index]);
       observationPhase = "ui-receipt-assertions"; await checkpoint(observationPhase); measuredReceipt.validate();
-      observationPhase = "ui-balance-postchecks"; await checkpoint(observationPhase); validateWallet();
-      observationPhase = "ui-balance-postchecks"; await checkpoint(observationPhase);
-      await balancesAfter(page, [...ids, "cygld"], after => scenario.side === "buy"
-        ? after.cygld > before.cygld && ids.some(id => after[id] < before[id])
-        // Native gas can exceed a small ETH delivery. Its received trade
-        // amount is already proved by the gas-adjusted integer wallet check.
-        : after.cygld < before.cygld && (scenario.asset === "ETH" || ids.some(id => after[id] > before[id])));
+      observationPhase = "ui-balance-postchecks"; await checkpoint(observationPhase); await validateWallet();
       results[index].transactionDisposition = "confirmed";
     } catch (error) { results[index] = { ...uiObservationFailure(results[index], error, observationPhase), ...(helpersHash ? { transactionHash: helpersHash } : {}) }; }
     results[index].transactionDisposition = transactionDisposition(results[index]);
@@ -352,12 +370,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       Object.assign(results[index], binding, settlement, { refs });
       results[index].alternateExecution = await executeAlternate(selected, scenario, selected.intent, page, owner, config, fetcher, undefined, results[index].transactionDisposition);
     } else if (scenario.asset === "BASKET") {
-      const observed = observations.find(row => row.path === "/api/quotes/basket-preview" && row.terminal?.type === "complete"
-        && selected?.basketRequest && JSON.stringify(row.request) === JSON.stringify(selected.basketRequest));
-      const preview = observed?.terminal?.value as import("../../app/utils/basketPreview").BasketPreview | undefined;
-      results[index].providers = { core: preview ? { availability: "qualified", searchOutcome: "complete", planDigest: semanticDigest(preview), context: preview.context } : { availability: "unavailable", searchOutcome: "error" }, market: { availability: "unsupported", searchOutcome: "not-run" } };
+      results[index].providers = observedBasketProviderEvidence(observations, scenario);
       results[index].alternateExecution = { ...notAttemptedAlternate(scenario), provider: "market", reason: "unsupported" };
-      results[index].selectedProvider = preview ? "core" : undefined;
+      results[index].selectedProvider = results[index].providers.core.availability === "qualified" ? "core" : undefined;
     }
     activeScenarioIndex = undefined; activeQuoteDiagnostics = undefined; activeSwapAttempt = undefined;
     await persist();

@@ -156,11 +156,13 @@ export async function approveMetaMaskPrompts(page: Page, password: string) {
 }
 
 export async function openWalletBalanceModal(page: Page) {
-  await page.getByRole("button", { name: "Open wallet menu" }).click();
+  if (!await page.getByTestId("wallet-balance-modal").isVisible())
+    await page.getByRole("button", { name: "Open wallet menu" }).click();
   await expect(page.getByTestId("wallet-balance-modal")).toBeVisible();
 }
 
 export async function closeWalletBalanceModal(page: Page) {
+  if (!await page.getByTestId("wallet-balance-modal").isVisible()) return;
   const closeButton = page.getByRole("button", { name: /Close balances/i });
   await expect(closeButton).toBeVisible();
   await closeButton.click();
@@ -173,13 +175,11 @@ export async function getWalletBalance(page: Page, tokenId: string) {
 
 export async function readWalletBalances(page: Page, tokenIds: string[]) {
   await openWalletBalanceModal(page);
-  const balances = Object.fromEntries(
-    await Promise.all(
+  try {
+    return Object.fromEntries(await Promise.all(
       tokenIds.map(async (tokenId) => [tokenId, await getWalletBalance(page, tokenId)] as const)
-    )
-  );
-  await closeWalletBalanceModal(page);
-  return balances;
+    ));
+  } finally { await closeWalletBalanceModal(page); }
 }
 
 export function getSwapSection(page: Page) {

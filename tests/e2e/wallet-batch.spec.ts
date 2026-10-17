@@ -6,6 +6,7 @@ import { erc20Abi } from "../../app/contracts/erc20";
 import { HELPERS_DIAMOND_ABI } from "../../app/contracts/generated/helpersDiamond";
 import { choose, context, install } from "./fixtures/token-quotes";
 import { selectBasket } from "./fixtures/swap-selection";
+import { installUiSwapObservation, uiSwapObservation } from "../trading/uiSwapObservation";
 
 const owner = "0x0000000000000000000000000000000000000011";
 const weth = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
@@ -319,6 +320,7 @@ test("installed MetaMask SDK queues approval then swap after Permit2 signing whi
 
 for (const outcome of ["reverted", "outage", "rejected"] as const) {
   test(`batch ${outcome} keeps its original outcome without sending separate transactions`, async ({ page }) => {
+    await page.addInitScript(installUiSwapObservation as () => void);
     const observed = await setup(page, "supported", outcome); await choose(page, "WETH");
     await page.locator("#sell-amount").fill("1");
     const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
@@ -333,10 +335,18 @@ for (const outcome of ["reverted", "outage", "rejected"] as const) {
       await expect(notice.getByRole("link", { name: "View transaction" })).toHaveCount(0);
       await expect(notice).not.toContainText(id);
       if (outcome === "outage") {
+        const pending = await uiSwapObservation(page);
+        // An atomic bundle has no transaction hash until its receipt is read.
+        expect(pending).toMatchObject({ outcome: "unconfirmed" });
+        expect(pending?.attemptId).toBeTruthy();
+        expect(pending?.transactionHash).toBeUndefined();
         await page.evaluate(() => (window as unknown as { __walletBatchTest: { restoreStatus: () => void } }).__walletBatchTest.restoreStatus());
         await notice.getByRole("button", { name: "Check confirmation", exact: true }).click();
         await expect(notice).toContainText("Transaction confirmed");
         await expect(notice).toContainText(hash);
+        await expect.poll(() => uiSwapObservation(page, pending!.attemptId)).toMatchObject({
+          attemptId: pending!.attemptId, outcome: "succeeded", transactionHash: hash,
+        });
       }
     }
     expect((await observed()).bundles).toHaveLength(1); expect((await observed()).transactions).toHaveLength(0);
