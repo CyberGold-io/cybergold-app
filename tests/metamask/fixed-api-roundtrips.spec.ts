@@ -22,13 +22,13 @@ import { installSelectionCapture, selectionCaptures, captureSelection, captureBa
 import { installQuoteObservation, quoteObservations } from "../trading/quoteObservation";
 import { safeDiagnosticReferences } from "../../app/utils/diagnosticReferences";
 import { installUiSwapObservation, uiSwapObservation } from "../trading/uiSwapObservation";
-import { confirmedTransactionText, createUiQuoteDiagnostics, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion, uiSwapTerminalFailure } from "../trading/uiDiagnostics";
+import { confirmedTransactionText, createUiQuoteDiagnostics, isUiCompletionDeadlineError, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion, uiSwapTerminalFailure } from "../trading/uiDiagnostics";
 import { enrichResultQuality } from "../trading/quoteQuality";
 import { safeWalletClickError, type UiConfirmationDiagnostic } from "../trading/runnerDiagnostics";
 import { readWalletUiState } from "../trading/walletUiState";
 import { privateSandboxPhase, privateSandboxScenarios, privateSandboxSelection, sandboxIsolation, scenarioIsolation, type SandboxIsolation } from "../trading/privateSandbox";
-import { cleanupOwnedWalletRequest, isWalletRequestCleanupError, walletRequestContextClosedError } from "../trading/walletRequestLifecycle";
-import { recoverUiTransaction, uiWalletRequestSettled } from "../trading/uiTransactionRecovery";
+import { cleanupOwnedWalletRequest, closeOwnedWalletContext, isWalletRequestCleanupError, walletRequestContextClosedError } from "../trading/walletRequestLifecycle";
+import { hasUiReceiptOutcome, observeUiReceiptUntilDeadline, recoverUiTransaction, uiWalletRequestSettled } from "../trading/uiTransactionRecovery";
 
 async function approveUntilMined(page: Page, submitted: () => boolean, observe: () => Promise<void> = async () => {},
   nativeProgress?: (event: { selection?: Pick<UiConfirmationDiagnostic, "notificationSelection" | "notificationViewCount">;
@@ -93,6 +93,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   let activeFixtureIndex: number | undefined;
   let activeQuoteDiagnostics: ReturnType<typeof createUiQuoteDiagnostics> | undefined;
   let observationPhase: UiObservationPhase = "ui-prepare";
+  let activeConfirmationDeadline: number | undefined;
   let setupComplete = false;
   let setupRefs = {};
   let config: ProtocolConfiguration;
@@ -230,8 +231,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     let observed: Awaited<ReturnType<typeof uiSwapObservation>>;
     let contextClosed = false;
     const settled = async () => {
+      if (result.transactionHash) return true;
       try { observed = await uiSwapObservation(page, activeSwapAttempt) ?? observed; } catch { /* Retain the last original-attempt observation during context disposal. */ }
-      return Boolean(result.transactionHash) || uiWalletRequestSettled(observed, activeSwapAttempt);
+      return uiWalletRequestSettled(observed, activeSwapAttempt);
     };
     try {
       const released = await cleanupOwnedWalletRequest(page, settled, value => {
@@ -239,12 +241,25 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       });
       contextClosed = released.cleanup === "context-closed";
     } finally {
-      await recoverUiTransaction(result, activeSwapAttempt, observed, fetcher);
+      const remaining = Math.max(0, Math.floor((activeConfirmationDeadline ?? 0) - performance.now()));
+      if (!hasUiReceiptOutcome(result)) await recoverUiTransaction(result, activeSwapAttempt, observed, fetcher,
+        remaining > 0 ? AbortSignal.timeout(remaining) : AbortSignal.abort());
       if (result.transactionHash) helpersHash = result.transactionHash as Hex;
     }
     // The owning browser resource ended. Let its ordinary teardown error
     // leave the per-case catcher; remaining inventory stays unexercised.
     if (contextClosed) throw walletRequestContextClosedError();
+  }
+  async function finishUiRequest(result: ScenarioResult, error: unknown) {
+    await releaseUiRequest(result);
+    if (result.transactionHash && activeConfirmationDeadline !== undefined
+      && !await observeUiReceiptUntilDeadline(result, activeConfirmationDeadline, fetcher)) {
+      result.transactionDisposition = "unknown";
+      if (result.uiConfirmation) result.uiConfirmation.deadlineExpired = true;
+      await closeOwnedWalletContext(page, error, value => {
+        if (result.uiConfirmation) Object.assign(result.uiConfirmation, value, { requestStage: result.executionStage });
+      });
+    }
   }
   async function submit(assets: ReturnType<typeof quoteAssets>, mode: "exact-in" | "exact-out") {
     const button = await getSwapButton(page);
@@ -254,13 +269,16 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     const submittedResult = activeResult();
     if (submittedResult) submittedResult.executionAttempted = true;
     const confirmationStarted = performance.now();
+    // If the click itself fails after dispatch, this original flow still owns
+    // the configured confirmation budget; it never receives a later restart.
+    activeConfirmationDeadline = confirmationStarted + 90_000;
     const confirmation: UiConfirmationDiagnostic = { elapsedMs: 0, clickAttempts: 0, clickCompleted: 0 };
     const currentResult = submittedResult;
     if (currentResult) currentResult.uiConfirmation = confirmation;
     try { await button.click(); } catch (error) {
       // A native request can open before Playwright reports a click failure.
       // Release this owned flow even when optional attempt capture never ran.
-      try { if (currentResult) await releaseUiRequest(currentResult); }
+      try { if (currentResult) await finishUiRequest(currentResult, error); }
       finally { confirmation.elapsedMs = Math.max(0, Math.round(performance.now() - confirmationStarted)); }
       throw error;
     }
@@ -278,6 +296,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       quote = await capturedUiQuote(page, assets, mode); activeResult()!.uiQuote = quote;
     } catch (error) { captureError = error; }
     observationPhase = "ui-confirmation"; await checkpoint(observationPhase);
+    // Normal completion starts its existing 90 s poll here, after click/capture.
+    // Later hash/receipt recovery consumes this same window, not a fresh one.
+    activeConfirmationDeadline = performance.now() + 90_000;
     let observing = true, readingUi = false;
     try { await approveUntilMined(page, () => Boolean(helpersHash), async () => {
       let terminalFailure: ReturnType<typeof uiSwapTerminalFailure>;
@@ -295,6 +316,11 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
           // Preserve observed settlement even if the toast/card check later fails.
           if (observed.outcome === "succeeded" && observed.transactionHash && activeResult())
             activeResult()!.transactionDisposition = "confirmed";
+          if (observed.transactionHash && currentResult && !hasUiReceiptOutcome(currentResult)) {
+            const remaining = Math.max(0, Math.floor((activeConfirmationDeadline ?? 0) - performance.now()));
+            await recoverUiTransaction(currentResult, activeSwapAttempt, observed, fetcher,
+              remaining > 0 ? AbortSignal.timeout(remaining) : AbortSignal.abort());
+          }
           terminalFailure = uiSwapTerminalFailure(observed);
         }
       } catch { /* Optional observation cannot interrupt the native flow. */ }
@@ -316,7 +342,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     }); } catch (error) {
       // Finish this original native request before the next case can select
       // another prompt. A late hash is retained; Swap is never clicked again.
-      if (currentResult) await releaseUiRequest(currentResult);
+      const deadlineExpired = isUiCompletionDeadlineError(error);
+      if (deadlineExpired) confirmation.deadlineExpired = true;
+      if (currentResult) await finishUiRequest(currentResult, error);
       throw error;
     } finally {
       observing = false;
@@ -381,7 +409,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     observationPhase = "ui-hash"; await checkpoint(observationPhase);
     await expect.poll(() => helpersHash, { timeout: 15000 }).toBeTruthy();
     observationPhase = "ui-receipt-read"; await checkpoint(observationPhase);
-    const receipt = await fetchTransactionReceipt(helpersHash!, undefined, fetcher);
+    const receiptRemaining = Math.max(0, Math.floor((activeConfirmationDeadline ?? 0) - performance.now()));
+    const receipt = hasUiReceiptOutcome(fixtures[0]) || receiptRemaining > 0
+      ? await fetchTransactionReceipt(helpersHash!, receiptRemaining > 0 ? AbortSignal.timeout(receiptRemaining) : undefined, fetcher) : undefined;
     requireInvariant(receipt, "receipt-unavailable");
     observationPhase = "ui-transaction-read"; await checkpoint(observationPhase);
     const observed = await readJson<{ transaction: { input: Hex; to: string; from: string } | null }>(fetcher, `/api/transaction/wait/transaction?hash=${helpersHash}`);
@@ -400,6 +430,8 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       fixtures[0].durationMs = Math.round(performance.now() - bootstrapStarted);
       await persist(); throw error;
     }
+    if (fixtures[0].executionAttempted) try { await finishUiRequest(fixtures[0], error); }
+    catch (failure) { fixtures[0].durationMs = Math.round(performance.now() - bootstrapStarted); await persist(); throw failure; }
   }
   fixtures[0].durationMs = Math.round(performance.now() - bootstrapStarted); await persist();
   activeFixtureIndex = undefined; activeQuoteDiagnostics = undefined; activeSwapAttempt = undefined;
@@ -467,7 +499,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       observationPhase = "ui-hash"; await checkpoint(observationPhase);
       await expect.poll(() => helpersHash, { timeout: 15000 }).toBeTruthy();
       observationPhase = "ui-receipt-read"; await checkpoint(observationPhase);
-      const receipt = await fetchTransactionReceipt(helpersHash!, undefined, fetcher);
+      const receiptRemaining = Math.max(0, Math.floor((activeConfirmationDeadline ?? 0) - performance.now()));
+      const receipt = hasUiReceiptOutcome(results[index]) || receiptRemaining > 0
+        ? await fetchTransactionReceipt(helpersHash!, receiptRemaining > 0 ? AbortSignal.timeout(receiptRemaining) : undefined, fetcher) : undefined;
       requireInvariant(receipt, "receipt-unavailable");
       observationPhase = "ui-transaction-read"; await checkpoint(observationPhase);
       const observed = await readJson<{ transaction: { input: Hex; to: string; from: string } | null }>(fetcher, `/api/transaction/wait/transaction?hash=${helpersHash}`);
@@ -485,14 +519,11 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     } catch (error) {
       results[index] = { ...uiObservationFailure(results[index], error, observationPhase), ...(helpersHash ? { transactionHash: helpersHash } : {}) };
       results[index].transactionDisposition = transactionDisposition(results[index]);
-      if (isWalletRequestCleanupError(error)) { await persist(); throw error; }
+      if (isWalletRequestCleanupError(error)) { results[index].durationMs = Math.round(performance.now() - started); await persist(); throw error; }
       // A display/receipt assertion may fail after native submission. Recover
       // its original receipt identity without changing the failed assertion.
-      if (activeSwapAttempt) {
-        let observed: Awaited<ReturnType<typeof uiSwapObservation>>;
-        try { observed = await uiSwapObservation(page, activeSwapAttempt); } catch {}
-        await recoverUiTransaction(results[index], activeSwapAttempt, observed, fetcher);
-      }
+      if (results[index].executionAttempted) try { await finishUiRequest(results[index], error); }
+      catch (failure) { results[index].durationMs = Math.round(performance.now() - started); await persist(); throw failure; }
     }
     results[index].transactionDisposition = transactionDisposition(results[index]);
     // Winner latency ends before the separately measured alternate attempt.

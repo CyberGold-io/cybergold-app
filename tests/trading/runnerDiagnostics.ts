@@ -33,6 +33,7 @@ export type UiConfirmationDiagnostic = Pick<WalletRequestDiagnostic, "elapsedMs"
   appStage?: "quote" | "balance" | "network" | "authorization" | "preparation" | "simulation" | "submission" | "confirmation";
   appOutcome?: "started" | "submitted" | "succeeded" | "failed" | "reverted" | "unconfirmed";
   walletStep?: "approval" | "signature" | "transaction";
+  deadlineExpired?: boolean;
 };
 export type WalletTestDiagnostics = Partial<Record<"ui" | "independent", WalletSetupDiagnostic>>;
 export type RunnerDiagnostic = { stage: typeof runnerStages[number]; exitCode?: number; signal?: string;

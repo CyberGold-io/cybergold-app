@@ -19,6 +19,23 @@ export function walletRequestContextClosedError() {
   return error;
 }
 
+/** Close this run's owned wallet resource, preserving the original deadline
+ * failure. A close failure keeps its ordinary identity for fixture teardown.
+ * Callers establish the owner's accepted receipt-deadline condition.
+ */
+export async function closeOwnedWalletContext(page: Page, originalError: unknown,
+  observe: (value: WalletRequestCleanup) => void = () => {}): Promise<never> {
+  const started = performance.now();
+  let error = originalError;
+  let cleanup: WalletRequestCleanup["cleanup"] = "context-closed";
+  try { await page.context().close(); } catch (closeError) { error = closeError; cleanup = "unresolved"; }
+  try { observe({ cleanup, cleanupElapsedMs: Math.max(0, Math.round(performance.now() - started)),
+    cleanupClickAttempts: 0, cleanupClickCompleted: 0 }); } catch { /* Optional close evidence cannot replace the original error. */ }
+  const failure = typeof error === "object" && error !== null ? error : new Error("Wallet context cleanup failed.");
+  disposalErrors.add(failure);
+  throw failure;
+}
+
 /** Release an already-owned native request, never submit a replacement.
  * EIP-1193 has no cancellation method. Reject the native prompt; if it cannot
  * settle, dispose the owned browser context so a later case cannot click it.

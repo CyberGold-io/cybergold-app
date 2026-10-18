@@ -56,11 +56,19 @@ export async function uiPreparationAssertion(code: "ui-quoted-amount-not-ready" 
   }
 }
 
+const completionDeadlines = new WeakSet<object>();
+/** The existing UI completion poll exhausted its own deadline, not an arbitrary UI error. */
+export function isUiCompletionDeadlineError(error: unknown) {
+  return typeof error === "object" && error !== null && completionDeadlines.has(error);
+}
+
 export async function uiCompletionAssertion(assertion: () => Promise<unknown>, submitted: () => boolean) {
   try { await assertion(); } catch (error) {
     if (error && typeof error === "object" && "matcherResult" in error) {
-      if (submitted()) throw new ScenarioUnavailableError("submitted-unconfirmed");
-      throw new RegressionAssertionError("ui-completion-not-observed");
+      const failure = submitted() ? new ScenarioUnavailableError("submitted-unconfirmed")
+        : new RegressionAssertionError("ui-completion-not-observed");
+      completionDeadlines.add(failure);
+      throw failure;
     }
     throw error;
   }

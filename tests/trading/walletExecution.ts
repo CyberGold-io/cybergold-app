@@ -15,7 +15,7 @@ import { readJson, requireInvariant, type QuoteObservation, type ScenarioResult 
 import { safeRunnerError, safeWalletClickError, type WalletRequestDiagnostic } from "./runnerDiagnostics.ts";
 import { readWalletUiState } from "./walletUiState.ts";
 import { observeWalletRpc } from "./walletRpcObservation.ts";
-import { cleanupOwnedWalletRequest, walletRequestContextClosedError } from "./walletRequestLifecycle.ts";
+import { cleanupOwnedWalletRequest, closeOwnedWalletContext, walletRequestContextClosedError } from "./walletRequestLifecycle.ts";
 import { retainReceiptOutcome } from "./uiTransactionRecovery.ts";
 import { protocolConfigurationValues, type ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
 import type { HelpersExecutionOperation } from "../../app/utils/helpersExecutionGas.ts";
@@ -173,15 +173,31 @@ export async function requestWallet(page: Page, request: { method: string; param
   return pending;
 }
 
-export async function waitReceipt(hash: Hex, fetcher: typeof fetch, result?: ScenarioResult) {
-  let receipt: Awaited<ReturnType<typeof fetchTransactionReceipt>>;
+export async function waitReceipt(hash: Hex, fetcher: typeof fetch, result?: ScenarioResult, page?: Page,
+  cleanupResult: ScenarioResult | undefined = result) {
+  let receipt: Awaited<ReturnType<typeof fetchTransactionReceipt>> = null;
   try {
-    await expect.poll(async () => { receipt = await fetchTransactionReceipt(hash, undefined, fetcher); return receipt !== null; },
+    await expect.poll(async () => {
+      try { receipt = await fetchTransactionReceipt(hash, undefined, fetcher); return receipt !== null; }
+      catch { return false; } // An unavailable read is not exhaustion of the receipt deadline.
+    },
       { timeout: 90_000, intervals: [500, 1000, 2000] }).toBe(true);
   } catch {
-    // A broadcast hash exists, but this confirmation deadline did not establish
-    // its chain outcome. Retain the hash; do not report a failed transaction.
-    throw new ScenarioUnavailableError("submitted-unconfirmed");
+    // The callback can have observed a receipt while the poll deadline was
+    // expiring. Reconcile that actual receipt through the ordinary assertions.
+    if (receipt === null) {
+      // A broadcast hash exists, but this deadline did not establish its chain
+      // outcome. Retain the hash; do not report a failed transaction.
+      const error = new ScenarioUnavailableError("submitted-unconfirmed");
+      if (result) result.transactionDisposition = "unknown";
+      // Owner policy: end the owned run rather than let a later case overlap
+      // this known broadcast's unresolved chain effects. Hashless settled
+      // wallet requests are outside this receipt-deadline condition.
+      if (page) await closeOwnedWalletContext(page, error, value => {
+        if (cleanupResult?.walletRequest) Object.assign(cleanupResult.walletRequest, value);
+      });
+      throw error;
+    }
   }
   if (result) retainReceiptOutcome(result, receipt!);
   requireInvariant(receipt!.status === "success", "receipt-reverted"); return receipt!;
@@ -193,7 +209,7 @@ async function approval(page: Page, token: Address, owner: Address, spender: Add
     chainId: toHex(chainId), gas: toHex(120_000), data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [spender, amount] }) }] }, false, result) as Hex;
   (result.approvalTransactionHashes ??= []).push(hash);
   result.executionStage = "approval-confirmation";
-  await waitReceipt(hash, fetcher);
+  await waitReceipt(hash, fetcher, undefined, page, result);
 }
 async function allowance(page: Page, token: Address, owner: Address, amount: bigint, config: ProtocolConfiguration, fetcher: typeof fetch, result: ScenarioResult) {
   result.executionStage = "allowance-read";
@@ -346,7 +362,7 @@ export async function executeScenario(observation: QuoteObservation, page: Page,
     chainId: toHex(config.chainId), data, value: toHex(nativeValue ?? 0n), gas: toHex(gas * 12n / 10n) }] }, false, result) as Hex;
   result.transactionHash = hash; // Retain submission evidence before any receipt read.
   result.executionStage = "execution-confirmation";
-  const receipt = await waitReceipt(hash, fetcher, result);
+  const receipt = await waitReceipt(hash, fetcher, result, page);
   result.receipt = { ...result.receipt, refunds: tradeRefundEvidence(receipt.logs, config.contracts.helpers as Address, owner) };
   result.executionStage = "execution-transaction-read";
   const observed = await readJson<{ transaction: { input: Hex; to: string; from: string } | null }>(fetcher, `/api/transaction/wait/transaction?hash=${hash}`);

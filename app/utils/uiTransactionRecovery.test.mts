@@ -179,3 +179,23 @@ test("missing receipt, service error, or unrelated returned receipt cannot inven
     assert.equal(result.receipt, undefined); assert.equal(result.status, "fail");
   }
 });
+
+test("an exhausted confirmation signal retains the original hash without starting a new receipt read", async () => {
+  const result = { ...failedResult(), transactionHash: hash };
+  let reads = 0;
+  await recoverUiTransaction(result, undefined, undefined, (async () => { reads++; throw new Error("deadline already ended"); }) as typeof fetch, AbortSignal.abort());
+  assert.equal(reads, 0); assert.equal(result.transactionHash, hash); assert.equal(result.receipt, undefined);
+  assert.equal(result.transactionDisposition, "unknown"); assert.equal(result.code, "ui-completion-not-observed");
+});
+
+test("a receipt response that resolves after cancellation cannot mutate the unknown failed outcome", async () => {
+  const result = { ...failedResult(), transactionHash: hash }, abort = new AbortController();
+  const response = Promise.withResolvers<Response>();
+  let reads = 0;
+  const pending = recoverUiTransaction(result, undefined, undefined, (async () => { reads++; return response.promise; }) as typeof fetch, abort.signal);
+  assert.equal(reads, 1); abort.abort();
+  response.resolve(Response.json({ receipt: { transactionHash: hash, blockHash, blockNumber: String(blockNumber), status: "success", logs: [] } }));
+  await pending;
+  assert.equal(result.receipt, undefined); assert.equal(result.transactionDisposition, "unknown");
+  assert.equal(result.status, "fail"); assert.equal(result.code, "ui-completion-not-observed");
+});

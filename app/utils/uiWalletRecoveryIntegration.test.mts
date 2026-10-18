@@ -6,9 +6,9 @@ import ts from "typescript";
 import { expect, type Page } from "@playwright/test";
 import { createSwapDiagnostics } from "./clientDiagnostics.ts";
 import { installUiSwapObservation, uiSwapObservation } from "../../tests/trading/uiSwapObservation.ts";
-import { recoverUiTransaction, uiWalletRequestSettled } from "../../tests/trading/uiTransactionRecovery.ts";
-import { cleanupOwnedWalletRequest, isWalletRequestCleanupError, walletRequestContextClosedError } from "../../tests/trading/walletRequestLifecycle.ts";
-import { uiObservationFailure, uiSwapTerminalFailure } from "../../tests/trading/uiDiagnostics.ts";
+import { hasUiReceiptOutcome, observeUiReceiptUntilDeadline, recoverUiTransaction, uiWalletRequestSettled } from "../../tests/trading/uiTransactionRecovery.ts";
+import { cleanupOwnedWalletRequest, closeOwnedWalletContext, isWalletRequestCleanupError, walletRequestContextClosedError } from "../../tests/trading/walletRequestLifecycle.ts";
+import { isUiCompletionDeadlineError, uiObservationFailure, uiSwapTerminalFailure } from "../../tests/trading/uiDiagnostics.ts";
 import { requireInvariant, type ScenarioResult } from "../../tests/trading/regression.ts";
 import { transactionDisposition } from "../../tests/trading/providerEvidence.ts";
 import { executeAlternate, type AlternateExecution, type SelectionCapture } from "../../tests/trading/providerEvidence.ts";
@@ -17,6 +17,7 @@ import { coreTrade, marketTrade } from "../../tests/fixtures/trade-quote.mts";
 import { matrixTemplates } from "../../tests/trading/matrix.ts";
 import { tokenRequest } from "../../tests/trading/regression.ts";
 import { scenarioIsolation, type SandboxIsolation } from "../../tests/trading/privateSandbox.ts";
+import { ScenarioUnavailableError } from "../../tests/trading/scenarios.ts";
 
 const hash = `0x${"a".repeat(64)}` as const;
 const blockHash = `0x${"b".repeat(64)}` as const;
@@ -29,7 +30,7 @@ let fixtureCatch: string;
 let independentAlternateCheckpoint: string;
 let sequentialAlternateCheckpoint: string;
 const visit = (node: ts.Node) => {
-  if (ts.isFunctionDeclaration(node) && node.name && ["releaseUiRequest", "submit"].includes(node.name.text))
+  if (ts.isFunctionDeclaration(node) && node.name && ["releaseUiRequest", "finishUiRequest", "submit"].includes(node.name.text))
     declarations.set(node.name.text, node.getText(parsed));
   if (ts.isCatchClause(node) && node.block.getText(parsed).includes("uiObservationFailure(results[index]"))
     caseCatch = node.block.getText(parsed);
@@ -42,7 +43,7 @@ const visit = (node: ts.Node) => {
   ts.forEachChild(node, visit);
 };
 visit(parsed);
-assert.equal(declarations.size, 2); assert.ok(caseCatch!); assert.ok(fixtureCatch!);
+assert.equal(declarations.size, 3); assert.ok(caseCatch!); assert.ok(fixtureCatch!);
 assert.ok(independentAlternateCheckpoint!); assert.ok(sequentialAlternateCheckpoint!);
 
 /** Execute the real submit/release/case-catch call sites with a native request
@@ -83,13 +84,16 @@ function fixture(mode: "reject" | "late-hash" | "revert" | "confirmed-display-fa
     }
   };
   const scope = {
-    page, performance, Hex: undefined, helpersHash: undefined as string | undefined, activeSwapAttempt: undefined as string | undefined,
+    page, performance, AbortSignal, Hex: undefined, helpersHash: undefined as string | undefined, activeSwapAttempt: undefined as string | undefined,
+    activeConfirmationDeadline: undefined as number | undefined,
     activeScenarioIndex: 0 as number | undefined, results: [result], fixtures: [] as ScenarioResult[], index: 0, scenarios: [{}], config: {}, observationPhase: "ui-prepare",
     clickedSelection: undefined, uiSwapObservation, uiWalletRequestSettled, uiSwapTerminalFailure,
-    cleanupOwnedWalletRequest, isWalletRequestCleanupError, walletRequestContextClosedError, recoverUiTransaction, uiObservationFailure, requireInvariant, transactionDisposition,
+    cleanupOwnedWalletRequest, closeOwnedWalletContext, isWalletRequestCleanupError, walletRequestContextClosedError,
+    hasUiReceiptOutcome, observeUiReceiptUntilDeadline, recoverUiTransaction, isUiCompletionDeadlineError,
+    uiObservationFailure, requireInvariant, transactionDisposition,
     activeResult: (): ScenarioResult => scope.activeScenarioIndex === undefined ? scope.fixtures[0] : scope.results[0],
     checkpoint: async (stage: string) => { scope.activeResult().executionStage = stage as ScenarioResult["executionStage"]; },
-    bootstrapStarted: performance.now(),
+    bootstrapStarted: performance.now(), started: performance.now(),
     persist: async () => { persisted++; }, getSwapButton: async () => ({ click }), armUiQuoteCapture: async () => {},
     gasObservation: { begin() {} }, selectionCaptures: async () => [{ attemptId: swap.id, quote: {} }],
     assertMatrixIntent() {}, captureSelection: () => ({ primary: {} }), captureBasketSelection: () => ({}),
@@ -259,6 +263,35 @@ test("an unbound click failure still disposes its unresolved owned request and n
   } finally { f.restore(); }
 }));
 
+test("normal UI confirmation owns the existing 90s window starting after click and quote capture", async () => cleanupDeadline(async () => {
+  const f = fixture("reject");
+  try {
+    let now = 1000;
+    f.scope.performance = { now: () => now } as Performance;
+    const button = await f.scope.getSwapButton();
+    f.scope.getSwapButton = async () => ({ click: async () => { await button.click(); now += 3000; } });
+    f.scope.capturedUiQuote = async () => { now += 5000; return { input: [], output: [] }; };
+    f.allowCleanup.resolve();
+    await f.submit([], "exact-in").catch(error => f.capture(error));
+    assert.equal(f.scope.activeConfirmationDeadline, 99_000, "The normal 90s poll begins at 9s, after click/capture.");
+    assert.equal(f.counts().approvalObservers, 1); assert.equal(f.counts().swaps, 1);
+  } finally { f.restore(); }
+}));
+
+test("a click failure that never enters confirmation keeps its original flow's configured budget anchor", async () => cleanupDeadline(async () => {
+  const f = fixture("late-hash", "bound");
+  try {
+    let now = 1000;
+    f.scope.performance = { now: () => now } as Performance;
+    const button = await f.scope.getSwapButton();
+    f.scope.getSwapButton = async () => ({ click: async () => { now += 3000; await button.click(); } });
+    f.allowCleanup.resolve();
+    await f.submit([], "exact-in").catch(error => f.capture(error));
+    assert.equal(f.scope.activeConfirmationDeadline, 91_000, "Click failure must not restart another 90s confirmation window.");
+    assert.equal(f.counts().approvalObservers, 0); assert.equal(f.counts().broadcasts, 1);
+  } finally { f.restore(); }
+}));
+
 for (const phase of ["sequential", "independent"] as const) test(`fatal ${phase} alternate retains partial role evidence through its actual caller checkpoint`, async () => {
   const scenario = { ...matrixTemplates()[0], amountRaw: "100", sizingError: undefined };
   const primary = coreTrade("buy", "exact-in"), losing = { ...marketTrade("buy", "exact-in"), quotedInput: "100", quotedOutput: "200", inputMaximum: "100", outputMinimum: "1" };
@@ -268,13 +301,14 @@ for (const phase of ["sequential", "independent"] as const) test(`fatal ${phase}
     baselineBlockNumber: "101", baselineBlockHash: hash, cacheGeneration: 2, reset: "snapshot-reverted",
     chain: "owned-fork", cache: "recreated-per-attempt", wallet: "fresh-profile-per-attempt" } as SandboxIsolation;
   const rows = [{ id: "ui-primary", status: "pass" }] as ScenarioResult[];
-  let persisted: ScenarioResult[] | undefined, executions = 0, continued = false;
+  let persisted: ScenarioResult[] | undefined, executions = 0, continued = false, closes = 0;
   const scope = { results: rows, index: 0, isolation, scenarioIsolation,
     persist: async () => { persisted = structuredClone(rows); } };
   const callback = vm.runInNewContext(ts.transpile(`const checkpoint = ${phase === "sequential" ? sequentialAlternateCheckpoint! : independentAlternateCheckpoint!}; checkpoint;`,
     { target: ts.ScriptTarget.ES2022 }), scope) as (result: AlternateExecution) => Promise<void>;
-  const resourceError = walletRequestContextClosedError();
-  await assert.rejects(executeAlternate(capture, scenario, tokenRequest(scenario, config, config.contracts.helpers!), {} as Page,
+  const resourceError = new ScenarioUnavailableError("submitted-unconfirmed");
+  const resourcePage = { context: () => ({ close: async () => { closes++; } }) } as unknown as Page;
+  await assert.rejects(executeAlternate(capture, scenario, tokenRequest(scenario, config, config.contracts.helpers!), resourcePage,
     config.contracts.helpers as `0x${string}`, config, (async () => new Response(JSON.stringify({ type: "complete", value: losing }) + "\n")) as typeof fetch,
     async observation => {
       executions++;
@@ -282,13 +316,14 @@ for (const phase of ["sequential", "independent"] as const) test(`fatal ${phase}
         method: "eth_sendTransaction", settlement: "fulfilled", elapsedMs: 1, pendingBefore: 0, pendingAfter: 0,
         clickAttempts: 1, clickCompleted: 1, cleanup: "context-closed", cleanupElapsedMs: 2,
         cleanupClickAttempts: 1, cleanupClickCompleted: 1, requestStage: "execution-submission" } });
-      throw resourceError;
+      return await closeOwnedWalletContext(resourcePage, resourceError);
     }, "confirmed", phase === "sequential" ? "sequential-state" : "restored-baseline", callback).then(() => { continued = true; }),
   error => error === resourceError && isWalletRequestCleanupError(error));
-  assert.equal(continued, false); assert.equal(executions, 1);
+  assert.equal(continued, false); assert.equal(executions, 1); assert.equal(closes, 1);
   const retained = persisted?.[0].alternateExecution;
   assert.equal(retained?.attempted, true); assert.equal(retained?.provider, "market"); assert.equal(retained?.status, "fail");
   assert.equal(retained?.transactionHash, hash); assert.equal(retained?.transactionDisposition, "unknown");
+  assert.equal(retained?.code, "submitted-unconfirmed");
   assert.equal(retained?.walletRequest?.cleanup, "context-closed"); assert.ok(typeof retained?.durationMs === "number");
   if (phase === "independent") {
     assert.equal(persisted?.[0].status, "skipped"); assert.equal(persisted?.[0].code, "independent-alternate-only");
