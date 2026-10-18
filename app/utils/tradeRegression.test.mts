@@ -901,7 +901,6 @@ function runFreshWalletFixture(options: { failAt?: "browser-launch" | "wallet-on
 import { test } from ${JSON.stringify(walletFixture)};
 import setup from ${JSON.stringify(walletSetup)};
 import { chromium } from ${JSON.stringify(playwright)};
-import { MetaMask } from ${JSON.stringify(fileURLToPath(import.meta.resolve("@synthetixio/synpress-metamask/playwright")))};
 import filesystem from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { writeFileSync } from "node:fs";
@@ -923,19 +922,21 @@ const extensionPage = { url: () => home, goto: async () => {}, bringToFront: asy
   getByTestId: (id: string) => ({
     waitFor: async () => { if (id !== "account-menu-icon") actions.push(id === "onboarding-import-wallet" ? "import-button-wait" : "completion-hidden-wait"); },
     isVisible: async () => { actions.push("completion-check"); return true; },
-    click: async () => { actions.push("completion-click"); if (options.actualOnboarding === "completion-click") throw failure(); },
-  }), waitForLoadState: async () => { actions.push("load-state"); },
+    click: async () => {
+      if (id === "onboarding-import-wallet") { actions.push("import-wallet"); if (options.actualOnboarding === "import-wallet") throw failure(); }
+      if (id === "onboarding-complete-done") { actions.push("completion-click"); if (options.actualOnboarding === "completion-click") throw failure(); }
+    }, type: async () => {},
+  }), locator: () => ({ click: async () => {} }), waitForLoadState: async () => { actions.push("load-state"); },
   waitForTimeout: async (milliseconds: number) => { actions.push("existing-wait:" + milliseconds); } };
 chromium.launchPersistentContext = async () => {
   if (options.failAt === "browser-launch") throw failure();
-  return { serviceWorkers: () => [{ url: () => "chrome-extension://fixture/service-worker.js" }],
+  return { newCDPSession: async () => ({ send: async (command: string) => command === "Page.getFrameTree"
+      ? { frameTree: { frame: { id: "owned-fixture" } } } : command === "Page.createIsolatedWorld" ? { executionContextId: 1 } : {}, detach: async () => {} }),
+    serviceWorkers: () => [{ url: () => "chrome-extension://fixture/service-worker.js" }],
     pages: () => options.failAt === "other-pages-close" ? [extensionPage, otherPage] : [extensionPage], newPage: async () => ({ goto: async () => {} }),
     close: async () => { if (options.closeFailure) throw Object.assign(new Error("private-close-message"), { name: "TypeError", code: "EROFS" }); } } as never;
 };
-if (options.actualOnboarding) MetaMask.prototype.importWallet = async () => {
-  actions.push("import-wallet"); if (options.actualOnboarding === "import-wallet") throw failure();
-};
-else setup.fn = async () => { if (options.failAt === "wallet-onboarding") throw failure(); };
+if (!options.actualOnboarding) setup.fn = async () => { if (options.failAt === "wallet-onboarding") throw failure(); };
 test.afterAll(() => { writeFileSync(${JSON.stringify(actionsFile)}, JSON.stringify(actions)); });
 test("owned fresh wallet fixture reaches its test body", async ({ page }) => {
   writeFileSync(${JSON.stringify(entered)}, JSON.stringify({ entered: true }));
@@ -993,7 +994,7 @@ test("real onboarding failures identify the existing substep and preserve the fi
     assert.equal(result.exitCode, 1); assert.equal(result.bodyEntered, false);
     assert.equal(result.checkpoint.stage, "wallet-onboarding"); assert.equal(result.checkpoint.result, "fail");
     assert.equal(result.checkpoint.errorClass, "TimeoutError"); assert.equal(result.checkpoint.errorCode, "EACCES");
-    assert.equal(result.checkpoint.onboarding.step, step);
+    assert.equal(result.checkpoint.onboarding.step, step === "import-wallet" ? "import-choice" : step);
     assert.ok(Number.isSafeInteger(result.checkpoint.onboarding.elapsedMs) && result.checkpoint.onboarding.elapsedMs >= 0);
     assert.deepEqual(result.actions, step === "import-wallet" ? ["import-button-wait", "import-wallet"]
       : ["import-button-wait", "import-wallet", "completion-check", "completion-click"]);

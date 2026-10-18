@@ -46,7 +46,7 @@ export const test = testWithSynpress(metaMaskFixtures(metamaskSetup)).extend<{
       const extensionId = new URL(worker.url()).host;
       const home = `chrome-extension://${extensionId}/home.html`;
       const page = context.pages().find(candidate => candidate.url().startsWith(home)) ?? await context.newPage();
-      onboarding = observeWalletOnboarding(context);
+      onboarding = observeWalletOnboarding(context, () => { void checkpoint("running"); });
       uiObservation = observeWalletPageUiState(page, value => onboarding?.uiState(value));
       stage = "wallet-onboarding"; await checkpoint("running");
       await page.goto(home, { waitUntil: "domcontentloaded" });

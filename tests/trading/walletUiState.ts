@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 
 export const walletUiRoutes = ["onboarding", "confirmation", "unlock", "home", "other"] as const;
 export const walletUiControlGroups = ["confirmation", "alert", "alertSubmit", "alertAcknowledge", "importWallet", "importSrp",
-  "srpInput", "srpConfirm", "password", "passwordConfirm", "passwordTerms", "passwordSubmit", "metricsOptIn", "metricsAccept",
+  "srpInput", "srpWords", "srpConfirm", "passwordInput", "passwordConfirm", "passwordTerms", "passwordSubmit", "metricsOptIn", "metricsAccept",
   "onboardingDone", "accountMenu", "unlock"] as const;
 type ControlGroup = typeof walletUiControlGroups[number];
 type ControlCounts = Partial<Record<"matched" | "visible" | "enabled", number>>;
@@ -16,8 +16,8 @@ const confirmationControls = {
 };
 const onboardingControls = {
   importWallet: '[data-testid="onboarding-import-wallet"]', importSrp: '[data-testid="onboarding-import-with-srp-button"]',
-  srpInput: '[data-testid="srp-input-import__srp-note"]', srpConfirm: '[data-testid="import-srp-confirm"]',
-  password: '[data-testid="create-password-new-input"]', passwordConfirm: '[data-testid="create-password-confirm-input"]',
+  srpInput: '[data-testid="srp-input-import__srp-note"]', srpWords: '[data-testid^="import-srp__srp-word-"]', srpConfirm: '[data-testid="import-srp-confirm"]',
+  passwordInput: '[data-testid="create-password-new-input"]', passwordConfirm: '[data-testid="create-password-confirm-input"]',
   passwordTerms: '[data-testid="create-password-terms"]', passwordSubmit: '[data-testid="create-password-submit"]',
   metricsOptIn: '#metametrics-opt-in', metricsAccept: '[data-testid="metametrics-i-agree"]',
   onboardingDone: '[data-testid="onboarding-complete-done"]', accountMenu: '[data-testid="account-menu-icon"]',
@@ -48,67 +48,7 @@ export function safeWalletUiState(value: unknown): WalletUiState | undefined {
   } catch { /* Optional diagnostic data cannot change a wallet result. */ }
 }
 
-type BrowserOptions = { mode: "snapshot" | "observe" | "stop"; selectors: Partial<Record<ControlGroup, string>>; binding?: string };
-/** Self-contained for Page.evaluate; never reads DOM text, input values or exports a URL. */
-export function walletUiInPage(options: BrowserOptions): WalletUiState | undefined {
-  type Observation = { binding: string; active: boolean; observer?: MutationObserver; publish?: () => void };
-  const scope = window as Window & typeof globalThis & { __cybergoldWalletUiObservation?: Observation };
-  const current = scope.__cybergoldWalletUiObservation;
-  if (options.mode === "stop") {
-    if (current && current.binding === options.binding) { current.active = false; current.observer?.disconnect(); }
-    else if (!current && options.binding) scope.__cybergoldWalletUiObservation = { binding: options.binding, active: false };
-    return;
-  }
-  const snapshot = (): WalletUiState => {
-    const path = location.hash.slice(1).split("?")[0];
-    const route = /^\/?onboarding(?:\/|$)/.test(path) ? "onboarding"
-      : /^\/?(?:confirm|confirm-transaction|confirmation|signature-request|permissions-connect|connect)(?:\/|$)/.test(path) ? "confirmation"
-      : /^\/?unlock(?:\/|$)/.test(path) ? "unlock" : path === "" || path === "/" ? "home" : "other";
-    const controls: NonNullable<WalletUiState["controls"]> = {};
-    for (const [group, selector] of Object.entries(options.selectors)) {
-      const nodes = [...document.querySelectorAll(selector)];
-      controls[group as ControlGroup] = { matched: nodes.length,
-        visible: nodes.filter(node => {
-          const style = getComputedStyle(node), rect = node.getBoundingClientRect();
-          return style.visibility !== "hidden" && style.visibility !== "collapse" && rect.width > 0 && rect.height > 0;
-        }).length,
-        enabled: nodes.filter(node => !node.matches(":disabled") && !node.closest('[aria-disabled="true"]')).length };
-    }
-    return { route, controls };
-  };
-  if (options.mode === "snapshot") return snapshot();
-  if (!options.binding) return;
-  if (current?.binding === options.binding) { if (current.active) current.publish?.(); return; }
-  current?.observer?.disconnect();
-  const observation: Observation = { binding: options.binding, active: true };
-  scope.__cybergoldWalletUiObservation = observation;
-  let scheduled = false, inFlight = false, changedWhilePending = false, previous: string | undefined;
-  const schedule = () => {
-    if (!observation.active || scheduled) return;
-    scheduled = true;
-    queueMicrotask(() => { scheduled = false; observation.publish?.(); });
-  };
-  observation.publish = () => {
-    if (!observation.active) return;
-    if (inFlight) { changedWhilePending = true; return; }
-    try {
-      const deliver = (scope as unknown as Record<string, unknown>)[observation.binding];
-      if (typeof deliver !== "function") return;
-      const state = snapshot(), serialized = JSON.stringify(state);
-      if (serialized === previous) return;
-      previous = serialized; inFlight = true;
-      void Promise.resolve(deliver(state)).catch(() => {}).finally(() => {
-        inFlight = false;
-        if (changedWhilePending) { changedWhilePending = false; schedule(); }
-      });
-    } catch { inFlight = false; /* DOM teardown or bridge failure is independent of import. */ }
-  };
-  observation.observer = new MutationObserver(schedule);
-  observation.observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true });
-  observation.publish();
-}
-
-export async function readWalletUiState(page: Page): Promise<WalletUiState | undefined> {
+async function readWalletPageUiState(page: Page, selectors: Partial<Record<ControlGroup, string>>): Promise<WalletUiState | undefined> {
   try {
     const path = new URL(page.url()).hash.slice(1).split("?")[0];
     const route = /^\/?onboarding(?:\/|$)/.test(path) ? "onboarding"
@@ -117,7 +57,7 @@ export async function readWalletUiState(page: Page): Promise<WalletUiState | und
     const controls: NonNullable<WalletUiState["controls"]> = {};
     // MetaMask scuttles main-world eval. Built-in locator counts run in the
     // isolated utility world without changing the wallet's security policy.
-    for (const [group, selector] of Object.entries(confirmationControls)) {
+    for (const [group, selector] of Object.entries(selectors)) {
       const nodes = page.locator(selector);
       controls[group as ControlGroup] = { matched: await nodes.count(),
         visible: await nodes.and(page.locator(":visible")).count(),
@@ -128,30 +68,52 @@ export async function readWalletUiState(page: Page): Promise<WalletUiState | und
   catch { /* Closed or unresponsive optional observations cannot replace a click error. */ }
 }
 
-let observationSequence = 0;
-/** Observe only this existing wallet page; the SDK still owns every import action. */
+export function readWalletUiState(page: Page): Promise<WalletUiState | undefined> {
+  return readWalletPageUiState(page, confirmationControls);
+}
+export function readWalletOnboardingUiState(page: Page): Promise<WalletUiState | undefined> {
+  return readWalletPageUiState(page, onboardingControls);
+}
+
+/** Observe only this wallet page in Playwright's isolated utility world.
+ * MetaMask scuttles main-world eval, including observer/binding setup there.
+ * Reads are optional, serialized and stopped with their owning fixture.
+ */
 export function observeWalletPageUiState(page: Page, receive: (state: WalletUiState) => void) {
-  let active = true;
-  const binding = `__cybergoldWalletUiState${++observationSequence}`;
-  const options: BrowserOptions = { mode: "observe", selectors: onboardingControls, binding };
-  const capture = () => {
-    if (!active) return;
-    try { void page.evaluate(walletUiInPage, options).catch(() => {}); } catch { /* Optional bridge setup. */ }
+  let active = true, inFlight = false, timer: ReturnType<typeof setTimeout> | undefined;
+  let previous: string | undefined;
+  const capture = async () => {
+    if (!active || inFlight) return;
+    inFlight = true;
+    try {
+      const state = await readWalletOnboardingUiState(page);
+      if (!active || !state) return;
+      const serialized = JSON.stringify(state);
+      if (serialized !== previous) {
+        previous = serialized;
+        try { receive(state); } catch { /* Optional consumer. */ }
+      }
+    } catch { /* Closed or unresponsive wallet observations stay optional. */ }
+    finally {
+      inFlight = false;
+      if (active) {
+        clearTimeout(timer);
+        timer = setTimeout(() => { void capture(); }, 1000);
+        timer.unref?.();
+      }
+    }
   };
-  const navigated = (frame: ReturnType<Page["mainFrame"]>) => { if (frame === page.mainFrame()) capture(); };
+  const changed = () => { void capture(); };
+  const navigated = (frame: ReturnType<Page["mainFrame"]>) => {
+    if (frame === page.mainFrame()) changed();
+  };
   try {
-    page.on("domcontentloaded", capture); page.on("framenavigated", navigated);
-    void page.exposeBinding(binding, (_source, value: unknown) => {
-      if (!active) return;
-      const state = safeWalletUiState(value);
-      if (state) { try { receive(state); } catch { /* Optional consumer. */ } }
-    }).then(capture).catch(() => {});
+    page.on("domcontentloaded", changed); page.on("framenavigated", navigated);
+    changed();
   } catch { /* Optional observer setup never prevents onboarding. */ }
   return { stop() {
-    active = false;
-    try {
-      page.off("domcontentloaded", capture); page.off("framenavigated", navigated);
-      void page.evaluate(walletUiInPage, { ...options, mode: "stop" as const }).catch(() => {});
-    } catch { /* Closing pages need no diagnostic cleanup. */ }
+    active = false; clearTimeout(timer);
+    try { page.off("domcontentloaded", changed); page.off("framenavigated", navigated); }
+    catch { /* Closing pages need no diagnostic cleanup. */ }
   } };
 }

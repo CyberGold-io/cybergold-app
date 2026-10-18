@@ -6,11 +6,13 @@ import { existsSync } from "node:fs";
 import { realpath, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { observeWalletOnboarding, safeRunnerError, walletOnboardingStep, writeWalletSetupDiagnostic } from "../tests/trading/runnerDiagnostics.ts";
+import { observeWalletPageUiState } from "../tests/trading/walletUiState.ts";
 
 let stage = "setup-import";
 let context;
 let failed = false;
 let onboarding;
+let uiObservation;
 const observations = () => onboarding ? { onboarding: onboarding.snapshot() } : {};
 const checkpoint = result => writeWalletSetupDiagnostic(process.env.TRADE_REGRESSION_WALLET_SETUP_OUTPUT,
   { stage, result, ...observations() });
@@ -40,12 +42,13 @@ try {
       stage = "extension-worker"; await checkpoint("running");
       const worker = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
       const page = await context.newPage();
-      onboarding = observeWalletOnboarding(context);
+      onboarding = observeWalletOnboarding(context, () => { void checkpoint("running"); });
+      uiObservation = observeWalletPageUiState(page, value => onboarding?.uiState(value));
       stage = "wallet-onboarding"; await checkpoint("running");
       await page.goto(`chrome-extension://${new URL(worker.url()).host}/home.html`, { waitUntil: "domcontentloaded" });
       walletOnboardingStep(context, "setup-callback");
       await setup.fn(context, page);
-      onboarding.stop();
+      uiObservation.stop(); onboarding.stop();
       stage = "wallet-ready"; await checkpoint("running");
       await page.goto(`chrome-extension://${new URL(worker.url()).host}/home.html`, { waitUntil: "domcontentloaded" });
       await page.getByTestId("account-menu-icon").waitFor({ timeout: 30000 });
@@ -54,7 +57,7 @@ try {
   }
 } catch (error) {
   failed = true;
-  onboarding?.stop();
+  uiObservation?.stop(); onboarding?.stop();
   await writeWalletSetupDiagnostic(process.env.TRADE_REGRESSION_WALLET_SETUP_OUTPUT,
     { stage, result: "fail", ...safeRunnerError(error), ...observations() });
   throw error;
