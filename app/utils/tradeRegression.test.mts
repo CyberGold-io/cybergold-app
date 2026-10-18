@@ -157,13 +157,23 @@ test("HTTP 200 no-route fails the expected positive quote and retains safe Backe
   assert.doesNotMatch(JSON.stringify(result), /private-provider-url/);
 });
 
-for (const transport of ["stream", "http"] as const) for (const known of [true, false])
-  test(`${transport} quote failures retain bounded work diagnostics through the actual error, report and latest UI event (${known ? "known" : "fallback"} code)`, async () => {
+for (const provider of ["core", "market"] as const) for (const transport of ["stream", "http"] as const) for (const known of [true, false])
+  test(`${provider} ${transport} quote failures retain bounded work diagnostics through the actual error, report and latest UI event (${known ? "known" : "fallback"} code)`, async () => {
     const attemptId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e", requestId = "eb3e6932-a2af-4303-a09e-35831f864a1d";
     const snapshot = { phase: "initial-search", elapsedMs: 15000.125, qualified: true, inversionIteration: 0,
+      providerQualifications: { provider, attempts: 2, qualified: 1, rejected: 1, cancelled: 0, superseded: 0, pending: 0,
+        notImproved: 0, omittedRows: 0, rows: [{ attempt: 1, stage: "selection", outcome: "qualified" },
+          { attempt: 2, stage: "tolerance", outcome: "rejected", code: "quote-no-route", targetAmount: "100",
+            minimumAmountOut: "99", maximumAmountOut: "101", observedAmountOut: "98" }] },
       routeWave: { mode: "exact-out", subphase: "typed-reserve", elapsedMs: 14880.5, subphaseElapsedMs: 14800.25,
         legacyCandidates: 8, legacyCompleted: 8, typedEnumerated: 1024, typedCompleted: 1000, typedPending: 24,
-        sdkRequests: 16, sdkWaiting: 2, sdkLockWaitMs: 22000.5, sdkExchangeMs: 4500.25 } };
+        sdkRequests: 16, sdkWaiting: 2, sdkLockWaitMs: 22000.5, sdkExchangeMs: 4500.25,
+        legs: { count: 2, omittedRows: 0, rows: [{ index: 0, inputAsset: "0x" + "a".repeat(40),
+          outputAsset: "0x" + "b".repeat(40), amount: "100", started: 2, succeeded: 0, failed: 1, cancelled: 0,
+          pending: 1, bestAvailable: false, failureCounts: [{ code: "quote-no-route", count: 1 }], omittedFailureCodes: 0,
+          bestPools: [], omittedPools: 0 }, { index: 1, started: 1, succeeded: 1, failed: 0, cancelled: 0, pending: 0,
+          bestAvailable: true, failureCounts: [], omittedFailureCodes: 0, omittedPools: 0,
+          bestPools: [{ protocol: "v4", poolId: "0x" + "c".repeat(64) }] }] } } };
     const payload = { type: "error", attemptId, requestId, code: known ? "quote-timeout" : "private-code",
       error: "private-provider-url signed-payload", quoteDiagnostics: { ...snapshot, privateData: "private-logical-payload",
         routeWave: { ...snapshot.routeWave, providerMessage: "private-upstream-message" } } };
@@ -217,6 +227,63 @@ test("quote work projection omits malformed private fields independently and ret
   assert.equal(quoteDiagnostics(Object.defineProperty({}, "quoteDiagnostics", { get: () => { throw new Error("private-getter"); } })), undefined);
   assert.equal(failureResult({ ...resultFor(tradeScenarios[0], "api"), quoteDiagnostics: { privateData: "private-result" } as never }, new Error("private-failure")).quoteDiagnostics, undefined);
   assert.doesNotMatch(JSON.stringify(quoteDiagnostics(error)), /private-/);
+});
+
+test("optional provider qualification and leg evidence stays bounded, detached and closed to private data", () => {
+  const upper = (2n ** 256n - 1n).toString(), asset = "0x" + "A".repeat(40);
+  const poolId = `v3:${asset}:${"0x" + "B".repeat(40)}:0000500`;
+  const input = { routeWave: { subphase: "structured-search", legs: { count: 99, omittedRows: 3,
+    rows: Array.from({ length: 18 }, (_, index) => ({ index, amount: upper, inputAsset: asset, outputAsset: "private-address",
+      started: 1e12, failed: -1, pending: 0, bestAvailable: false, privateData: "private-seed",
+      failureCounts: Array.from({ length: 18 }, () => ({ code: "rpc-timeout", count: 0, message: "private-provider-text" })),
+      bestPools: Array.from({ length: 10 }, () => ({ protocol: "v3", poolId, poolAddress: asset, calldata: "private-calldata" })) })) } },
+    providerQualifications: { provider: "market", attempts: 99, qualified: 1e12, rejected: true, pending: 0, privateData: "private-password",
+      rows: Array.from({ length: 10 }, (_, index) => ({ attempt: index, stage: "tolerance", outcome: "rejected",
+        code: "redemption-capacity-exceeded", targetAmount: upper, minimumAmountOut: "00", maximumAmountOut: "-1",
+        observedAmountOut: (2n ** 256n).toString(), maximumAmountIn: upper, observedAmountIn: "0", message: "private-signature" })) } };
+  const result = safeQuoteDiagnostics(input)!;
+  assert.equal(result.routeWave?.subphase, "structured-search");
+  const legs = result.routeWave!.legs!;
+  assert.equal(legs.count, 99); assert.equal(legs.rows.length, 16);
+  assert.deepEqual(legs.rows[0], { index: 0, started: 1e12, pending: 0, bestAvailable: false, inputAsset: asset.toLowerCase(), amount: upper,
+    failureCounts: Array.from({ length: 16 }, () => ({ code: "rpc-timeout", count: 0 })),
+    bestPools: Array.from({ length: 8 }, () => ({ protocol: "v3", poolId: poolId.toLowerCase(), poolAddress: asset.toLowerCase() })) });
+  assert.deepEqual(result.providerQualifications, { provider: "market", attempts: 99, qualified: 1e12, pending: 0,
+    rows: Array.from({ length: 8 }, (_, attempt) => ({ attempt, stage: "tolerance", outcome: "rejected",
+      code: "redemption-capacity-exceeded", targetAmount: upper, maximumAmountIn: upper, observedAmountIn: "0" })) });
+  input.routeWave.legs.rows[0].amount = "2";
+  assert.equal(legs.rows[0].amount, upper);
+  assert.doesNotMatch(JSON.stringify(result), /private-/);
+  const error = new QuotePreviewError("quote-timeout", "private-message");
+  retainQuoteDiagnostics(error, result);
+  result.providerQualifications!.rows[0].targetAmount = "3";
+  result.routeWave!.legs!.rows[0].bestPools[0].poolId = "private-mutated";
+  assert.equal(quoteDiagnostics(error)?.providerQualifications?.rows[0].targetAmount, upper);
+  assert.equal(quoteDiagnostics(error)?.routeWave?.legs?.rows[0].bestPools[0].poolId, poolId.toLowerCase());
+  for (const malformed of [null, [], { count: true }, { count: -1 }, { count: 0.5 }, { count: 1e12 + 1 }])
+    assert.equal(safeQuoteDiagnostics({ routeWave: { legs: malformed } }), undefined);
+  assert.deepEqual(safeQuoteDiagnostics({ routeWave: { legs: { count: 3, rows: [null, {}, { index: true }, { index: 0,
+    bestPools: [{ protocol: "v4", poolId: "private-pool" }, { protocol: "private-protocol", poolAddress: asset }],
+    failureCounts: [{ code: "private-code", count: 1 }, { code: "quote-timeout", count: 0.5 }] }] } },
+    providerQualifications: { provider: "core", attempts: 2, rows: [{ attempt: 1, stage: "private-stage", outcome: "rejected" },
+      { attempt: 2, stage: "selection", outcome: "private-outcome" }] } }),
+  { routeWave: { legs: { count: 3, rows: [{ index: 0, failureCounts: [], bestPools: [] }] } }, providerQualifications: { provider: "core", attempts: 2, rows: [] } });
+  for (const provider of ["core", "market"] as const) for (const stage of ["route-pricing", "fee-bounds", "qualification", "retained-validation"]) {
+    const qualifications = { provider, attempts: 1, pending: 1, rows: [{ attempt: 1, stage, outcome: "running",
+      maximumAmountIn: upper, observedAmountIn: "0" }] };
+    assert.deepEqual(safeQuoteDiagnostics({ providerQualifications: qualifications }), { providerQualifications: qualifications });
+  }
+  for (const provider of [undefined, "private-provider", [], {}])
+    assert.deepEqual(safeQuoteDiagnostics({ qualified: true, providerQualifications: { provider, attempts: 1, rows: [] } }), { qualified: true });
+  for (const ending of ["\n", "\r", "\u2028", "\u2029"]) {
+    assert.deepEqual(safeQuoteDiagnostics({ routeWave: { legs: { count: 1, rows: [{ index: 0, amount: "1" + ending,
+      inputAsset: asset + ending, bestPools: [{ protocol: "v3", poolId: poolId + ending, poolAddress: asset + ending },
+        { protocol: "v4", poolId: "0x" + "a".repeat(64) + ending }] }] } },
+      providerQualifications: { provider: "market", attempts: 1, rows: [{ attempt: 1, stage: "fee-bounds", outcome: "rejected",
+        maximumAmountIn: "1" + ending, observedAmountIn: "0" + ending }] } }),
+    { routeWave: { legs: { count: 1, rows: [{ index: 0, failureCounts: [], bestPools: [] }] } },
+      providerQualifications: { provider: "market", attempts: 1, rows: [{ attempt: 1, stage: "fee-bounds", outcome: "rejected" }] } });
+  }
 });
 
 test("regression reports never copy arbitrary provider error messages, even code-looking secrets", () => {
@@ -1047,4 +1114,12 @@ test("browser basket matching rejects warm vectors and validates current asset b
   const minimumOutputs = assets.map(token => ({ kind: 0, token, id: "0", minimumAmount: "100" }));
   assert.equal(matchesBasketIntent({ mode: "redeem-exact-out", minimumOutputs }, redeem, "100", assets), true);
   assert.equal(matchesBasketIntent({ mode: "redeem-exact-out", minimumOutputs }, redeem, "99", assets), false);
+});
+
+
+test('selection timing fields omit malformed optional evidence without changing a qualified quote',()=>{
+ for(const invalid of [null,true,-1,Number.NaN,Infinity,1e12+1,'1.1',[],{}]){
+  const value={qualified:true,providerQualifications:{provider:'core',attempts:1,selectedAttempt:invalid,selectionReason:invalid,firstQualifiedMs:invalid,selectionMs:invalid,canonicalCompletedMs:invalid,cleanupCompletedMs:invalid,rows:[{attempt:1,stage:'selection',outcome:'qualified',startedMs:invalid,completedMs:invalid,elapsedMs:invalid,omittedPools:invalid}]}};
+  assert.deepEqual(safeQuoteDiagnostics(value),{qualified:true,providerQualifications:{provider:'core',attempts:1,rows:[{attempt:1,stage:'selection',outcome:'qualified'}]}});
+ }
 });

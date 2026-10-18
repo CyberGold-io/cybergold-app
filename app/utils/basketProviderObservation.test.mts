@@ -37,6 +37,8 @@ test('basket product limits retain their error code instead of becoming an unexp
     availability: 'unavailable', searchOutcome: 'error', code: 'issuance-cap-exceeded', refs: {} });
   row.terminal = { type: 'error', code: 'quote-timeout' };
   assert.equal(observedBasketProviderEvidence([row], scenario).core.searchOutcome, 'timeout');
+  row.terminal.quoteDiagnostics = { seed: 'private-seed' };
+  assert.equal(observedBasketProviderEvidence([row], scenario).core.quoteDiagnostics, undefined);
 });
 
 test('unfinished and cancelled basket searches stay distinct from completed quotation failures', () => {
@@ -53,8 +55,11 @@ for (const inputMode of ['exact-in', 'exact-out'] as const) test(`quote-only bas
     : { mode: 'redeem-exact-out', minimumOutputs: sale.basketAmounts.map((amount, i) => ({
       kind: 0, token: sale.basketAssets[i], id: '0', minimumAmount: amount })) };
   const requestId = 'e9eb96b2-8ecf-429d-9e08-244f43257e8e';
+  const quoteDiagnostics = { providerQualifications: { provider: 'core', attempts: 1, rejected: 1, pending: 0,
+    rows: [{ attempt: 1, stage: 'basket-preview', outcome: 'rejected', code: 'insufficient-protocol-supply' }] } };
   const observation: QuoteObservation = { path: '/api/quotes/basket-preview', request, status: 422, requestId,
-    terminal: { type: 'error', code: 'insufficient-protocol-supply', requestId, error: 'private-provider-detail' } };
+    terminal: { type: 'error', code: 'insufficient-protocol-supply', requestId, error: 'private-provider-detail',
+      quoteDiagnostics: { ...quoteDiagnostics, seed: 'private-seed' } } };
   let filled = false;
   const locator = () => {
     const value = { _apiName: 'Locator', _expect: async () => ({ matches: true }),
@@ -74,7 +79,19 @@ for (const inputMode of ['exact-in', 'exact-out'] as const) test(`quote-only bas
   } as never, [sale]);
   assert.equal(result.status, 'fail'); assert.equal(result.code, 'insufficient-protocol-supply');
   assert.deepEqual(result.providers?.core, { availability: 'unavailable', searchOutcome: 'error',
-    code: 'insufficient-protocol-supply', refs: { requestId } });
+    code: 'insufficient-protocol-supply', refs: { requestId }, quoteDiagnostics });
   assert.deepEqual(result.providers?.market, { availability: 'unsupported', searchOutcome: 'not-run' });
-  assert.doesNotMatch(JSON.stringify(result), /private-provider-detail/);
+  assert.doesNotMatch(JSON.stringify(result), /private-provider-detail|private-seed/);
+});
+
+
+test('qualified basket plan and successful trace stay distinct from executable plan identity', () => {
+  const observed=complete(), baseline=observedBasketProviderEvidence([observed],scenario).core;
+  const terminal=observed.terminal!.value as Record<string,unknown>;
+  const diagnostics={qualified:true,providerQualifications:{provider:'core',attempts:1,selectedAttempt:1,selectionReason:'complete',selectionMs:1.5,rows:[{attempt:1,stage:'basket-preview',outcome:'qualified',elapsedMs:1.5}]}};
+  terminal.quoteDiagnostics={...diagnostics,secret:'private-trace'};
+  const actual=observedBasketProviderEvidence([observed],scenario).core;
+  assert.deepEqual(actual.quoteDiagnostics,diagnostics);assert.equal(actual.planDigest,baseline.planDigest);
+  assert.equal((actual.selectedPlan!.preview as Record<string,unknown>).netCygldOut,'2000000000000000000');
+  assert.doesNotMatch(JSON.stringify(actual),/private-trace/);
 });

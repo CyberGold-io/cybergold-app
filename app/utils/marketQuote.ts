@@ -1,3 +1,4 @@
+import { quoteDiagnostics, diagnosticReferences, retainDiagnosticReferences, type QuoteDiagnostics } from "./diagnosticReferences.ts";
 import type { ProtocolDeployment } from "./protocolConfiguration";
 import type { Address, Hex } from "viem";
 import type { components } from "../contracts/backend/http";
@@ -14,6 +15,7 @@ export type MarketSwapParams = {
   feeCygld: bigint; recipient: Address; deadline: bigint; adapter: Address; data: Hex;
 };
 export type MarketQuoteResult = {
+  quoteDiagnostics?: QuoteDiagnostics;
   deployment?: ProtocolDeployment;
   value: MarketQuote; params: MarketSwapParams;
   totalInput: bigint; netOutput: bigint; grossOutput: bigint; routedAmountIn: bigint;
@@ -23,13 +25,15 @@ export type MarketQuoteResult = {
 /** Wire integers remain raw units, including amounts larger than Number can hold. */
 export function marketQuoteResult(value: MarketQuote): MarketQuoteResult {
   const p = value.params;
-  return { value, params: { side: p.side, counterToken: p.counterToken as Address,
+  const result: MarketQuoteResult = { quoteDiagnostics: quoteDiagnostics(value), value, params: { side: p.side, counterToken: p.counterToken as Address,
     amount: BigInt(p.amount), bound: BigInt(p.bound), routedInput: BigInt(p.routedInput),
     feeCygld: BigInt(p.feeCygld), recipient: p.recipient as Address, deadline: BigInt(p.deadline),
     adapter: p.adapter as Address, data: p.data as Hex },
     totalInput: BigInt(value.totalInput), netOutput: BigInt(value.netOutput), grossOutput: BigInt(value.grossOutput),
     routedAmountIn: BigInt(value.routedAmountIn), inputMaximum: BigInt(value.inputMaximum),
     outputMinimum: BigInt(value.outputMinimum), refundDust: BigInt(value.refundDust), feeCygld: BigInt(value.fee.amount) };
+  retainDiagnosticReferences(result, diagnosticReferences(value));
+  return result;
 }
 
 export function preferMarketQuote(current: MarketQuoteResult | undefined, candidate: MarketQuoteResult): MarketQuoteResult {

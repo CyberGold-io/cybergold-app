@@ -65,6 +65,32 @@ test('invalidated provider evidence loses stale candidate; terminal failure outc
  assert.equal(evidence.providerCandidates?.market,undefined);
  const summaries=providerSummaries(evidence);assert.equal(summaries.market.searchOutcome,'error');assert.equal(summaries.market.planDigest,undefined);
 });
+for (const winner of ['core', 'market'] as const) test(`${winner} winner preserves the other provider's failed qualification evidence`, () => {
+ const loser = winner === 'core' ? 'market' : 'core';
+ const diagnostics = { phase: 'initial-search', qualified: false,
+  providerQualifications: { provider: loser, attempts: 1, rejected: 1, pending: 0,
+   rows: [{ attempt: 1, stage: 'qualification', outcome: 'rejected', code: 'quote-no-route', maximumAmountIn: '100', observedAmountIn: '101' }] },
+  routeWave: { legs: { count: 1, rows: [{ index: 0, started: 2, succeeded: 1, failed: 1, bestAvailable: true,
+   failureCounts: [{ code: 'rpc-timeout', count: 1 }], bestPools: [{ protocol: 'v3', poolId: '0x' + 'a'.repeat(40) }] }] } } };
+ const selected = { ...candidate(winner), providerCandidates: { [winner]: candidate(winner) },
+  providerAssessments: { [winner]: { availability: 'qualified', searchOutcome: 'complete' },
+   [loser]: { availability: 'unavailable', searchOutcome: 'error', code: 'quote-no-route',
+    quoteDiagnostics: { ...diagnostics, signature: 'private-signature', providerQualifications: {
+     ...diagnostics.providerQualifications, providerMessage: 'private-provider-message' } } } } } as unknown as ProviderQuote;
+ const digest = planDigest(selected.providerCandidates![winner]!);
+ const captured = captureSelection({ attemptId: 'attempt', quote: selected });
+ assert.equal(captured.primary.selectedProvider, winner);
+ assert.equal(captured.primary.planDigest, digest);
+ assert.equal(captured.primary.providers[winner].availability, 'qualified');
+ assert.deepEqual(captured.primary.providers[loser].quoteDiagnostics, diagnostics);
+ assert.equal(captured.alternate, undefined);
+ const scenario = { ...resultFor(matrix[0], 'execution'), status: 'pass' as const, providers: captured.primary.providers };
+ assert.equal(executionCoverage([scenario]).ui.pass, 1);
+ assert.doesNotMatch(JSON.stringify(captured.primary), /private-signature|private-provider-message/);
+ (selected.providerAssessments![loser] as unknown as { quoteDiagnostics: typeof diagnostics }).quoteDiagnostics.providerQualifications.rows[0].maximumAmountIn = '999';
+ assert.equal(captured.primary.providers[loser].quoteDiagnostics?.providerQualifications?.rows[0].maximumAmountIn, '100');
+ assert.equal(planDigest(selected.providerCandidates![winner]!), digest);
+});
 test('unsupported alternate records a coverage omission and submits nothing',async()=>{
  const q=quote();q.providerAssessments!.market={availability:'unsupported',searchOutcome:'not-run'};delete q.providerCandidates!.market;
  const s=matrix.find(r=>r.asset==='USDC'&&r.side==='sell'&&r.inputMode==='exact-out'&&r.size==='small')!;
@@ -73,12 +99,14 @@ test('unsupported alternate records a coverage omission and submits nothing',asy
 });
 test('alternate replay uses exact captured retained plan and records revalidation separately',async()=>{
  const q=quote(), s=matrix.find(r=>r.asset==='USDC'&&r.side==='sell'&&r.inputMode==='exact-out'&&r.size==='small')!;
+ const trace={providerQualifications:{provider:'market',attempts:1,selectedAttempt:1,selectionReason:'complete',selectionMs:1.5,rows:[{attempt:1,stage:'selection',outcome:'qualified',quotedInput:'100',quotedOutput:'1000000'}]}};
  let request:Record<string,unknown>|undefined;let executed=0;
  const result=await executeAlternate({attemptId:'attempt',quote:q},s,tokenRequest(s,config,config.contracts.helpers!),{} as Page,config.contracts.helpers as Address,config,
-  (async(_url,init)=>{request=JSON.parse(String(init?.body));return new Response(JSON.stringify({type:'complete',value:{...candidate('market'),context:{...candidate('market').context,blockNumber:'101'}}})+'\n');}) as typeof fetch,
+  (async(_url,init)=>{request=JSON.parse(String(init?.body));return new Response(JSON.stringify({type:'complete',value:{...candidate('market'),providerQuote:{mode:'exact-out',totalInput:'100',netOutput:'1000000',quoteDiagnostics:trace},context:{...candidate('market').context,blockNumber:'101'}}})+'\n');}) as typeof fetch,
   async observation=>{executed++;observation.result.status='pass';observation.result.executionStage='complete';return observation.result;});
  assert.equal(executed,1);assert.deepEqual((request!.retainedPlan as {quote:unknown}).quote,q.providerCandidates!.market!.providerQuote);
  assert.equal(result.planDigest,planDigest(q.providerCandidates!.market!));assert.ok(result.revalidatedPlanDigest);assert.equal(result.attempted,true);assert.equal(result.status,'pass');assert.equal(result.reason,undefined);
+ assert.deepEqual(result.quoteDiagnostics,trace);assert.equal(result.selectedPlan?.totalInput,'100');assert.equal(result.selectedPlan?.netOutput,'1000000');
 });
 test('failed replay preserves winner result and failure counts with no hidden retry',async()=>{
  const q=quote(),s=matrix[0];let calls=0;
@@ -153,4 +181,76 @@ test('an unresolved winning submission never starts the alternate retained-plan 
  const s=matrix[0];let fetched=0,executed=0;
  const result=await executeAlternate({quote:quote()},s,tokenRequest(s,config,config.contracts.helpers!),{} as Page,config.contracts.helpers as Address,config,(async()=>{fetched++;throw new Error('unexpected-fetch');}) as typeof fetch,async observation=>{executed++;return observation.result;},'unknown');
  assert.equal(fetched,0);assert.equal(executed,0);assert.equal(result.attempted,false);assert.equal(result.reason,'predecessor-submission-unknown');assert.equal(result.transactionDisposition,'not-submitted');
+});
+
+test('frozen valuation discloses raw-unit pricing and configured decimals in its identity without new reads', () => {
+ const facts={context:{observedAt:'2026-10-18T08:00:00Z'},basket:{assets:{status:'success',value:[tokenAddresses.PAXG]},targetsPpm:{status:'success',value:['1000000']},cygldPerUnitFp18:{status:'success',value:['40000000000000000000']}}} as unknown as ProtocolFacts;
+ const wide=(2n**256n+77n).toString();
+ const observations=[{exists:true,token0:tokenAddresses.USDC,token1:tokenAddresses.PAXG,marginalPrice:{numerator:wide,denominator:'3'}} as PoolSnapshot];
+ const frozen=valuationSnapshot(config,facts,observations), {id,...body}=frozen;
+ assert.equal(frozen.priceUnit,'usd-per-raw-unit'); assert.equal(frozen.assetDecimals?.[tokenAddresses.PAXG.toLowerCase()],18);
+ assert.equal(frozen.assetDecimals?.[tokenAddresses.USDC.toLowerCase()],6); assert.equal(id,semanticDigest(body));
+ assert.equal(frozen.prices[tokenAddresses.PAXG.toLowerCase()].denominator,String(BigInt(wide)*10n**6n));
+ assert.equal(frozen.prices[tokenAddresses.WETH.toLowerCase()],undefined);
+ const rows=buildMatrix(config,frozen); assert.equal(rows.length,48); assert.ok(rows.some(row=>row.sizingError==='valuation-unavailable'));
+ const different=structuredClone(config); different.tokens.find(t=>t.type==='erc20'&&t.symbol==='PAXG')!.decimals=17;
+ assert.notEqual(valuationSnapshot(different,facts,observations).id,id); assert.equal(semanticDigest(body),id);
+});
+
+test('actual Core and Market successful provider selection retains timings and non-replayable native plan terms', async () => {
+ const {safeSelectedPlan}=await import('../../tests/trading/selectedPlan.ts');
+ const {safeQuoteDiagnostics}=await import('./diagnosticReferences.ts');
+ const address=tokenAddresses.PAXG.toLowerCase(), output=tokenAddresses.WETH.toLowerCase();
+ const route={mode:'exactOut',tokenIn:address,tokenOut:output,inputAmount:'11',outputAmount:'8',limit:'12',deadline:'SECRET_DEADLINE',branches:[{amountIn:'11',hops:[{zeroForOne:true,pool:{protocol:'v3',id:`v3:${address}:${output}:0000500`,token0:{address},token1:{address:output},feePips:500,address:'0x'+'c'.repeat(40),rpcUrl:'SECRET_URL'}}]}]};
+ const core={mode:'redeem-exact-out',executionAmount:'20',maximumInputAmount:'21',preview:{minimumAmountOut:'8',projectedCoreOutputs:[{kind:0,token:address,id:'0',amount:'15'}],fees:{protocolFeeCygld:'1',helperFeeCygld:'2'}},initialPreview:{projectedCoreOutputs:[{kind:0,token:address,id:'0',amount:'14'}]},expectedCoreOutputs:[{kind:0,token:address,id:'0',minimumAmount:'13'}],quotes:[{inputAsset:address,inputAmount:'15',amountIn:'16',minimumAmountOut:'8',routePlan:route,data:'SECRET_CALLDATA',adapter:config.contracts.uniswapAdapter}]};
+ const market={operation:'market',mode:'exact-out',amountIn:'10',totalInput:'11',netOutput:'8',inputMaximum:'12',plan:{route,params:{recipient:'SECRET_RECIPIENT'}},adapterData:'SECRET_ADAPTER'};
+ for(const provider of ['core','market'] as const){
+  const original=quote();const selected=original.providerCandidates![provider]!;
+  const trace={qualified:true,providerQualifications:{provider,attempts:2,selectedAttempt:2,selectionReason:'first-extension',firstQualifiedMs:1.25,selectionMs:2.5,canonicalCompletedMs:3.75,cleanupCompletedMs:4.5,rows:[{attempt:2,stage:'selection',outcome:'qualified',startedMs:1.1,completedMs:2.2,elapsedMs:1.1,executionAmount:'20',quotedInput:'21',quotedOutput:'8',inputMaximum:'22',outputMinimum:'8',pools:[{protocol:'v3',poolId:'0x'+'c'.repeat(40)}],omittedPools:0,secret:'SECRET_TRACE'}]}};
+  selected.providerQuote={...(provider==='core'?core:market),quoteDiagnostics:trace} as unknown as Candidate['providerQuote'];
+  Object.assign(original,selected,{strategy:provider});
+  const digest=planDigest(selected), captured=captureSelection({attemptId:'attempt',quote:original});
+  assert.deepEqual(captured.primary.providers[provider].quoteDiagnostics,safeQuoteDiagnostics(trace));
+  assert.equal(captured.primary.providers[provider].quoteDiagnostics?.providerQualifications?.selectionReason,'first-extension');
+  assert.equal(captured.primary.providers[provider].quoteDiagnostics?.providerQualifications?.rows[0].startedMs,1.1);
+  assert.deepEqual(captured.primary.selectedPlan,captured.primary.providers[provider].selectedPlan);
+  assert.equal(captured.primary.selectedPlan?.provider,provider);
+  const plan=captured.primary.selectedPlan!;
+  if(provider==='core'){assert.equal(plan.executionAmount,'20');assert.equal((plan.legs as Record<string,unknown>[])[0].inputAmount,'15');assert.equal(((plan.legs as Record<string,unknown>[])[0].route as Record<string,unknown>).inputAmount,'11');}
+  else assert.equal((plan.route as Record<string,unknown>).outputAmount,'8');
+  assert.doesNotMatch(JSON.stringify(captured.primary),/SECRET|adapterData|recipient|deadline|rpcUrl|data"/);
+  assert.equal(planDigest(selected),digest);
+  const projected=safeSelectedPlan(selected.providerQuote,provider,selected)!;
+  assert.deepEqual(projected,plan);
+  (selected.providerQuote as unknown as Record<string,unknown>).executionAmount='999';assert.equal(plan.executionAmount,provider==='core'?'20':undefined);
+ }
+});
+
+test('selected plan summaries disclose truncation and never compact aligned Core asset amounts', async()=>{
+ const {safeSelectedPlan}=await import('../../tests/trading/selectedPlan.ts');
+ const pool={protocol:'v3',id:'0x'+'c'.repeat(40)},hop={pool,zeroForOne:true};
+ const route={mode:'exactOut',branches:Array.from({length:9},()=>({amountIn:'5',hops:Array.from({length:9},()=>hop)}))};
+ const selected=safeSelectedPlan({mode:'redeem-exact-out',quotes:[{inputAmount:'5',routePlan:route},...Array.from({length:64},()=>({inputAmount:'1'}))],preview:{orderedCoreAssets:Array.from({length:65},()=>tokenAddresses.PAXG),amountsInExact:Array.from({length:65},()=> '1')}},'core')!;
+ assert.equal(selected.legsOmitted,1);assert.equal((selected.legs as unknown[]).length,64);
+ const planned=(selected.legs as {route:Record<string,unknown>}[])[0].route;
+ assert.equal(planned.branchesOmitted,1);assert.equal((planned.branches as unknown[]).length,8);
+ assert.equal((planned.branches as Record<string,unknown>[])[0].hopsOmitted,1);
+ assert.equal((selected.preview as Record<string,unknown>).orderedCoreAssetsOmitted,1);
+ assert.equal((selected.preview as Record<string,unknown>).amountsInExactOmitted,1);
+ const malformed=safeSelectedPlan({mode:'issue-exact-in',preview:{orderedCoreAssets:[tokenAddresses.PAXG,tokenAddresses.XAUT],amountsInExact:['10','private','30']},quotes:[{inputAmount:'1',routePlan:{branches:[{hops:[{pool:{protocol:['v4'],id:pool.id}}]}]}}]},'core')!;
+ assert.equal((malformed.preview as Record<string,unknown>).amountsInExact,undefined);
+ assert.deepEqual((malformed.preview as Record<string,unknown>).orderedCoreAssets,[tokenAddresses.PAXG.toLowerCase(),tokenAddresses.XAUT.toLowerCase()]);
+ assert.deepEqual((((malformed.legs as Record<string,unknown>[])[0].route as Record<string,unknown>).branches as Record<string,unknown>[])[0].hops,[]);
+});
+
+
+test('winner digest and safe selected plan bind the submitted tuple while provider observations can advance',()=>{
+ const selected=quote(), winningCandidate=selected.providerCandidates!.core!;
+ const submittedDigest=planDigest(selected);
+ winningCandidate.quotedOutput='9999999';winningCandidate.providerQuote={...winningCandidate.providerQuote,executionAmount:'9999999'};
+ const newerDigest=planDigest(winningCandidate);assert.notEqual(newerDigest,submittedDigest);
+ const capture=captureSelection({attemptId:'attempt',quote:selected}).primary;
+ assert.equal(capture.planDigest,submittedDigest);assert.equal(capture.selectedPlan?.quotedOutput,'1000000');
+ assert.equal(capture.providers.core.planDigest,newerDigest);assert.equal(capture.providers.core.selectedPlan?.quotedOutput,'9999999');
+ assert.equal(selected.quotedOutput,'1000000');assert.equal(selected.providerCandidates!.core!.quotedOutput,'9999999');
 });

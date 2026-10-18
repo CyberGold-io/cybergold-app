@@ -1,7 +1,7 @@
 import type { components } from '../../app/contracts/backend/http';
 import type { TradeSelectionObservation } from '../../app/utils/tradeSelectionObservation.ts';
 import type { TradeQuote, TradeQuoteRequest } from '../../app/utils/tradeQuote.ts';
-import { diagnosticReferences, safeDiagnosticReferences } from '../../app/utils/diagnosticReferences.ts';
+import { diagnosticReferences, safeDiagnosticReferences, safeQuoteDiagnostics, type QuoteDiagnostics } from '../../app/utils/diagnosticReferences.ts';
 import { fetchQuoteStream } from '../../app/utils/quoteStream.ts';
 import { knownQuoteError, safeQuoteConstraint, type QuoteConstraint } from '../../app/utils/quoteErrors.ts';
 import type { BasketPreview, BasketPreviewRequest } from '../../app/utils/basketPreview.ts';
@@ -10,6 +10,7 @@ import type { Page } from '@playwright/test';
 import { semanticDigest, type MatrixScenario } from './matrix.ts';
 import type { QuoteObservation as BrowserQuoteObservation } from './quoteObservation.ts';
 import { resultFor, validateTrade, failureResult, requireInvariant, matchesBasketIntent, type QuoteObservation, type ScenarioResult } from './regression.ts';
+import { safeSelectedPlan, type SelectedPlan } from './selectedPlan.ts';
 import type { Scenario } from './scenarios.ts';
 import { tradeQualityTerms, basketQualityTerms, type QualityTerms, type QualityMeasurement } from './quoteQuality.ts';
 
@@ -17,29 +18,32 @@ export type Provider = 'core' | 'market';
 export type ProviderAssessment = NonNullable<TradeQuote['providerAssessments']>['core'];
 export type Candidate = components['schemas']['TradeProviderCandidate'];
 export type ProviderQuote = TradeQuote;
-export type ProviderSummary = Pick<ProviderAssessment, 'availability' | 'searchOutcome'> & { code?: string; constraint?: QuoteConstraint; refs?: ScenarioResult['refs']; context?: ScenarioResult['context']; planDigest?: string; bounds?: ScenarioResult['bounds']; quoteTerms?: QualityTerms; quoteQuality?: QualityMeasurement };
+export type ProviderSummary = Pick<ProviderAssessment, 'availability' | 'searchOutcome'> & { code?: string; constraint?: QuoteConstraint; quoteDiagnostics?: QuoteDiagnostics; selectedPlan?: SelectedPlan; refs?: ScenarioResult['refs']; context?: ScenarioResult['context']; planDigest?: string; bounds?: ScenarioResult['bounds']; quoteTerms?: QualityTerms; quoteQuality?: QualityMeasurement };
 export type AlternateExecution = Omit<ScenarioResult, 'providers' | 'alternateExecution'> & { provider: Provider; role: 'alternate'; attempted: boolean; comparisonState: 'sequential-state' };
 export const emptyProviders = (): Record<Provider, ProviderSummary> => ({ core: { availability: 'not-run', searchOutcome: 'not-run', code: 'provider-evidence-unavailable' }, market: { availability: 'not-run', searchOutcome: 'not-run', code: 'provider-evidence-unavailable' } });
 
 /** Fingerprint executable terms; producer timing and tracing do not change a plan. */
+const observationFields = new Set(['metrics', 'evaluation', 'diagnostics', 'quoteDiagnostics', 'refs', 'requestId', 'attemptId', 'correlationId', 'workId', 'observedAt', 'providerAssessments', 'providerCandidates']);
+const executableTerms = (v: unknown): unknown => Array.isArray(v) ? v.map(executableTerms) : v && typeof v === 'object'
+  ? Object.fromEntries(Object.entries(v).filter(([key]) => !observationFields.has(key)).map(([key, child]) => [key, executableTerms(child)])) : v;
 export function planDigest(value: Candidate, deployment?: SelectionCapture['deployment']) {
-  const observation = new Set(['metrics', 'evaluation', 'diagnostics', 'quoteDiagnostics', 'refs', 'requestId', 'attemptId', 'correlationId', 'workId', 'observedAt', 'providerAssessments', 'providerCandidates']);
-  const terms = (v: unknown): unknown => Array.isArray(v) ? v.map(terms) : v && typeof v === 'object'
-    ? Object.fromEntries(Object.entries(v).filter(([key]) => !observation.has(key)).map(([key, child]) => [key, terms(child)])) : v;
   return semanticDigest({ strategy: value.strategy, side: value.side, mode: value.mode, tokenIn: value.tokenIn, tokenOut: value.tokenOut,
     quotedInput: value.quotedInput, quotedOutput: value.quotedOutput, inputMaximum: value.inputMaximum, outputMinimum: value.outputMinimum,
-    context: terms(value.context), providerRequest: terms(value.providerRequest), providerQuote: terms(value.providerQuote), deployment });
+    context: executableTerms(value.context), providerRequest: executableTerms(value.providerRequest), providerQuote: executableTerms(value.providerQuote), deployment });
 }
 export function providerSummaries(value: Partial<ProviderQuote>, deployment?: SelectionCapture['deployment']): Record<Provider, ProviderSummary> {
   const result = emptyProviders();
   for (const provider of ['core', 'market'] as const) {
     const assessment = value.providerAssessments?.[provider], candidate = value.providerCandidates?.[provider];
     const constraint = safeQuoteConstraint((assessment as { constraint?: unknown } | undefined)?.constraint);
+    const quoteDiagnostics = safeQuoteDiagnostics((assessment as { quoteDiagnostics?: unknown } | undefined)?.quoteDiagnostics)
+      ?? safeQuoteDiagnostics((candidate?.providerQuote as { quoteDiagnostics?: unknown } | undefined)?.quoteDiagnostics);
     if (assessment) result[provider] = { availability: assessment.availability, searchOutcome: assessment.searchOutcome,
-      ...(assessment.code ? { code: assessment.code } : {}), ...(constraint ? { constraint } : {}) };
+      ...(assessment.code ? { code: assessment.code } : {}), ...(constraint ? { constraint } : {}),
+      ...(quoteDiagnostics ? { quoteDiagnostics } : {}) };
     if (candidate && assessment?.availability === 'qualified') result[provider] = { ...result[provider],
       refs: diagnosticReferences(candidate.providerQuote), context: candidate.context, planDigest: planDigest(candidate, deployment),
-      quoteTerms: tradeQualityTerms(candidate),
+      selectedPlan: safeSelectedPlan(candidate.providerQuote, provider, candidate), quoteTerms: tradeQualityTerms(candidate),
       bounds: { quotedInput: candidate.quotedInput, quotedOutput: candidate.quotedOutput, inputMaximum: candidate.inputMaximum, outputMinimum: candidate.outputMinimum } };
   }
   return result;
@@ -60,9 +64,17 @@ export async function selectionCaptures(page: Page): Promise<SelectionCapture[]>
 export function captureSelection(value: SelectionCapture) {
   const captured = structuredClone(value), quote = captured.quote;
   if (!quote) throw new Error('token-selection-not-observed');
-  return { captured, primary: { selectedProvider: quote.strategy, planDigest: planDigest(quote.providerCandidates?.[quote.strategy] ?? quote, captured.deployment),
+  return { captured, primary: { selectedProvider: quote.strategy, planDigest: planDigest(quote, captured.deployment),
     bounds: { quotedInput: quote.quotedInput, quotedOutput: quote.quotedOutput, inputMaximum: quote.inputMaximum, outputMinimum: quote.outputMinimum }, context: quote.context, deployment: captured.deployment,
-    providers: providerSummaries(quote, captured.deployment), quoteTerms: tradeQualityTerms(quote), refs: { ...diagnosticReferences(quote.providerQuote), ...safeDiagnosticReferences(captured.diagnostics) } }, alternate: quote.providerCandidates?.[quote.strategy === 'core' ? 'market' : 'core'] };
+    ...(safeQuoteDiagnostics((quote.providerQuote as { quoteDiagnostics?: unknown }).quoteDiagnostics) ? { quoteDiagnostics: safeQuoteDiagnostics((quote.providerQuote as { quoteDiagnostics?: unknown }).quoteDiagnostics) } : {}), selectedPlan: safeSelectedPlan(quote.providerQuote, quote.strategy, quote), providers: providerSummaries(quote, captured.deployment), quoteTerms: tradeQualityTerms(quote), refs: { ...diagnosticReferences(quote.providerQuote), ...safeDiagnosticReferences(captured.diagnostics) } }, alternate: quote.providerCandidates?.[quote.strategy === 'core' ? 'market' : 'core'] };
+}
+/** A basket winner is linked only to the preview frozen by its actual click. */
+export function captureBasketSelection(value: SelectionCapture): Pick<ScenarioResult, 'selectedProvider' | 'planDigest' | 'selectedPlan' | 'quoteDiagnostics'> {
+  const preview = value.basketPreview;
+  if (!preview) return {};
+  const quoteDiagnostics = safeQuoteDiagnostics((preview as { quoteDiagnostics?: unknown }).quoteDiagnostics);
+  return { selectedProvider: 'core' as const, planDigest: semanticDigest({ request: executableTerms(value.basketRequest), preview: executableTerms(preview) }),
+    selectedPlan: safeSelectedPlan({ ...preview, basketRequest: value.basketRequest }, 'core'), ...(quoteDiagnostics ? { quoteDiagnostics } : {}) };
 }
 export function notAttemptedAlternate(scenario: Scenario, selected?: ProviderQuote): AlternateExecution {
   const provider = selected?.strategy === 'core' ? 'market' : 'core';
@@ -93,6 +105,8 @@ export async function executeAlternate(capture: SelectionCapture, scenario: Scen
     result.refs = diagnosticReferences(revalidated);
     result.bounds = validateTrade(revalidated, request);
     result.quoteTerms = tradeQualityTerms(revalidated);
+    result.selectedPlan = safeSelectedPlan(revalidated.providerQuote, revalidated.strategy, revalidated);
+    result.quoteDiagnostics = safeQuoteDiagnostics((revalidated.providerQuote as { quoteDiagnostics?: unknown }).quoteDiagnostics);
     const observation = { scenario: { ...scenario, requestedStrategy: alternate.strategy }, request,
       value: revalidated.providerQuote, result } as QuoteObservation;
     const boundConfig = { ...config, contracts: { ...config.contracts,
@@ -139,12 +153,15 @@ export function observedBasketProviderEvidence(observations: readonly BrowserQuo
   const refs = { ...diagnosticReferences(observed.terminal), ...safeDiagnosticReferences({ requestId: observed.requestId }) };
   if (observed.terminal?.type === 'complete') {
     const preview = observed.terminal.value as BasketPreview;
-    providers.core = { availability: 'qualified', searchOutcome: 'complete', planDigest: semanticDigest(preview), context: preview.context, refs,
+    providers.core = { availability: 'qualified', searchOutcome: 'complete', selectedPlan: safeSelectedPlan({ ...preview, basketRequest: observed.request }, 'core'),
+      ...(safeQuoteDiagnostics((preview as { quoteDiagnostics?: unknown }).quoteDiagnostics) ? { quoteDiagnostics: safeQuoteDiagnostics((preview as { quoteDiagnostics?: unknown }).quoteDiagnostics) } : {}), planDigest: semanticDigest({ request: executableTerms(observed.request), preview: executableTerms(preview) }), context: preview.context, refs,
       ...(cygld ? { quoteTerms: basketQualityTerms(preview, observed.request as BasketPreviewRequest, cygld) } : {}) };
   } else if (observed.terminal?.type === 'error') {
     const error = knownQuoteError(observed.terminal);
+    const quoteDiagnostics = safeQuoteDiagnostics(observed.terminal.quoteDiagnostics);
     providers.core = { availability: 'unavailable', searchOutcome: error?.code === 'quote-timeout' ? 'timeout' : 'error', refs,
-      ...(error ? { code: error.code, ...(error.constraint ? { constraint: error.constraint } : {}) } : {}) };
+      ...(error ? { code: error.code, ...(error.constraint ? { constraint: error.constraint } : {}) } : {}),
+      ...(quoteDiagnostics ? { quoteDiagnostics } : {}) };
   } else {
     providers.core = { availability: observed.interrupted ? 'unavailable' : 'pending', searchOutcome: observed.interrupted ? 'cancelled' : 'running', refs };
   }

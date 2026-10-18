@@ -1,3 +1,4 @@
+import { quoteDiagnostics, diagnosticReferences, retainDiagnosticReferences, type QuoteDiagnostics } from "./diagnosticReferences.ts";
 import type { ProtocolDeployment } from "./protocolConfiguration";
 import type { components } from "../contracts/backend/http";
 import type { CoreTokenAmount, CoreTokenMinimum, HelperFees, RoutedSwapFromQuote, SwapToQuote } from "../types";
@@ -8,6 +9,7 @@ export type QuoteIntentRequest = components["schemas"]["QuoteIntentRequest"];
 export type QuoteIntentEvent = components["schemas"]["QuoteIntentEvent"];
 export type QuoteIntent = components["schemas"]["QuoteIntent"];
 export type QuoteIntentResult = {
+  quoteDiagnostics?: QuoteDiagnostics;
   deployment?: ProtocolDeployment;
   context: QuoteIntent["context"]; metrics: QuoteIntent["metrics"];
   quotes: SwapToQuote[]; redemptionQuotes: RoutedSwapFromQuote[];
@@ -25,7 +27,7 @@ const fees = (value: { protocolFeeCygld: string; helperFeeCygld: string }): Help
 
 export function quoteIntentResult(value: QuoteIntent, slippageBps = DEFAULT_SLIPPAGE_BPS): QuoteIntentResult {
   const tolerance = value.slippageBps ?? slippageBps;
-  return {
+  const result: QuoteIntentResult = { quoteDiagnostics: quoteDiagnostics(value),
     context: value.context, metrics: value.metrics,
     displayAmount: BigInt(value.displayAmount), executionAmount: BigInt(value.executionAmount),
     maximumInputAmount: BigInt(value.maximumInputAmount), fees: fees(value.preview.fees),
@@ -59,6 +61,8 @@ export function quoteIntentResult(value: QuoteIntent, slippageBps = DEFAULT_SLIP
       inputAmount: BigInt(row.inputAmount), minimumAmountOut: BigInt(row.minimumAmountOut), data: row.data as `0x${string}`,
     }] : []),
   };
+  retainDiagnosticReferences(result, diagnosticReferences(value));
+  return result;
 }
 
 export function retainedQuotePlan(value: QuoteIntentResult): NonNullable<QuoteIntentRequest["retainedPlan"]> {

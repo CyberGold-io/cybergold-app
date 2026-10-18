@@ -1,4 +1,4 @@
-import type { BasketPreviewRequest } from "./basketPreview.ts";
+import type { BasketPreviewRequest, BasketPreview } from "./basketPreview.ts";
 import type { TradeQuote, TradeQuoteRequest } from "./tradeQuote.ts";
 import type { ProtocolDeployment } from "./protocolConfiguration.ts";
 import type { DiagnosticReferences } from "./diagnosticReferences.ts";
@@ -12,6 +12,7 @@ export type TradeSelectionObservation = {
   diagnostics?: DiagnosticReferences;
   intent?: TradeQuoteRequest;
   basketRequest?: BasketPreviewRequest;
+  basketPreview?: BasketPreview;
 };
 
 /** In-memory observation of the actual click selection. Never sent to a collector. */

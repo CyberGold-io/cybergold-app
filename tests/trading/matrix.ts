@@ -12,7 +12,7 @@ export type MatrixScenario = Scenario & { size: keyof typeof tiers; nominalUsd: 
   valuationId: string; sizingError?: 'valuation-unavailable'; basketAmounts?: string[]; basketAssets?: string[] };
 type Ratio = { numerator: string; denominator: string };
 export type ValuationSnapshot = { id: string; source: 'usdc-anchored-pool-observations'; observedAt: string;
-  assumption: 'one-usdc-is-one-usd'; rounding: 'floor-raw-units'; prices: Record<string, Ratio>;
+  assumption: 'one-usdc-is-one-usd'; rounding: 'floor-raw-units'; priceUnit?: 'usd-per-raw-unit'; assetDecimals?: Record<string, number>; prices: Record<string, Ratio>;
   basketAssets: string[]; basketWeights: string[]; observations: PoolSnapshot[] };
 const ratio = (n: bigint, d = 1n): Ratio => ({ numerator: String(n), denominator: String(d) });
 const multiply = (a: Ratio, b: Ratio) => ratio(BigInt(a.numerator) * BigInt(b.numerator), BigInt(a.denominator) * BigInt(b.denominator));
@@ -53,6 +53,7 @@ export function valuationSnapshot(config: ProtocolConfiguration, facts: Protocol
   if (complete) prices[cygld.address.toLowerCase()] = corePrice;
   const body = { source: 'usdc-anchored-pool-observations' as const, observedAt: facts.context.observedAt,
     assumption: 'one-usdc-is-one-usd' as const, rounding: 'floor-raw-units' as const,
+    priceUnit: 'usd-per-raw-unit' as const, assetDecimals: Object.fromEntries(config.tokens.flatMap(token => token.type === 'erc20' ? [[token.address.toLowerCase(), token.decimals]] : [])),
     prices, basketAssets: assets, basketWeights: weights.map(String), observations };
   return { id: semanticDigest(body), ...body };
 }

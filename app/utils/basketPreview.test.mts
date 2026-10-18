@@ -71,3 +71,16 @@ test("known protocol error is specific without exposing provider text; an aborte
   assert.equal(getProtocolModel(), undefined);
   receiveProtocolModel(null);
 });
+
+test('basket conversion retains a detached exact preview through query-style structural copies', async()=>{
+  const {basketPreviewObservation}=await import('./basketPreview.ts');
+  for(const source of values){
+    const original=structuredClone(source),converted=basketPreviewResult(source),queryCopy={...converted};
+    source.context.blockNumber='999';
+    assert.deepEqual(basketPreviewObservation(queryCopy),original);
+    const captured=basketPreviewObservation(queryCopy)!;captured.context.blockNumber='777';
+    assert.equal(basketPreviewObservation(queryCopy)!.context.blockNumber,original.context.blockNumber);
+    source.context.blockNumber=original.context.blockNumber;
+  }
+  assert.equal(basketPreviewObservation(undefined),undefined);
+});
