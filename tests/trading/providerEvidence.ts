@@ -19,7 +19,7 @@ export type ProviderAssessment = NonNullable<TradeQuote['providerAssessments']>[
 export type Candidate = components['schemas']['TradeProviderCandidate'];
 export type ProviderQuote = TradeQuote;
 export type ProviderSummary = Pick<ProviderAssessment, 'availability' | 'searchOutcome'> & { code?: string; constraint?: QuoteConstraint; quoteDiagnostics?: QuoteDiagnostics; selectedPlan?: SelectedPlan; refs?: ScenarioResult['refs']; context?: ScenarioResult['context']; planDigest?: string; bounds?: ScenarioResult['bounds']; quoteTerms?: QualityTerms; quoteQuality?: QualityMeasurement };
-export type AlternateExecution = Omit<ScenarioResult, 'providers' | 'alternateExecution'> & { provider: Provider; role: 'alternate'; attempted: boolean; comparisonState: 'sequential-state' };
+export type AlternateExecution = Omit<ScenarioResult, 'providers' | 'alternateExecution'> & { provider: Provider; role: 'alternate'; attempted: boolean; comparisonState: 'sequential-state' | 'restored-baseline' };
 export const emptyProviders = (): Record<Provider, ProviderSummary> => ({ core: { availability: 'not-run', searchOutcome: 'not-run', code: 'provider-evidence-unavailable' }, market: { availability: 'not-run', searchOutcome: 'not-run', code: 'provider-evidence-unavailable' } });
 
 /** Fingerprint executable terms; producer timing and tracing do not change a plan. */
@@ -89,9 +89,10 @@ export function notAttemptedAlternate(scenario: Scenario, selected?: ProviderQuo
  * context; the original captured digest survives any failure or renewed terms.
  */
 export async function executeAlternate(capture: SelectionCapture, scenario: Scenario, request: TradeQuoteRequest,
-  page: Page, owner: `0x${string}`, config: ProtocolConfiguration, fetcher: typeof fetch, execute?: typeof import('./walletExecution.ts').executeScenario, predecessorDisposition?: ScenarioResult['transactionDisposition']): Promise<AlternateExecution> {
+  page: Page, owner: `0x${string}`, config: ProtocolConfiguration, fetcher: typeof fetch, execute?: typeof import('./walletExecution.ts').executeScenario, predecessorDisposition?: ScenarioResult['transactionDisposition'], comparisonState: AlternateExecution['comparisonState'] = 'sequential-state'): Promise<AlternateExecution> {
   const { alternate } = captureSelection(capture);
   let result = notAttemptedAlternate(scenario, capture.quote);
+  result.comparisonState = comparisonState;
   if (predecessorDisposition === 'unknown') return { ...result, reason: 'predecessor-submission-unknown' };
   if (!alternate || capture.quote?.providerAssessments?.[result.provider]?.availability !== 'qualified') return result;
   result = { ...result, attempted: true, executionAttempted: true, code: 'execution-not-completed', executionStage: 'execution-quote', planDigest: planDigest(alternate, capture.deployment) };

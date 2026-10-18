@@ -30,6 +30,7 @@ export type ExecutionStage = typeof executionStages[number];
 import type { ProviderSummary, AlternateExecution, Provider } from "./providerEvidence.ts";
 
 export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "asset"> & {
+  isolation?: import('./privateSandbox.ts').ScenarioIsolation;
   size?: "small" | "medium" | "large"; nominalUsd?: string; valuationId?: string; amountRaw?: string; basketAmounts?: string[]; basketAssets?: string[];
   deployment?: import("../../app/utils/protocolConfiguration.ts").ProtocolDeployment;
   providers?: Record<Provider, ProviderSummary>; alternateExecution?: AlternateExecution;
@@ -50,6 +51,7 @@ export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "ass
   quoteTerms?: QualityTerms; executionTerms?: QualityTerms; quoteQuality?: QualityMeasurement; executionQuality?: QualityMeasurement;
 };
 export type RegressionReport = { schema: "cybergold.trade-regression.v1"; runId: string; target: "sandbox" | "mainnet";
+  suite?: 'sequential' | 'independent'; isolation?: import('./privateSandbox.ts').SandboxIsolation;
   mode: "quotes" | "sandbox-execution" | "fork-execution"; startedAt: string; finishedAt?: string;
   observations?: { chainId?: number; forkGeneration?: string | null; correlationAvailable?: boolean };
   context?: { appRevision?: string; backendRevision?: string; backendImageId?: string; blockNumber?: string; blockHash?: string };
