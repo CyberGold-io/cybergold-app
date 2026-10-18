@@ -10,6 +10,8 @@ import { checkpointExecutionStage, failureResult, observeScenario, originFetch, 
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration";
 import type { ProtocolFacts } from "../../app/utils/protocolFacts";
 import type { Address } from "viem";
+import { transactionDisposition } from "../trading/providerEvidence";
+import { isWalletRequestCleanupError } from "../trading/walletRequestLifecycle";
 
 test.skip(!process.env.TRADE_REGRESSION_DIAGNOSTIC_SCENARIO, "Independent execution is an explicit diagnostic replay, not a second operating matrix");
 const diagnosticScenarios: typeof tradeScenarios = process.env.TRADE_REGRESSION_MATRIX
@@ -65,12 +67,21 @@ test("independent producer matrix signs with MetaMask and proves mined family an
         result = observation.result; result.layer = "execution"; result.status = "unavailable"; result.code = "execution-not-completed";
         report.scenarios[index] = result;
         await persist();
+        result.executionAttempted = true;
         await executeScenario(observation, page, owner, config, fetcher);
-      } catch (error) { report.scenarios[index] = failureResult(result, error); }
+      } catch (error) {
+        report.scenarios[index] = failureResult(result, error);
+        report.scenarios[index].transactionDisposition = transactionDisposition(report.scenarios[index]);
+        if (isWalletRequestCleanupError(error)) {
+          report.scenarios[index].durationMs = Math.round(performance.now() - started);
+          await persist(); throw error;
+        }
+      }
       report.scenarios[index].durationMs = Math.round(performance.now() - started);
       await persist();
     }
   } catch (error) {
+    if (isWalletRequestCleanupError(error)) throw error;
     report.scenarios = report.scenarios.map(result => result.status === "pass" ? result : failureResult(result, error));
   } finally { report.finishedAt = new Date().toISOString(); await persist(); }
   expect(report.scenarios.filter(scenario => scenario.status !== "pass").map(scenario => ({ id: scenario.id, status: scenario.status, code: scenario.code }))).toEqual([]);

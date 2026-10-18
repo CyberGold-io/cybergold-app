@@ -27,6 +27,8 @@ import { enrichResultQuality } from "../trading/quoteQuality";
 import { safeWalletClickError, type UiConfirmationDiagnostic } from "../trading/runnerDiagnostics";
 import { readWalletUiState } from "../trading/walletUiState";
 import { privateSandboxPhase, privateSandboxScenarios, privateSandboxSelection, sandboxIsolation, scenarioIsolation, type SandboxIsolation } from "../trading/privateSandbox";
+import { cleanupOwnedWalletRequest, isWalletRequestCleanupError, walletRequestContextClosedError } from "../trading/walletRequestLifecycle";
+import { recoverUiTransaction, uiWalletRequestSettled } from "../trading/uiTransactionRecovery";
 
 async function approveUntilMined(page: Page, submitted: () => boolean, observe: () => Promise<void> = async () => {},
   nativeProgress?: (event: { selection?: Pick<UiConfirmationDiagnostic, "notificationSelection" | "notificationViewCount">;
@@ -223,13 +225,45 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       }, { timeout: 60000 }).toBe(true);
     });
   }
+  async function releaseUiRequest(result: ScenarioResult) {
+    if (helpersHash) result.transactionHash = helpersHash;
+    let observed: Awaited<ReturnType<typeof uiSwapObservation>>;
+    let contextClosed = false;
+    const settled = async () => {
+      try { observed = await uiSwapObservation(page, activeSwapAttempt) ?? observed; } catch { /* Retain the last original-attempt observation during context disposal. */ }
+      return Boolean(result.transactionHash) || uiWalletRequestSettled(observed, activeSwapAttempt);
+    };
+    try {
+      const released = await cleanupOwnedWalletRequest(page, settled, value => {
+        if (result.uiConfirmation) Object.assign(result.uiConfirmation, value, { requestStage: result.executionStage });
+      });
+      contextClosed = released.cleanup === "context-closed";
+    } finally {
+      await recoverUiTransaction(result, activeSwapAttempt, observed, fetcher);
+      if (result.transactionHash) helpersHash = result.transactionHash as Hex;
+    }
+    // The owning browser resource ended. Let its ordinary teardown error
+    // leave the per-case catcher; remaining inventory stays unexercised.
+    if (contextClosed) throw walletRequestContextClosedError();
+  }
   async function submit(assets: ReturnType<typeof quoteAssets>, mode: "exact-in" | "exact-out") {
     const button = await getSwapButton(page);
     await armUiQuoteCapture(button, assets);
     gasObservation.begin();
     observationPhase = "ui-submit"; await checkpoint(observationPhase);
-    if (activeScenarioIndex !== undefined) results[activeScenarioIndex].executionAttempted = true;
-    await button.click();
+    const submittedResult = activeResult();
+    if (submittedResult) submittedResult.executionAttempted = true;
+    const confirmationStarted = performance.now();
+    const confirmation: UiConfirmationDiagnostic = { elapsedMs: 0, clickAttempts: 0, clickCompleted: 0 };
+    const currentResult = submittedResult;
+    if (currentResult) currentResult.uiConfirmation = confirmation;
+    try { await button.click(); } catch (error) {
+      // A native request can open before Playwright reports a click failure.
+      // Release this owned flow even when optional attempt capture never ran.
+      try { if (currentResult) await releaseUiRequest(currentResult); }
+      finally { confirmation.elapsedMs = Math.max(0, Math.round(performance.now() - confirmationStarted)); }
+      throw error;
+    }
     // Retain instrumentation errors, but settle the existing wallet flow first.
     let quote, captureError;
     try {
@@ -244,10 +278,6 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       quote = await capturedUiQuote(page, assets, mode); activeResult()!.uiQuote = quote;
     } catch (error) { captureError = error; }
     observationPhase = "ui-confirmation"; await checkpoint(observationPhase);
-    const confirmationStarted = performance.now();
-    const confirmation: UiConfirmationDiagnostic = { elapsedMs: 0, clickAttempts: 0, clickCompleted: 0 };
-    const currentResult = activeResult();
-    if (currentResult) currentResult.uiConfirmation = confirmation;
     let observing = true, readingUi = false;
     try { await approveUntilMined(page, () => Boolean(helpersHash), async () => {
       let terminalFailure: ReturnType<typeof uiSwapTerminalFailure>;
@@ -283,7 +313,12 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
           if (observing && state) confirmation.uiState = state;
         }).catch(() => {}).finally(() => { readingUi = false; });
       }
-    }); } finally {
+    }); } catch (error) {
+      // Finish this original native request before the next case can select
+      // another prompt. A late hash is retained; Swap is never clicked again.
+      if (currentResult) await releaseUiRequest(currentResult);
+      throw error;
+    } finally {
       observing = false;
       confirmation.elapsedMs = Math.max(0, Math.round(performance.now() - confirmationStarted));
     }
@@ -358,7 +393,14 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     const validateWallet = await walletPostcheck(walletBefore, fixtures[0]);
     observationPhase = "ui-receipt-assertions"; await checkpoint(observationPhase); measuredReceipt.validate();
     observationPhase = "ui-balance-postchecks"; await checkpoint(observationPhase); await validateWallet();
-  } catch (error) { fixtures[0] = { ...uiObservationFailure(fixtures[0], error, observationPhase), ...(helpersHash ? { transactionHash: helpersHash } : {}) }; }
+  } catch (error) {
+    fixtures[0] = { ...uiObservationFailure(fixtures[0], error, observationPhase), ...(helpersHash ? { transactionHash: helpersHash } : {}) };
+    fixtures[0].transactionDisposition = transactionDisposition(fixtures[0]);
+    if (isWalletRequestCleanupError(error)) {
+      fixtures[0].durationMs = Math.round(performance.now() - bootstrapStarted);
+      await persist(); throw error;
+    }
+  }
   fixtures[0].durationMs = Math.round(performance.now() - bootstrapStarted); await persist();
   activeFixtureIndex = undefined; activeQuoteDiagnostics = undefined; activeSwapAttempt = undefined;
   if (privatePhase === 'prepare') {
@@ -384,13 +426,16 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     const scenario = scenarios[0];
     const selectionPath = process.env.TRADE_REGRESSION_PRIVATE_SELECTION;
     const selected: SelectionCapture | undefined = selectionPath ? JSON.parse(await readFile(selectionPath, 'utf8')) : undefined;
+    const retainAlternate = async (alternate: NonNullable<ScenarioResult['alternateExecution']>) => {
+      alternate.comparisonState = 'restored-baseline';
+      if (isolation) alternate.isolation = scenarioIsolation(isolation, 'alternate');
+      results[0] = { ...results[0], status: 'skipped', code: 'independent-alternate-only', alternateExecution: alternate };
+      await persist();
+    };
     const alternate = scenario.asset === 'BASKET' ? { ...notAttemptedAlternate(scenario), provider: 'market' as const, reason: 'unsupported' as const }
-      : selected?.quote && selected.intent ? await executeAlternate(selected, scenario, selected.intent, page, owner, config, fetcher, undefined, undefined, 'restored-baseline')
+      : selected?.quote && selected.intent ? await executeAlternate(selected, scenario, selected.intent, page, owner, config, fetcher, undefined, undefined, 'restored-baseline', retainAlternate)
       : notAttemptedAlternate(scenario);
-    alternate.comparisonState = 'restored-baseline';
-    if (isolation) alternate.isolation = scenarioIsolation(isolation, 'alternate');
-    results[0] = { ...results[0], status: 'skipped', code: 'independent-alternate-only', alternateExecution: alternate };
-    await persist();
+    await retainAlternate(alternate);
     expect(alternate.status).not.toBe('fail');
     return;
   }
@@ -437,7 +482,18 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       observationPhase = "ui-receipt-assertions"; await checkpoint(observationPhase); measuredReceipt.validate();
       observationPhase = "ui-balance-postchecks"; await checkpoint(observationPhase); await validateWallet();
       results[index].transactionDisposition = "confirmed";
-    } catch (error) { results[index] = { ...uiObservationFailure(results[index], error, observationPhase), ...(helpersHash ? { transactionHash: helpersHash } : {}) }; }
+    } catch (error) {
+      results[index] = { ...uiObservationFailure(results[index], error, observationPhase), ...(helpersHash ? { transactionHash: helpersHash } : {}) };
+      results[index].transactionDisposition = transactionDisposition(results[index]);
+      if (isWalletRequestCleanupError(error)) { await persist(); throw error; }
+      // A display/receipt assertion may fail after native submission. Recover
+      // its original receipt identity without changing the failed assertion.
+      if (activeSwapAttempt) {
+        let observed: Awaited<ReturnType<typeof uiSwapObservation>>;
+        try { observed = await uiSwapObservation(page, activeSwapAttempt); } catch {}
+        await recoverUiTransaction(results[index], activeSwapAttempt, observed, fetcher);
+      }
+    }
     results[index].transactionDisposition = transactionDisposition(results[index]);
     // Winner latency ends before the separately measured alternate attempt.
     results[index].durationMs = Math.round(performance.now() - started);
@@ -455,7 +511,10 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       const settlement = results[index].actualOperation ? { context: results[index].context, bounds: results[index].bounds } : {};
       const refs = { ...binding.refs, ...results[index].refs };
       Object.assign(results[index], binding, settlement, { refs });
-      if (!privatePhase) results[index].alternateExecution = await executeAlternate(selected, scenario, selected.intent, page, owner, config, fetcher, undefined, results[index].transactionDisposition);
+      if (!privatePhase) results[index].alternateExecution = await executeAlternate(selected, scenario, selected.intent, page, owner, config, fetcher, undefined, results[index].transactionDisposition, 'sequential-state', async alternate => {
+        results[index].alternateExecution = alternate;
+        await persist();
+      });
     } else if (scenario.asset === "BASKET") {
       results[index].providers = observedBasketProviderEvidence(observations, scenario, config.contracts.core ?? undefined);
       results[index].alternateExecution = { ...notAttemptedAlternate(scenario), provider: "market", reason: "unsupported" };
