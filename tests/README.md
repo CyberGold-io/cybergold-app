@@ -144,10 +144,20 @@ are UI integration evidence, not qualification of actual provider settlement.
 ### Independent Sandbox scenarios and the sequential suite
 
 The private Sandbox suite uses the same UI matrix and settlement assertions as
-the sequential suite. Its host orchestrator forks an explicitly selected Sandbox
-block, prepares one disposable funded wallet and CYGLD bootstrap, then saves an
-owned snapshot and one frozen matrix. It does not use a finalized Mainnet block
-as a substitute for Sandbox state and never restores the shared Sandbox.
+the sequential suite. Its host orchestrator captures the complete Sandbox Anvil
+state overlay and loads it over the same original immutable fork base. This
+preserves Sandbox changes that do not change its block header, without later
+lazy reads from the mutable Sandbox. The dedicated test wallet inherits its
+Sandbox balances; preparation then saves a CYGLD bootstrap, an owned snapshot
+and one frozen matrix. A source-state digest identifies the captured overlay.
+The upstream base alone never substitutes for Sandbox state, and the host never
+restores the shared Sandbox.
+
+Both UI suites use funded PAXG for the one-time wallet cancellation check before
+the PAXG bootstrap. The check still requires a real MetaMask rejection and an
+unchanged CYGLD balance. It does not require an unrelated ETH route to quote
+before other scenarios can start. All twelve native ETH scenarios remain in the
+matrix, with their original amount, direction and exact-input/output mode.
 
 Before every winner or alternate attempt, the host restores that prepared owned
 snapshot, recreates the private PostgreSQL database and Backend process, and
@@ -158,6 +168,8 @@ disposable wallet, and reconnects it. Wallet pending requests, nonce observation
 permissions, App browser storage and browser query caches do not carry across
 attempts. The restored chain contains the same wallet balances, approvals and
 account nonce before each compared attempt.
+The private node advances one second per mined block after each restore, so
+automining does not introduce different wall-clock timestamps between roles.
 
 The UI winner is executed first. Its original unsigned provider selection stays
 in the private fixture workspace. After a separate full reset, the alternate

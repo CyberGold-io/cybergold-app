@@ -310,7 +310,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   }
 
   if (!privatePhase || privatePhase === 'prepare') {
-  await prepare("ETH", "CYGLD", "0.25", "buy");
+  // Exercise wallet cancellation with funded collateral. ETH route readiness
+  // belongs to its matrix cases, rather than every scenario's shared setup.
+  await prepare("PAXG", "CYGLD", "0.25", "buy");
   const beforeRejected = await readWalletBalances(page, ["cygld"]);
   await checkpoint("setup-rejection-submit");
   await (await getSwapButton(page)).click();
