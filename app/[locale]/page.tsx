@@ -696,7 +696,6 @@ function TradingScreen() {
 
   const sellSelectDisabled = isSubmittingSwap || isConnected && showOnlyWalletTokens && sellSelectableTokens.length === 0;
   const isSellTokenChoicesLoading = isConnected && showOnlyWalletTokens && isWalletBalancesLoading;
-  const buySelectDisabled = isSubmittingSwap || buySelectableTokens.length === 0;
 
   // Resolve issuance/redemption, token/basket routing, and the editable input mode.
   const flowState = useMemo(() => {
@@ -2917,7 +2916,7 @@ const computedSellPrefill = useMemo(() : Prefill => {
                 <button
                   type="button"
                   ref={buyTokenPickerRef}
-                  disabled={buySelectDisabled}
+                  disabled={isSubmittingSwap}
                   aria-haspopup="dialog"
                   aria-expanded={isBuyModalOpen}
                   aria-controls={isBuyModalOpen ? "dropdown-from" : undefined}
