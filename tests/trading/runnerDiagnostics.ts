@@ -5,7 +5,10 @@ import type { WalletRpcObservation } from "./walletRpcObservation.ts";
 
 export const runnerStages = ["origin", "config-facts", "wallet-cache", "wallet-tests", "independent-report", "ui-report", "fork-qualification", "complete"] as const;
 export const walletSetupStages = ["setup-import", "profile", "extension", "browser-launch", "extension-worker", "wallet-onboarding", "wallet-ready", "browser-close"] as const;
-export const walletOnboardingSteps = ["navigation", "focus", "other-pages-close", "setup-callback", "import-button", "import-wallet", "completion-check", "completion-click", "completion-hidden", "completion-settle", "complete"] as const;
+export const walletOnboardingSteps = ["navigation", "focus", "other-pages-close", "setup-callback", "import-button", "import-wallet",
+  "import-choice", "import-srp-choice", "import-srp-fill", "import-srp-confirm", "import-password-fill", "import-password-confirm",
+  "import-password-terms", "import-password-submit", "import-metrics-opt-out", "import-metrics-confirm",
+  "completion-check", "completion-click", "completion-hidden", "completion-settle", "complete"] as const;
 export type WalletOnboardingDiagnostic = { step: typeof walletOnboardingSteps[number]; elapsedMs: number; uiState?: WalletUiState };
 const errorClasses = new Set(["Error", "TypeError", "SyntaxError", "TimeoutError", "AbortError", "ReferenceError", "RangeError", "AggregateError", "UnknownError", "SystemError"]);
 const errorCodes = new Set(["ENOENT", "EACCES", "EROFS", "ENOSPC", "ENOMEM", "ERR_MODULE_NOT_FOUND"]);
@@ -34,11 +37,14 @@ export type RunnerDiagnostic = { stage: typeof runnerStages[number]; exitCode?: 
 
 const onboardingObservers = new WeakMap<object, (step: WalletOnboardingDiagnostic["step"]) => void>();
 /** In-memory only; callers attach snapshots to their existing checkpoint writes. */
-export function observeWalletOnboarding(context: object) {
+export function observeWalletOnboarding(context: object, changed: () => void = () => {}) {
   const started = performance.now();
   let step: WalletOnboardingDiagnostic["step"] = "navigation", finished: number | undefined;
   let uiState: WalletUiState | undefined;
-  onboardingObservers.set(context, value => { step = value; });
+  onboardingObservers.set(context, value => {
+    step = value;
+    try { changed(); } catch { /* Optional checkpoints cannot change import. */ }
+  });
   return {
     uiState: (value: unknown) => { if (finished === undefined) uiState = safeWalletUiState(value); },
     snapshot: (): WalletOnboardingDiagnostic => ({ step, elapsedMs: Math.max(0, Math.round((finished ?? performance.now()) - started)),
@@ -75,12 +81,18 @@ export function safeCommandResult(code: number | null, signal: string | null) {
   return { ...(Number.isInteger(code) && code! >= 0 && code! <= 255 ? { exitCode: code! } : {}),
     ...(signals.has(signal ?? "") ? { signal: signal! } : {}) };
 }
+const walletDiagnosticWrites = new Map<string, Promise<void>>();
 export async function writeWalletSetupDiagnostic(path: string | undefined, value: WalletSetupDiagnostic) {
   if (!path) return;
-  try {
-    await writeFile(path + ".tmp", JSON.stringify(value) + "\n");
-    await rename(path + ".tmp", path);
-  } catch { /* Optional observations never change wallet setup's result. */ }
+  const write = (walletDiagnosticWrites.get(path) ?? Promise.resolve()).then(async () => {
+    try {
+      await writeFile(path + ".tmp", JSON.stringify(value) + "\n");
+      await rename(path + ".tmp", path);
+    } catch { /* Optional observations never change wallet setup's result. */ }
+  });
+  walletDiagnosticWrites.set(path, write);
+  await write;
+  if (walletDiagnosticWrites.get(path) === write) walletDiagnosticWrites.delete(path);
 }
 export async function readWalletSetupDiagnostic(path: string): Promise<WalletSetupDiagnostic | undefined> {
   try {

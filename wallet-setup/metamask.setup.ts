@@ -1,8 +1,6 @@
 import { defineWalletSetup } from "@synthetixio/synpress-cache";
-import { MetaMask } from "@synthetixio/synpress-metamask/playwright";
 import { walletOnboardingStep } from "../tests/trading/runnerDiagnostics.ts";
-
-type MetaMaskConstructor = ConstructorParameters<typeof MetaMask>;
+import { importMetaMaskWallet } from "../tests/metamask/import-wallet.ts";
 
 const seedPhrase = process.env.SYNPRESS_WALLET_SEED_PHRASE;
 const walletPassword = process.env.SYNPRESS_WALLET_PASSWORD;
@@ -13,12 +11,6 @@ if (!walletPassword) throw new Error("SYNPRESS_WALLET_PASSWORD is required");
 export default defineWalletSetup(
   walletPassword,
   async (context, walletPage) => {
-    const metamask = new MetaMask(
-      context as unknown as MetaMaskConstructor[0],
-      walletPage as unknown as MetaMaskConstructor[1],
-      walletPassword
-    );
-
     console.log("[metamask-setup] initial-url", walletPage.url());
     walletOnboardingStep(context, "focus");
     await walletPage.bringToFront();
@@ -27,7 +19,8 @@ export default defineWalletSetup(
     console.log("[metamask-setup] import-button-visible");
 
     walletOnboardingStep(context, "import-wallet");
-    await metamask.importWallet(seedPhrase);
+    await importMetaMaskWallet(context as unknown as Parameters<typeof importMetaMaskWallet>[0],
+      walletPage as unknown as Parameters<typeof importMetaMaskWallet>[1], seedPhrase, walletPassword);
     console.log("[metamask-setup] import-wallet-finished", walletPage.url());
 
     const onboardingCompleteButton = walletPage.getByTestId("onboarding-complete-done");

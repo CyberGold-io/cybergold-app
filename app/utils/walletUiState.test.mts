@@ -4,14 +4,14 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { Page } from "@playwright/test";
-import { observeWalletPageUiState, readWalletUiState, safeWalletUiState } from "../../tests/trading/walletUiState.ts";
+import { observeWalletPageUiState, readWalletUiState, readWalletOnboardingUiState, safeWalletUiState } from "../../tests/trading/walletUiState.ts";
 import { observeWalletOnboarding, readWalletSetupDiagnostic, walletOnboardingStep, writeWalletSetupDiagnostic } from "../../tests/trading/runnerDiagnostics.ts";
 
 const turn = () => new Promise(resolve => setImmediate(resolve));
 const privateState = { route: "onboarding", url: "private-extension-url", text: "private-wallet-seed",
   controls: { srpInput: { matched: 1, visible: 1, enabled: 1, value: "private-wallet-seed" },
-    unknownControl: { matched: 1 }, password: { visible: 0 } } };
-const closedState = { route: "onboarding", controls: { srpInput: { matched: 1, visible: 1, enabled: 1 }, password: { visible: 0 } } };
+    unknownControl: { matched: 1 }, passwordInput: { visible: 0 } } };
+const closedState = { route: "onboarding", controls: { srpInput: { matched: 1, visible: 1, enabled: 1 }, passwordInput: { visible: 0 } } };
 
 test("wallet UI projection keeps only closed routes, controls and independently safe counters", () => {
   assert.deepEqual(safeWalletUiState(privateState), closedState);
@@ -50,61 +50,74 @@ test("onboarding snapshots retain detached safe UI state and stop before late ob
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
+test("rapid optional progress checkpoints cannot overwrite the final wallet failure", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "wallet-ui-checkpoints-")), path = join(directory, "setup.json");
+  try {
+    const pending = Array.from({ length: 10 }, () => writeWalletSetupDiagnostic(path, { stage: "wallet-onboarding", result: "running" }));
+    const final = { stage: "wallet-onboarding", result: "fail", errorClass: "Error",
+      onboarding: { step: "import-srp-confirm", elapsedMs: 100 } } as const;
+    pending.push(writeWalletSetupDiagnostic(path, final));
+    await Promise.all(pending);
+    assert.deepEqual(await readWalletSetupDiagnostic(path), final);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
 function observerPage() {
-  const listeners = new Map<string, Set<(...args: unknown[]) => void>>();
-  const bindings: ((source: unknown, value: unknown) => void)[] = [], evaluations: { mode: string; binding?: string }[] = [];
-  const frame = {}, setup = Promise.withResolvers<void>();
-  const page = { mainFrame: () => frame,
+  const listeners = new Map<string, Set<(...args: unknown[]) => void>>(), frame = {};
+  let reads = 0, route = "onboarding/import-with-srp", fail = false;
+  const blocked = Promise.withResolvers<void>(); let block = false;
+  type Locator = { selector: string; and: (other: { selector: string }) => Locator; count: () => Promise<number> };
+  const locator = (selector: string, filter?: string): Locator => ({ selector,
+    and: other => locator(selector, other.selector), count: async () => {
+      reads++; if (block) await blocked.promise;
+      if (fail) throw new Error("private-read-error");
+      return selector.includes("create-password-new-input") ? filter === ":visible" ? 1 : filter ? 0 : 2 : 0;
+    } });
+  const page = { mainFrame: () => frame, url: () => `chrome-extension://private-extension/home.html#/${route}?private-request`, locator,
     on: (name: string, callback: (...args: unknown[]) => void) => { const group = listeners.get(name) ?? new Set(); group.add(callback); listeners.set(name, group); },
     off: (name: string, callback: (...args: unknown[]) => void) => { listeners.get(name)?.delete(callback); },
-    exposeBinding: (_name: string, callback: (source: unknown, value: unknown) => void) => { bindings.push(callback); return setup.promise; },
-    evaluate: async (_callback: unknown, options: { mode: string; binding?: string }) => { evaluations.push(options); },
+    evaluate: () => { assert.fail("MetaMask scuttles main-world evaluation."); },
+    exposeBinding: () => { assert.fail("No main-world wallet binding is installed."); },
   } as unknown as Page;
-  return { page, setup, bindings, evaluations, frame,
+  return { page, frame, reads: () => reads, blocked,
+    setBlock: (value: boolean) => { block = value; }, setFailure: () => { fail = true; }, setRoute: (value: string) => { route = value; },
     emit: (name: string, ...args: unknown[]) => { for (const callback of listeners.get(name) ?? []) callback(...args); },
     listenerCount: () => [...listeners.values()].reduce((total, rows) => total + rows.size, 0) };
 }
+const flushReads = async () => { for (let i = 0; i < 50; i++) await turn(); };
 
-test("selected-page observation sanitizes binding data and ignores subframes and stopped lifetimes", async () => {
-  const fixture = observerPage(), received: unknown[] = [];
-  const receive = (value: unknown) => { received.push(value); };
-  const first = observeWalletPageUiState(fixture.page, receive);
-  fixture.setup.resolve(); await turn();
-  assert.equal(fixture.evaluations.length, 1); assert.equal(fixture.evaluations[0].mode, "observe");
-  fixture.bindings[0]({}, privateState); assert.deepEqual(received, [closedState]);
-  fixture.bindings[0]({}, { route: "private-route" }); assert.equal(received.length, 1);
-  fixture.emit("framenavigated", {}); assert.equal(fixture.evaluations.length, 1);
-  fixture.emit("framenavigated", fixture.frame); fixture.emit("domcontentloaded"); assert.equal(fixture.evaluations.length, 3);
-  first.stop(); const stoppedCount = fixture.evaluations.length;
-  assert.equal(fixture.listenerCount(), 0); assert.equal(fixture.evaluations.at(-1)?.mode, "stop");
-  fixture.bindings[0]({}, { route: "home" }); fixture.emit("domcontentloaded"); assert.equal(received.length, 1);
-  assert.equal(fixture.evaluations.length, stoppedCount);
-  const second = observeWalletPageUiState(fixture.page, receive); await turn();
-  assert.notEqual(fixture.evaluations.at(-1)?.binding, fixture.evaluations[0].binding);
-  fixture.bindings[0]({}, { route: "unlock" }); fixture.bindings[1]({}, { route: "home" });
-  assert.deepEqual(received, [closedState, { route: "home" }]); second.stop();
+test("onboarding snapshots use utility-world counts under MetaMask scuttling and avoid credential-key redaction", async () => {
+  const fixture = observerPage(), received: { route?: string }[] = [];
+  const observation = observeWalletPageUiState(fixture.page, state => { received.push(state); });
+  await flushReads(); assert.equal(received.length, 1); assert.equal(received[0].route, "onboarding");
+  const state = await readWalletOnboardingUiState(fixture.page);
+  assert.deepEqual(state?.controls?.passwordInput, { matched: 2, visible: 1, enabled: 0 });
+  assert.equal(Object.hasOwn(state?.controls ?? {}, "password"), false);
+  assert.doesNotMatch(JSON.stringify(state), /private|value|"password":/);
+  const reads = fixture.reads(); fixture.emit("framenavigated", {}); await flushReads(); assert.equal(fixture.reads(), reads);
+  fixture.setRoute("unlock"); fixture.emit("framenavigated", fixture.frame); await flushReads();
+  assert.equal(received.at(-1)?.route, "unlock");
+  observation.stop(); assert.equal(fixture.listenerCount(), 0);
+  const stoppedReads = fixture.reads(); fixture.emit("domcontentloaded"); await flushReads(); assert.equal(fixture.reads(), stoppedReads);
 });
 
-test("stopping before binding setup completes prevents later installation and delivery", async () => {
-  const fixture = observerPage(); let received = 0;
+test("optional onboarding reads are serialized and stopped lifetimes cannot deliver late state", async () => {
+  const fixture = observerPage(); fixture.setBlock(true); let received = 0;
   const observation = observeWalletPageUiState(fixture.page, () => { received++; });
-  observation.stop(); fixture.setup.resolve(); await turn();
-  assert.deepEqual(fixture.evaluations.map(row => row.mode), ["stop"]);
-  fixture.bindings[0]({}, privateState); assert.equal(received, 0); assert.equal(fixture.listenerCount(), 0);
+  fixture.emit("domcontentloaded"); fixture.emit("framenavigated", fixture.frame);
+  await turn(); assert.equal(fixture.reads(), 1);
+  observation.stop(); fixture.blocked.resolve(); await flushReads();
+  assert.equal(received, 0); assert.equal(fixture.listenerCount(), 0);
 });
 
-test("optional observer setup, bridge and consumer failures never escape into wallet setup", async () => {
-  for (const failure of ["binding-sync", "binding-async", "evaluate-sync", "evaluate-async", "listener"] as const) {
-    const page = { mainFrame: () => ({}), on: () => { if (failure === "listener") throw new Error("private-listener"); }, off: () => undefined,
-      exposeBinding: () => { if (failure === "binding-sync") throw new Error("private-binding");
-        return failure === "binding-async" ? Promise.reject(new Error("private-binding")) : Promise.resolve(); },
-      evaluate: () => { if (failure === "evaluate-sync") throw new Error("private-evaluation");
-        return failure === "evaluate-async" ? Promise.reject(new Error("private-evaluation")) : Promise.resolve(); } } as unknown as Page;
-    const observation = observeWalletPageUiState(page, () => { throw new Error("private-consumer"); });
-    await turn(); observation.stop(); await turn();
-  }
-  const fixture = observerPage(), observation = observeWalletPageUiState(fixture.page, () => { throw new Error("private-consumer"); });
-  fixture.setup.resolve(); await turn(); assert.doesNotThrow(() => fixture.bindings[0]({}, privateState)); observation.stop();
+test("onboarding read, listener and consumer failures remain optional", async () => {
+  const failure = observerPage(); failure.setFailure();
+  const observation = observeWalletPageUiState(failure.page, () => { assert.fail("No failed read can emit state."); });
+  await flushReads(); observation.stop();
+  const fixture = observerPage(), consumer = observeWalletPageUiState(fixture.page, () => { throw new Error("private-consumer"); });
+  await flushReads(); consumer.stop();
+  const broken = { on: () => { throw new Error("private-listener"); }, off: () => undefined } as unknown as Page;
+  assert.doesNotThrow(() => observeWalletPageUiState(broken, () => {}).stop());
 });
 
 test("confirmation snapshots retain bounded counts without evaluating in the wallet's main world", async () => {
