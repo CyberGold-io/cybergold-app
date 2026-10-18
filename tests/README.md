@@ -141,6 +141,53 @@ independent diagnostic cases; the legacy 20 producer inventory is not a second
 operating matrix. Controlled browser fixtures with synthetic providers/receipts
 are UI integration evidence, not qualification of actual provider settlement.
 
+### Independent Sandbox scenarios and the sequential suite
+
+The private Sandbox suite uses the same UI matrix and settlement assertions as
+the sequential suite. Its host orchestrator captures the complete Sandbox Anvil
+state overlay and loads it over the same original immutable fork base. This
+preserves Sandbox changes that do not change its block header, without later
+lazy reads from the mutable Sandbox. The dedicated test wallet inherits its
+Sandbox balances; preparation then saves a CYGLD bootstrap, an owned snapshot
+and one frozen matrix. A source-state digest identifies the captured overlay.
+The upstream base alone never substitutes for Sandbox state, and the host never
+restores the shared Sandbox.
+
+Both UI suites use funded PAXG for the one-time wallet cancellation check before
+the PAXG bootstrap. The check still requires a real MetaMask rejection and an
+unchanged CYGLD balance. It does not require an unrelated ETH route to quote
+before other scenarios can start. All twelve native ETH scenarios remain in the
+matrix, with their original amount, direction and exact-input/output mode.
+
+Before every winner or alternate attempt, the host restores that prepared owned
+snapshot, recreates the private PostgreSQL database and Backend process, and
+restarts the private frontend with an empty runtime cache. This is an explicit
+**cold cache baseline**; it does not copy live shared caches. Each attempt starts
+a new Playwright process and private Chromium profile, imports the same
+disposable wallet, and reconnects it. Wallet pending requests, nonce observations,
+permissions, App browser storage and browser query caches do not carry across
+attempts. The restored chain contains the same wallet balances, approvals and
+account nonce before each compared attempt.
+The private node advances one second per mined block after each restore, so
+automining does not introduce different wall-clock timestamps between roles.
+
+The UI winner is executed first. Its original unsigned provider selection stays
+in the private fixture workspace. After a separate full reset, the alternate
+uses that exact captured losing plan through the existing retained-plan
+revalidation and wallet execution contract. A revalidated plan has a separate
+digest. A missing, unsupported or unqualified alternate is reported as not
+attempted; it is not counted as a successful transaction. Preparation/bootstrap
+transactions are fixture evidence, not matrix passes.
+
+The internal wallet phases are `TRADE_REGRESSION_PRIVATE_PHASE=prepare`, `winner`
+and `alternate`. The host supplies the scenario, frozen matrix, private selection
+file and reset evidence. The report labels the suite `independent`, records
+source and prepared block anchors and the cold-cache generation, and labels
+alternate comparisons `restored-baseline`. Those fields are observations of
+the owning host's reset operation; the wallet process performs no chain or cache
+reset itself. The separate `sequential` suite retains the existing warm-state
+behavior, including changes caused by earlier settled trades.
+
 The cache command uses Synpress's extension download and wallet setup with the
 same current Chromium as the tests; an old browser's Linux profile is not reused.
 Synpress supplies the session Anvil pool. The shared fixture uses Playwright to

@@ -21,6 +21,7 @@ if (!values["output-dir"]) throw new Error("--output-dir is required");
 const output = resolve(values["output-dir"]);
 await mkdir(output, { recursive: true });
 const report = { schema: "cybergold.trade-regression.v1", runId: randomUUID(), target: values.target, mode: values.mode,
+  ...(values.mode === 'sandbox-execution' ? { suite: 'sequential' } : {}),
   startedAt: new Date().toISOString(), matrix: matrixCounts, runnerOutcome: "pass", runnerDiagnostics: { stage: "origin" }, scenarios: [] };
 
 let inventory = matrixTemplates();
@@ -38,6 +39,7 @@ async function walletResults() {
       report.scenarios.push(...native.scenarios);
       if (native.valuation) report.valuation = native.valuation;
       if (native.observations) report.observations = { ...report.observations, ...native.observations };
+      if (native.suite === 'sequential' || native.suite === 'independent') report.suite = native.suite;
       if (Array.isArray(native.fixtures)) report.fixtures.push(...native.fixtures);
     } catch (error) {
       const code = ui ? "ui-results-unavailable" : "execution-results-unavailable";
