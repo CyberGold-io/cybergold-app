@@ -89,7 +89,8 @@ export function notAttemptedAlternate(scenario: Scenario, selected?: ProviderQuo
  * context; the original captured digest survives any failure or renewed terms.
  */
 export async function executeAlternate(capture: SelectionCapture, scenario: Scenario, request: TradeQuoteRequest,
-  page: Page, owner: `0x${string}`, config: ProtocolConfiguration, fetcher: typeof fetch, execute?: typeof import('./walletExecution.ts').executeScenario, predecessorDisposition?: ScenarioResult['transactionDisposition'], comparisonState: AlternateExecution['comparisonState'] = 'sequential-state'): Promise<AlternateExecution> {
+  page: Page, owner: `0x${string}`, config: ProtocolConfiguration, fetcher: typeof fetch, execute?: typeof import('./walletExecution.ts').executeScenario, predecessorDisposition?: ScenarioResult['transactionDisposition'], comparisonState: AlternateExecution['comparisonState'] = 'sequential-state',
+  checkpoint?: (result: AlternateExecution) => void | Promise<void>): Promise<AlternateExecution> {
   const { alternate } = captureSelection(capture);
   let result = notAttemptedAlternate(scenario, capture.quote);
   result.comparisonState = comparisonState;
@@ -119,6 +120,15 @@ export async function executeAlternate(capture: SelectionCapture, scenario: Scen
   } catch (error) {
     result = { ...result, ...failureResult(result, error) };
     result.transactionDisposition = transactionDisposition(result);
+    // Resource disposal errors belong to the owning test's teardown, rather
+    // than a recoverable quote/trade failure on a still-owned native context.
+    if ((await import('./walletRequestLifecycle.ts')).isWalletRequestCleanupError(error)) {
+      result.durationMs = Math.round(performance.now() - started);
+      // A thrown resource error cannot return this partial alternate. Let the
+      // owning report retain it before teardown, without replacing that error.
+      try { await checkpoint?.(result); } catch { /* Outer fixture teardown gets the original resource failure. */ }
+      throw error;
+    }
   }
   result.durationMs = Math.round(performance.now() - started);
   return result;

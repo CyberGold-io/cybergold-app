@@ -2,6 +2,8 @@ import { readFile, rename, writeFile } from "node:fs/promises";
 import { basename } from "node:path";
 import { safeWalletUiState, type WalletUiState } from "./walletUiState.ts";
 import type { WalletRpcObservation } from "./walletRpcObservation.ts";
+import type { WalletRequestCleanup } from "./walletRequestLifecycle.ts";
+import type { ExecutionStage } from "./regression.ts";
 
 export const runnerStages = ["origin", "config-facts", "wallet-cache", "wallet-tests", "independent-report", "ui-report", "fork-qualification", "complete"] as const;
 export const walletSetupStages = ["setup-import", "profile", "extension", "browser-launch", "extension-worker", "wallet-onboarding", "wallet-ready", "browser-close"] as const;
@@ -18,18 +20,20 @@ export type WalletSetupDiagnostic = { stage: typeof walletSetupStages[number]; r
 export type WalletRequestDiagnostic = {
   method: "eth_sendTransaction" | "eth_signTypedData_v4"; settlement: "pending" | "fulfilled" | "rejected";
   elapsedMs: number; pendingBefore: number; pendingAfter: number; deadlineExpired?: boolean;
+  requestStage?: ExecutionStage;
   notificationSelection?: "existing-notification" | "existing-extension" | "created"; notificationViewCount?: number;
   clickAttempts: number; clickCompleted: number; lastClickErrorClass?: string;
   lastClickErrorKind?: "ambiguous" | "timeout" | "closed" | "other";
   uiState?: WalletUiState;
   rpc?: WalletRpcObservation;
-};
+} & Partial<WalletRequestCleanup>;
 /** Last observed UI/native confirmation progress; never transaction settlement proof. */
 export type UiConfirmationDiagnostic = Pick<WalletRequestDiagnostic, "elapsedMs" | "clickAttempts" | "clickCompleted"
-  | "lastClickErrorClass" | "lastClickErrorKind" | "notificationSelection" | "notificationViewCount" | "uiState"> & {
+  | "lastClickErrorClass" | "lastClickErrorKind" | "notificationSelection" | "notificationViewCount" | "uiState" | "requestStage"> & Partial<WalletRequestCleanup> & {
   appStage?: "quote" | "balance" | "network" | "authorization" | "preparation" | "simulation" | "submission" | "confirmation";
   appOutcome?: "started" | "submitted" | "succeeded" | "failed" | "reverted" | "unconfirmed";
   walletStep?: "approval" | "signature" | "transaction";
+  deadlineExpired?: boolean;
 };
 export type WalletTestDiagnostics = Partial<Record<"ui" | "independent", WalletSetupDiagnostic>>;
 export type RunnerDiagnostic = { stage: typeof runnerStages[number]; exitCode?: number; signal?: string;

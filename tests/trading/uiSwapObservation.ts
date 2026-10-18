@@ -6,6 +6,8 @@ export type UiSwapObservation = {
   transactionHash?: `0x${string}`;
   stage?: "quote" | "balance" | "network" | "authorization" | "preparation" | "simulation" | "submission" | "confirmation";
   walletStep?: "approval" | "signature" | "transaction";
+  /** Only an explicit native rejection can establish no trade submission. */
+  walletRejected?: true;
 };
 type ObservationWindow = Window & { __cybergoldSwapObservations?: UiSwapObservation[] };
 
@@ -28,6 +30,8 @@ export function installUiSwapObservation(scope: ObservationWindow = window) {
       row.stage = source.stage as UiSwapObservation["stage"];
     if (source.operation === "wallet" && ["approval", "signature", "transaction"].includes(String(source.walletStep)))
       row.walletStep = source.walletStep as UiSwapObservation["walletStep"];
+    if (source.operation === "swap" && source.outcome === "failed" && source.reason === "wallet_rejected")
+      row.walletRejected = true;
     if (typeof source.transactionHash === "string" && /^0x[0-9a-f]{64}$/i.test(source.transactionHash))
       row.transactionHash = source.transactionHash as `0x${string}`;
     scope.__cybergoldSwapObservations!.push(row);
@@ -45,6 +49,7 @@ export async function uiSwapObservation(page: Page, attemptId?: string): Promise
     const walletStep = matches.findLast(row => row.walletStep)?.walletStep;
     return { attemptId: id, outcome: matches.findLast(row => row.outcome)?.outcome,
       transactionHash: matches.findLast(row => row.transactionHash)?.transactionHash,
-      ...(stage ? { stage } : {}), ...(walletStep ? { walletStep } : {}) };
+      ...(stage ? { stage } : {}), ...(walletStep ? { walletStep } : {}),
+      ...(matches.some(row => row.walletRejected) ? { walletRejected: true as const } : {}) };
   }, attemptId);
 }

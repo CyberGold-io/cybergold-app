@@ -15,6 +15,8 @@ import { readJson, requireInvariant, type QuoteObservation, type ScenarioResult 
 import { safeRunnerError, safeWalletClickError, type WalletRequestDiagnostic } from "./runnerDiagnostics.ts";
 import { readWalletUiState } from "./walletUiState.ts";
 import { observeWalletRpc } from "./walletRpcObservation.ts";
+import { cleanupOwnedWalletRequest, closeOwnedWalletContext, walletRequestContextClosedError } from "./walletRequestLifecycle.ts";
+import { retainReceiptOutcome } from "./uiTransactionRecovery.ts";
 import { protocolConfigurationValues, type ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
 import type { HelpersExecutionOperation } from "../../app/utils/helpersExecutionGas.ts";
 import type { QuoteIntent } from "../../app/utils/quoteIntent.ts";
@@ -25,8 +27,7 @@ import { receiptQualityTerms, type QualityAmount } from "./quoteQuality.ts";
 
 const emptyPermit = { value: 0n, deadline: 0n, v: 0, r: `0x${"0".repeat(64)}` as Hex, s: `0x${"0".repeat(64)}` as Hex };
 const emptyPermit2 = { permit: { permitted: [] as { token: Address; amount: bigint }[], nonce: 0n, deadline: 0n }, signature: "0x" as Hex };
-// A timed-out observer does not cancel the native request. Count its settlement
-// separately so a later case on the same page can report that pending request.
+// Count the original native promise through cleanup, including a late result.
 const pendingWalletRequests = new WeakMap<Page, number>();
 
 function safeWalletRequestErrorCode(value: unknown): number | undefined {
@@ -39,12 +40,14 @@ function safeWalletRequestErrorCode(value: unknown): number | undefined {
 export async function requestWallet(page: Page, request: { method: string; params: unknown[] }, reject = false, result?: ScenarioResult): Promise<unknown> {
   await page.bringToFront();
   let settled = false;
+  let nativeOutcome: "fulfilled" | "rejected" | undefined;
+  let nativeErrorCode: number | undefined;
   const started = performance.now(), pendingBefore = pendingWalletRequests.get(page) ?? 0;
   pendingWalletRequests.set(page, pendingBefore + 1);
   let observing = true, observingUiState = false;
   const diagnostic: WalletRequestDiagnostic | undefined = request.method === "eth_sendTransaction" || request.method === "eth_signTypedData_v4"
     ? { method: request.method, settlement: "pending", elapsedMs: 0, pendingBefore, pendingAfter: pendingBefore + 1,
-      clickAttempts: 0, clickCompleted: 0 } : undefined;
+      clickAttempts: 0, clickCompleted: 0, ...(result?.executionStage ? { requestStage: result.executionStage } : {}) } : undefined;
   let rpc: ReturnType<typeof observeWalletRpc>;
   try { if (diagnostic && result) rpc = observeWalletRpc(page.context(), process.env.NEXT_PUBLIC_WALLET_RPC_URL); }
   catch { /* Optional setup cannot replace a native request. */ }
@@ -59,6 +62,7 @@ export async function requestWallet(page: Page, request: { method: string; param
   };
   const settlement = (value: "fulfilled" | "rejected") => {
     settled = true;
+    nativeOutcome = value;
     pendingWalletRequests.set(page, Math.max(0, (pendingWalletRequests.get(page) ?? 1) - 1));
     if (diagnostic) diagnostic.settlement = value;
     snapshot();
@@ -88,13 +92,16 @@ export async function requestWallet(page: Page, request: { method: string; param
       const error = new Error("Wallet request failed.") as Error & { walletRequestErrorCode?: number };
       error.name = safeRunnerError({ name: rejection.errorClass }).errorClass;
       const code = safeWalletRequestErrorCode(rejection.walletRequestErrorCode);
-      if (code !== undefined) error.walletRequestErrorCode = code;
+      if (code !== undefined) {
+        nativeErrorCode = code; error.walletRequestErrorCode = code;
+        try { if (result) result.walletRequestErrorCode = code; } catch { /* Optional retained metadata cannot replace the native rejection. */ }
+      }
       throw error;
     }
     settlement("fulfilled");
     return value;
   }, error => { settlement("rejected"); throw error; }); }
-  catch (error) { try { rpc?.stop(); } catch {} throw error; }
+  catch (error) { settlement("rejected"); try { rpc?.stop(); } catch {} throw error; }
   void pending.catch(() => undefined);
   try {
     await expect.poll(async () => {
@@ -124,31 +131,75 @@ export async function requestWallet(page: Page, request: { method: string; param
       });
       return settled;
     }, { timeout: 90_000, intervals: [250, 500, 1000] }).toBe(true);
-  } catch (error) {
+  } catch {
     if (!settled) {
       if (diagnostic) diagnostic.deadlineExpired = true;
-      throw new ScenarioUnavailableError(request.method === "eth_signTypedData_v4"
+      const cleanup = await cleanupOwnedWalletRequest(page, () => settled, value => {
+        if (diagnostic) Object.assign(diagnostic, value);
+        snapshot();
+      });
+      if (cleanup.cleanup === "context-closed") {
+        // Preserve an original hash that arrived during disposal, while letting
+        // the fixture owner unwind this ended browser resource. An approval
+        // hash is never evidence that the business transaction was submitted.
+        if (nativeOutcome === "fulfilled" && request.method === "eth_sendTransaction" && result) {
+          const hash = await pending;
+          if (typeof hash === "string" && /^0x[0-9a-f]{64}$/i.test(hash)) {
+            if (diagnostic?.requestStage === "approval-submission") (result.approvalTransactionHashes ??= []).push(hash);
+            else if (diagnostic?.requestStage === "execution-submission") {
+              result.transactionHash = hash;
+              result.transactionDisposition = "submitted";
+            }
+          }
+        }
+        throw walletRequestContextClosedError();
+      }
+      // The native wallet may have returned the original hash while cleanup
+      // opened. Keep it; do not strand a real submission or send another one.
+      if (nativeOutcome === "fulfilled") return pending;
+      const timeout = new ScenarioUnavailableError(request.method === "eth_signTypedData_v4"
         ? "wallet-authorization-timeout" : "wallet-submission-timeout");
+      if (nativeErrorCode !== undefined) {
+        Object.assign(timeout, { walletRequestErrorCode: nativeErrorCode });
+      }
+      throw timeout;
     }
-    throw error;
+    return pending;
   } finally {
     snapshot();
-    observing = false; // Freeze this case; a later native settlement only updates the page's count.
+    observing = false;
     try { rpc?.stop(); } catch { /* Optional cleanup cannot replace a wallet outcome. */ }
   }
   return pending;
 }
 
-export async function waitReceipt(hash: Hex, fetcher: typeof fetch) {
-  let receipt: Awaited<ReturnType<typeof fetchTransactionReceipt>>;
+export async function waitReceipt(hash: Hex, fetcher: typeof fetch, result?: ScenarioResult, page?: Page,
+  cleanupResult: ScenarioResult | undefined = result) {
+  let receipt: Awaited<ReturnType<typeof fetchTransactionReceipt>> = null;
   try {
-    await expect.poll(async () => { receipt = await fetchTransactionReceipt(hash, undefined, fetcher); return receipt !== null; },
+    await expect.poll(async () => {
+      try { receipt = await fetchTransactionReceipt(hash, undefined, fetcher); return receipt !== null; }
+      catch { return false; } // An unavailable read is not exhaustion of the receipt deadline.
+    },
       { timeout: 90_000, intervals: [500, 1000, 2000] }).toBe(true);
   } catch {
-    // A broadcast hash exists, but this confirmation deadline did not establish
-    // its chain outcome. Retain the hash; do not report a failed transaction.
-    throw new ScenarioUnavailableError("submitted-unconfirmed");
+    // The callback can have observed a receipt while the poll deadline was
+    // expiring. Reconcile that actual receipt through the ordinary assertions.
+    if (receipt === null) {
+      // A broadcast hash exists, but this deadline did not establish its chain
+      // outcome. Retain the hash; do not report a failed transaction.
+      const error = new ScenarioUnavailableError("submitted-unconfirmed");
+      if (result) result.transactionDisposition = "unknown";
+      // Owner policy: end the owned run rather than let a later case overlap
+      // this known broadcast's unresolved chain effects. Hashless settled
+      // wallet requests are outside this receipt-deadline condition.
+      if (page) await closeOwnedWalletContext(page, error, value => {
+        if (cleanupResult?.walletRequest) Object.assign(cleanupResult.walletRequest, value);
+      });
+      throw error;
+    }
   }
+  if (result) retainReceiptOutcome(result, receipt!);
   requireInvariant(receipt!.status === "success", "receipt-reverted"); return receipt!;
 }
 async function approval(page: Page, token: Address, owner: Address, spender: Address, amount: bigint, chainId: number, fetcher: typeof fetch, result: ScenarioResult) {
@@ -158,7 +209,7 @@ async function approval(page: Page, token: Address, owner: Address, spender: Add
     chainId: toHex(chainId), gas: toHex(120_000), data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [spender, amount] }) }] }, false, result) as Hex;
   (result.approvalTransactionHashes ??= []).push(hash);
   result.executionStage = "approval-confirmation";
-  await waitReceipt(hash, fetcher);
+  await waitReceipt(hash, fetcher, undefined, page, result);
 }
 async function allowance(page: Page, token: Address, owner: Address, amount: bigint, config: ProtocolConfiguration, fetcher: typeof fetch, result: ScenarioResult) {
   result.executionStage = "allowance-read";
@@ -311,7 +362,7 @@ export async function executeScenario(observation: QuoteObservation, page: Page,
     chainId: toHex(config.chainId), data, value: toHex(nativeValue ?? 0n), gas: toHex(gas * 12n / 10n) }] }, false, result) as Hex;
   result.transactionHash = hash; // Retain submission evidence before any receipt read.
   result.executionStage = "execution-confirmation";
-  const receipt = await waitReceipt(hash, fetcher);
+  const receipt = await waitReceipt(hash, fetcher, result, page);
   result.receipt = { ...result.receipt, refunds: tradeRefundEvidence(receipt.logs, config.contracts.helpers as Address, owner) };
   result.executionStage = "execution-transaction-read";
   const observed = await readJson<{ transaction: { input: Hex; to: string; from: string } | null }>(fetcher, `/api/transaction/wait/transaction?hash=${hash}`);

@@ -7,9 +7,9 @@ import { appEnvironment, withEnvironment } from "../../tests/fixtures/environmen
 import { protocolConfigurationFixture, tokenAddresses } from "../../tests/fixtures/protocol-configuration.ts";
 import { failureResult, RegressionAssertionError, resultFor, type QuoteObservation, type ScenarioResult } from "../../tests/trading/regression.ts";
 import { tradeScenarios } from "../../tests/trading/scenarios.ts";
-import { ScenarioUnavailableError } from "../../tests/trading/scenarios.ts";
 import { notification } from "../../tests/metamask/wallet-ui.ts";
 import { safeWalletClickError } from "../../tests/trading/runnerDiagnostics.ts";
+import { isWalletRequestCleanupError } from "../../tests/trading/walletRequestLifecycle.ts";
 
 const { executeScenario, executionPlan, requestWallet } = await withEnvironment(appEnvironment, () => import("../../tests/trading/walletExecution.ts"));
 const owner = `0x${"a".repeat(40)}` as Address;
@@ -53,7 +53,7 @@ function browserWalletPage(provider: () => Promise<unknown>, returned: unknown[]
   const popup = { url: () => "chrome-extension://fixture/notification.html#/confirm-transaction", bringToFront: async () => controls.notificationReady?.(),
     setDefaultTimeout: () => undefined, getByTestId: () => button, locator };
   return { bringToFront: async () => undefined,
-    context: () => ({ pages: () => [popup], serviceWorkers: () => [{ url: () => "chrome-extension://fixture/background.js" }] }),
+    context: () => ({ pages: () => [popup], serviceWorkers: () => [{ url: () => "chrome-extension://fixture/background.js" }], close: async () => undefined }),
     evaluate: async (callback: (input: unknown) => Promise<unknown>, input: unknown) => {
       const previous = Object.getOwnPropertyDescriptor(globalThis, "window");
       Object.defineProperty(globalThis, "window", { configurable: true, value: { ethereum: { request: provider } } });
@@ -435,43 +435,6 @@ for (const [control, stages] of [["confirm-footer-button", 1], ["confirm-btn", 1
     } finally { expect.poll = originalPoll; pending.resolve(approvalHash); }
   });
 
-test("a timed-out native request stays pending and the next case observes it without changing the original case", async () => {
-  const originalPoll = expect.poll;
-  expect.poll = ((callback: () => Promise<boolean>) => ({ toBe: async () => {
-    if (!await callback()) throw new Error("fixture-observation-deadline");
-  } })) as unknown as typeof expect.poll;
-  let resolvePending!: (value: unknown) => void, evaluations = 0, pageSnapshots = 0, clickCalls = 0;
-  const firstRequest = new Promise(resolve => { resolvePending = resolve; });
-  const ambiguity = new Error("strict mode violation: private-DOM private-signature");
-  const button = { or: () => button, click: async () => { clickCalls++; throw ambiguity; } };
-  const popup = { url: () => "chrome-extension://fixture/notification.html", bringToFront: async () => undefined,
-    setDefaultTimeout: () => undefined, getByTestId: () => button, locator: () => button };
-  const page = { bringToFront: async () => undefined,
-    context: () => ({ pages: () => { pageSnapshots++; return [popup]; },
-      serviceWorkers: () => [{ url: () => "chrome-extension://fixture/background.js" }] }),
-    evaluate: async () => ++evaluations === 1 ? firstRequest : approvalHash } as unknown as Page;
-  const first = basketObservation().result, second = basketObservation().result, third = basketObservation().result;
-  try {
-    await assert.rejects(requestWallet(page, { method: "eth_sendTransaction", params: [] }, false, first),
-      error => error instanceof ScenarioUnavailableError && error.code === "wallet-submission-timeout");
-    const diagnostic = first.walletRequest!;
-    assert.equal(diagnostic.settlement, "pending"); assert.equal(diagnostic.deadlineExpired, true);
-    assert.equal(diagnostic.pendingBefore, 0); assert.equal(diagnostic.pendingAfter, 1);
-    assert.equal(diagnostic.notificationSelection, "existing-notification"); assert.equal(diagnostic.notificationViewCount, 1);
-    assert.equal(diagnostic.clickAttempts, 1); assert.equal(diagnostic.clickCompleted, 0);
-    assert.equal(diagnostic.lastClickErrorClass, "Error"); assert.equal(diagnostic.lastClickErrorKind, "ambiguous");
-    assert.equal(pageSnapshots, 1); assert.equal(clickCalls, 1);
-    assert.doesNotMatch(JSON.stringify(diagnostic), /private-DOM|private-signature|fixture-observation-deadline/);
-    const frozen = structuredClone(diagnostic);
-    assert.equal(await requestWallet(page, { method: "eth_sendTransaction", params: [] }, false, second), approvalHash);
-    assert.equal(second.walletRequest?.pendingBefore, 1); assert.equal(second.walletRequest?.pendingAfter, 1);
-    resolvePending(approvalHash); await firstRequest; await new Promise(resolve => setImmediate(resolve));
-    assert.deepEqual(first.walletRequest, frozen);
-    assert.equal(await requestWallet(page, { method: "eth_sendTransaction", params: [] }, false, third), approvalHash);
-    assert.equal(third.walletRequest?.pendingBefore, 0); assert.equal(third.walletRequest?.pendingAfter, 0);
-    assert.equal(evaluations, 3);
-  } finally { expect.poll = originalPoll; resolvePending(approvalHash); }
-});
 
 test("successful native confirmation records its existing click and optional observation failures cannot reject the hash", async () => {
   const originalPoll = expect.poll;
@@ -546,7 +509,7 @@ test("a failed signature click records optional closed UI state without changing
       });
       try {
         await assert.rejects(requestWallet(page, { method: "eth_signTypedData_v4", params: [] }, false, result),
-          error => error instanceof ScenarioUnavailableError && error.code === "wallet-authorization-timeout");
+          error => isWalletRequestCleanupError(error));
         assert.equal(requests, 1); assert.equal(clicks, 1); assert.equal(snapshots, 1);
         assert.equal(result.walletRequest?.settlement, "pending"); assert.equal(result.walletRequest?.deadlineExpired, true);
         assert.equal(result.walletRequest?.clickCompleted, 0); assert.equal(result.walletRequest?.lastClickErrorKind, "timeout");
@@ -576,7 +539,7 @@ test("an unresponsive optional UI read never delays native polling and cannot mu
   });
   try {
     await assert.rejects(requestWallet(page, { method: "eth_signTypedData_v4", params: [] }, false, result),
-      error => error instanceof ScenarioUnavailableError && error.code === "wallet-authorization-timeout");
+      error => isWalletRequestCleanupError(error));
     assert.equal(requests, 1); assert.equal(clicks, 3); assert.equal(result.walletRequest?.uiState, undefined);
     const frozen = structuredClone(result.walletRequest);
     observation.resolve({ route: "confirmation", controls: { confirmation: { matched: 1, visible: 1, enabled: 0 } } });
@@ -589,7 +552,7 @@ const rpcEndpoint = "http://127.0.0.1:12345/";
 function rpcContext(page: Page) {
   const extension = page.context();
   const context = Object.assign(new EventEmitter(), { pages: () => extension.pages(),
-    serviceWorkers: () => extension.serviceWorkers() });
+    serviceWorkers: () => extension.serviceWorkers(), close: () => extension.close() });
   Object.assign(page, { context: () => context });
   return context;
 }
@@ -645,7 +608,7 @@ for (const method of ["eth_sendTransaction", "eth_signTypedData_v4"] as const)
     } finally { expect.poll = originalPoll; metadata.resolve({ status: () => 200 }); pending.resolve(approvalHash); }
   });
 
-test("a timed-out native observation retains a held RPC and never cancels or alters its late settlement", async () => {
+test("a timed-out native observation retains held RPC evidence after native context cleanup", async () => {
   const originalPoll = expect.poll, pending = Promise.withResolvers<unknown>();
   const result = basketObservation().result;
   const held = rpcRequest();
@@ -661,11 +624,11 @@ test("a timed-out native observation retains a held RPC and never cancels or alt
   try {
     await withEnvironment({ NEXT_PUBLIC_WALLET_RPC_URL: rpcEndpoint }, () => assert.rejects(
       requestWallet(page, { method: "eth_sendTransaction", params: [] }, false, result),
-      error => error instanceof ScenarioUnavailableError && error.code === "wallet-submission-timeout"));
+      error => isWalletRequestCleanupError(error)));
     assert.equal(requests, 1); assert.equal(clicks, 1);
     assert.equal(result.walletRequest?.settlement, "pending");
     assert.equal(result.walletRequest?.rpc?.methods.eth_getCode?.pending, 1);
-    assert.equal(result.walletRequest?.pendingAfter, 1); noRpcListeners(context);
+    assert.equal(result.walletRequest?.pendingAfter, 1); assert.equal(result.walletRequest?.cleanup, "context-closed"); noRpcListeners(context);
     const frozen = structuredClone(result.walletRequest);
     context.emit("requestfinished", held); pending.resolve(approvalHash);
     await new Promise(resolve => setImmediate(resolve));
@@ -681,6 +644,8 @@ test("synchronous native evaluation failure detaches its optional RPC listeners 
   await withEnvironment({ NEXT_PUBLIC_WALLET_RPC_URL: rpcEndpoint }, () => assert.rejects(
     requestWallet(page, { method: "eth_sendTransaction", params: [] }, false, result), error => error === failure));
   assert.equal(evaluations, 1); noRpcListeners(context);
+  assert.equal(result.walletRequest?.settlement, "rejected");
+  assert.equal(result.walletRequest?.pendingAfter, 0);
 });
 
 test("optional RPC setup and detach failures cannot reject a successful native hash", async () => {

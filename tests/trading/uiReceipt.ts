@@ -8,6 +8,7 @@ import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguratio
 import type { fetchTransactionReceipt } from "../../app/utils/transactionReceipt.ts";
 import { actualAmount, assertUiEconomics, measuredUiEconomics, type ActualUiAmount, type UiQuoteSnapshot } from "./uiEconomics.ts";
 import { receiptQualityTerms, type QualityAmount } from "./quoteQuality.ts";
+import { retainReceiptOutcome } from "./uiTransactionRecovery.ts";
 
 /** Project only integer economics from mined calldata; signatures stay in memory. */
 export function observeUiReceipt(scenario: Scenario, config: ProtocolConfiguration, owner: Address, input: Hex,
@@ -24,6 +25,7 @@ export function observeUiReceipt(scenario: Scenario, config: ProtocolConfigurati
   let actual: { input: ActualUiAmount[]; output: ActualUiAmount[]; maximum: ActualUiAmount[]; minimum: ActualUiAmount[] };
   let recovery: QualityAmount[] = [];
   const cygld = config.contracts.core!;
+  retainReceiptOutcome(result, receipt);
   requireInvariant(receipt.status === "success", "receipt-reverted");
   result.receipt = { ...result.receipt, refunds: tradeRefundEvidence(receipt.logs, config.contracts.helpers as Address, owner) };
   if (scenario.asset === "BASKET") {

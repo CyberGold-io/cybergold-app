@@ -7,6 +7,7 @@ import type { Page } from "@playwright/test";
 import { CLIENT_DIAGNOSTIC_EVENT, createSwapDiagnostics, type ClientDiagnostic } from "./clientDiagnostics.ts";
 import { installUiSwapObservation, uiSwapObservation } from "../../tests/trading/uiSwapObservation.ts";
 import { uiCompletionAssertion, uiSwapTerminalFailure } from "../../tests/trading/uiDiagnostics.ts";
+import { hasUiReceiptOutcome, recoverUiTransaction } from "../../tests/trading/uiTransactionRecovery.ts";
 import type { ScenarioResult } from "../../tests/trading/regression.ts";
 
 const hash = `0x${"a".repeat(64)}` as const;
@@ -116,6 +117,9 @@ function submitObserver(page: Page, result: ScenarioResult, attemptId: string) {
   visit(parsed); assert.ok(callback);
   const scope = { page, uiSwapObservation, uiSwapTerminalFailure, activeSwapAttempt: attemptId,
     helpersHash: undefined as string | undefined, activeResult: () => result,
+    currentResult: result, hasUiReceiptOutcome, recoverUiTransaction,
+    activeConfirmationDeadline: performance.now() - 1, AbortSignal,
+    fetcher: (async () => { throw new Error("No receipt read may start after the original deadline."); }) as typeof fetch,
     confirmation: { elapsedMs: 0, clickAttempts: 0, clickCompleted: 0 }, confirmationStarted: performance.now(), performance };
   const observe = vm.runInNewContext(ts.transpile(`const observe = ${callback.getText(parsed)}; observe;`,
     { target: ts.ScriptTarget.ES2022 }), scope) as () => Promise<void>;
@@ -194,5 +198,30 @@ test("hashless native authorization progress is retained for this attempt withou
     local.scope.dispatchEvent(new CustomEvent(CLIENT_DIAGNOSTIC_EVENT, { detail: { operation: "wallet",
       attemptId: current.id, walletStep: "private-signature", stage: "private-url", params: ["private-calldata"] } }));
     assert.doesNotMatch(JSON.stringify(await uiSwapObservation(local.page, current.id)), /private-/);
+  } finally { local.restore(); }
+});
+
+test("the actual confirmation observer cancels its original bounded receipt read and never starts another after deadline", async () => {
+  const local = localPage();
+  try {
+    installUiSwapObservation(local.scope);
+    const current = createSwapDiagnostics({}, undefined, () => {}); current.submitted(hash);
+    const result = { status: "fail", code: "ui-completion-not-observed", transactionDisposition: "unknown" } as ScenarioResult;
+    const { observe, scope } = submitObserver(local.page, result, current.id!);
+    const abort = new AbortController(), started = Promise.withResolvers<void>();
+    let reads = 0, boundedMs = 0;
+    scope.activeConfirmationDeadline = performance.now() + 50_000;
+    scope.AbortSignal = { timeout: (remaining: number) => { boundedMs = remaining; return abort.signal; }, abort: () => AbortSignal.abort() } as unknown as typeof AbortSignal;
+    scope.fetcher = (async (_url, init) => {
+      reads++; assert.equal(init?.signal, abort.signal); started.resolve();
+      return new Promise<Response>((_resolve, reject) => init!.signal!.addEventListener("abort", () => reject(new Error("original window ended")), { once: true }));
+    }) as typeof fetch;
+    const pending = observe(); await started.promise;
+    assert.ok(boundedMs > 0 && boundedMs <= 50_000);
+    scope.activeConfirmationDeadline = performance.now() - 1; abort.abort(); await pending;
+    await observe();
+    assert.equal(reads, 1); assert.equal(result.transactionHash, hash); assert.equal(result.receipt, undefined);
+    assert.equal(result.transactionDisposition, "unknown"); assert.equal(result.status, "fail");
+    assert.equal(result.code, "ui-completion-not-observed");
   } finally { local.restore(); }
 });
