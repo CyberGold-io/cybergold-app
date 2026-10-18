@@ -119,9 +119,15 @@ for (const side of ["buy", "sell"] as const) for (const mode of ["exact-in", "ex
       netCygldOut: 2000n, protocolFeeCygld: 20n, helperFeeCygld: 10n }), event("DustRefunded", { payer: owner, asset: token, amount: 5n })]
       : [event("Redeemed", { payer: owner, recipient: owner, outputToken: token, grossCygldIn: maximum, amountOut: 2000n,
         recoveryAssets: [], recoveryShareAmounts: [], protocolFeeCygld: 20n, helperFeeCygld: 10n })];
+    logs.push(event("DustRefunded", { payer: owner, asset: tokens.XAUT, amount: 2n ** 100n }));
     const result = uiReceiptResult(scenarioFor(native ? "ETH" : "PAXG", side, mode), config, owner, data, receipt(logs), mode === "exact-in" ? 1000n : 2000n, [], quote);
     assert.equal(result.status, "pass"); assert.deepEqual(result.receipt!.netPaid, [String(side === "buy" ? maximum - 5n : maximum)]);
     assert.deepEqual(result.receipt!.netReceived, ["2000"]); assert.equal(result.receipt!.protocolFeeCygld, "20");
+    const refunds = side === "buy" ? [{ asset: token, amount: "5" }] : [];
+    assert.deepEqual(result.receipt!.refunds, [...refunds, { asset: tokens.XAUT, amount: String(2n ** 100n) }]);
+    assert.equal(result.receipt!.inputRefund, side === "buy" ? "5" : "0");
+    assert.deepEqual(result.executionTerms!.inputSpent!.map(row => row.amount), [String(side === "buy" ? maximum - 5n : maximum)]);
+    assert.deepEqual(result.executionTerms!.netOutput!.map(row => row.amount), ["2000", String(2n ** 100n)]);
   });
 
 for (const side of ["buy", "sell"] as const) for (const mode of ["exact-in", "exact-out"] as const)
@@ -138,6 +144,9 @@ for (const side of ["buy", "sell"] as const) for (const mode of ["exact-in", "ex
       feeCygld: 2n, feeRecipient: config.contracts.helpers })];
     const result = uiReceiptResult(scenarioFor("PAXG", side, mode), config, owner, data, receipt(logs), mode === "exact-in" ? 1000n : 2000n, [], quote);
     assert.deepEqual(result.receipt!.netPaid, ["995"]); assert.deepEqual(result.receipt!.netReceived, ["2007"]);
+    assert.deepEqual(result.receipt!.refunds, []);
+    assert.deepEqual(result.executionTerms!.inputSpent!.map(row => row.amount), ["995"]);
+    assert.deepEqual(result.executionTerms!.netOutput!.map(row => row.amount), ["2007"]);
   });
 
 test("wrong displayed output fails even when the mined transaction satisfied its own lower bound, preserving evidence", () => {
@@ -145,7 +154,8 @@ test("wrong displayed output fails even when the mined transaction satisfied its
   const sink = { ...resultFor(scenario, "execution"), refs: { requestId: "e9eb96b2-8ecf-429d-9e08-244f43257e8e" } };
   const data = functionData("issueFromTokenExactOut", [{ inputToken: counter, maximumInputAmount: 1000n, netCygldOut: 1990n }, { recipient: owner, expectedOrderedCoreAssets: [counter] }, []]);
   const observed = observeUiReceipt(scenario, config, owner, data, receipt([event("Issued", { payer: owner, recipient: owner, inputToken: counter,
-    inputUsed: 995n, netCygldOut: 2000n, protocolFeeCygld: 20n, helperFeeCygld: 10n }), event("DustRefunded", { payer: owner, asset: counter, amount: 5n })]), 1000n, [], quote, sink);
+    inputUsed: 995n, netCygldOut: 2000n, protocolFeeCygld: 20n, helperFeeCygld: 10n }), event("DustRefunded", { payer: owner, asset: counter, amount: 5n }),
+    event("DustRefunded", { payer: owner, asset: tokens.XAUT, amount: 7n })]), 1000n, [], quote, sink);
   sink.wallet = walletEvidence(quote, { input: ["2000"], output: ["0"], native: "0" }, { input: ["1005"], output: ["2000"], native: "0" }, 0n, []);
   let failed: ScenarioResult = sink;
   try { observed.validate(); } catch (error) { failed = failureResult(sink, error); }
@@ -153,6 +163,7 @@ test("wrong displayed output fails even when the mined transaction satisfied its
   assert.equal(failed.uiQuote!.output[0].amount, "3000"); assert.deepEqual(failed.receipt!.netPaid, ["995"]);
   assert.deepEqual(failed.receipt!.netReceived, ["2000"]); assert.deepEqual(failed.wallet!.inputDelta, ["995"]);
   assert.equal(failed.transactionHash, hash); assert.equal(failed.refs!.requestId, sink.refs.requestId);
+  assert.deepEqual(failed.receipt!.refunds, [{ asset: counter, amount: "5" }, { asset: tokens.XAUT, amount: "7" }]);
 });
 
 test("native wallet deltas exclude trade and approval gas; refunds and receipt net input are not subtracted twice", () => {
@@ -206,10 +217,12 @@ for (const side of ["buy", "sell"] as const) for (const mode of ["exact-in", "ex
       logs = [event("RedeemedToBasket", { payer: owner, recipient: owner, grossCygldIn: 1000n,
         kinds: [0, 1, 0], tokens: [counter, counter, tokens.XAUT], ids: [0n, 9n, 0n], amounts: [1000n, 7n, 3000n], protocolFeeCygld: 20n, helperFeeCygld: 10n })];
     }
+    logs.push(event("DustRefunded", { payer: owner, asset: tokens.XAUT, amount: 5n }));
     const result = uiReceiptResult(scenarioFor("BASKET", side, mode), config, owner, data, receipt(logs), side === "buy" ? 2000n : 1000n, [1000n, 3000n], quote);
     assert.equal(result.status, "pass");
     assert.deepEqual(result.receipt!.netPaid, side === "buy" ? ["995", "2995"] : ["1000"]);
     assert.deepEqual(result.receipt!.netReceived, side === "buy" ? ["2000"] : ["1000", "3000"]);
+    assert.deepEqual(result.receipt!.refunds, [{ asset: tokens.XAUT, amount: "5" }]);
     const wrong = structuredClone(quote);
     (side === "buy" ? wrong.input : wrong.output)[1].amount = side === "buy" ? "2000" : "4000";
     assert.throws(() => uiReceiptResult(scenarioFor("BASKET", side, mode), config, owner, data, receipt(logs), side === "buy" ? 2000n : 1000n, [1000n, 3000n], wrong),

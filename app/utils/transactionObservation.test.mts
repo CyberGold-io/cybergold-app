@@ -6,6 +6,8 @@ import ts from "typescript";
 import type { Page } from "@playwright/test";
 import { CLIENT_DIAGNOSTIC_EVENT, createSwapDiagnostics, type ClientDiagnostic } from "./clientDiagnostics.ts";
 import { installUiSwapObservation, uiSwapObservation } from "../../tests/trading/uiSwapObservation.ts";
+import { uiCompletionAssertion, uiSwapTerminalFailure } from "../../tests/trading/uiDiagnostics.ts";
+import type { ScenarioResult } from "../../tests/trading/regression.ts";
 
 const hash = `0x${"a".repeat(64)}` as const;
 const original = `0x${"b".repeat(64)}` as const;
@@ -62,13 +64,13 @@ test("late predecessor events retain their own identity and no raw payload is ca
     const current = createSwapDiagnostics({}, undefined, () => {});
     current.submitted(hash);
     old.submitted(original);
-    assert.deepEqual(await uiSwapObservation(local.page), { attemptId: current.id, outcome: "submitted", transactionHash: hash });
-    assert.deepEqual(await uiSwapObservation(local.page, old.id), { attemptId: old.id, outcome: "submitted", transactionHash: original });
+    assert.deepEqual(await uiSwapObservation(local.page), { attemptId: current.id, outcome: "submitted", transactionHash: hash, stage: "submission" });
+    assert.deepEqual(await uiSwapObservation(local.page, old.id), { attemptId: old.id, outcome: "submitted", transactionHash: original, stage: "submission" });
     local.scope.dispatchEvent(new CustomEvent(CLIENT_DIAGNOSTIC_EVENT, { detail: {
       operation: "swap", attemptId: current.id, outcome: "unconfirmed", transactionHash: "private-calldata",
       message: "private-wallet-url", signature: "private-signature", params: ["private-request"],
     } }));
-    assert.deepEqual(await uiSwapObservation(local.page, current.id), { attemptId: current.id, outcome: "unconfirmed", transactionHash: hash });
+    assert.deepEqual(await uiSwapObservation(local.page, current.id), { attemptId: current.id, outcome: "unconfirmed", transactionHash: hash, stage: "submission" });
     assert.doesNotMatch(JSON.stringify(local.scope), /private-/);
   } finally { local.restore(); }
 });
@@ -99,4 +101,98 @@ test("UI confirmation exercises receipt-only recovery inside its existing deadli
   } as unknown as Page;
   await approve(page, () => true, async () => { observations++; });
   assert.equal(recoveries, 1); assert.equal(observations, 2);
+});
+
+/** Execute the actual submit callback, including its optional-read catch. */
+function submitObserver(page: Page, result: ScenarioResult, attemptId: string) {
+  const source = readFileSync(new URL("../../tests/metamask/fixed-api-roundtrips.spec.ts", import.meta.url), "utf8");
+  const parsed = ts.createSourceFile("suite.ts", source, ts.ScriptTarget.Latest, true);
+  let callback: ts.Node | undefined;
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "approveUntilMined")
+      callback = node.arguments[2];
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed); assert.ok(callback);
+  const scope = { page, uiSwapObservation, uiSwapTerminalFailure, activeSwapAttempt: attemptId,
+    helpersHash: undefined as string | undefined, activeResult: () => result,
+    confirmation: { elapsedMs: 0, clickAttempts: 0, clickCompleted: 0 }, confirmationStarted: performance.now(), performance };
+  const observe = vm.runInNewContext(ts.transpile(`const observe = ${callback.getText(parsed)}; observe;`,
+    { target: ts.ScriptTarget.ES2022 }), scope) as () => Promise<void>;
+  return { observe, scope };
+}
+
+test("current App-reported revert cannot become a deadline error or pass on a stale success toast", async () => {
+  const local = localPage();
+  try {
+    installUiSwapObservation(local.scope);
+    const current = createSwapDiagnostics({}, undefined, () => {});
+    current.submitted(hash); current.failed({ name: "TransactionRevertedError" });
+    const result = { status: "unavailable", transactionDisposition: "unknown", refs: { attemptId: "e9eb96b2-8ecf-429d-9e08-244f43257e8e" } } as ScenarioResult;
+    const page = { evaluate: local.page.evaluate, getByText: () => ({ isVisible: async () => false }) } as unknown as Page;
+    const { observe, scope } = submitObserver(page, result, current.id!);
+    const source = readFileSync(new URL("../../tests/metamask/fixed-api-roundtrips.spec.ts", import.meta.url), "utf8");
+    const parsed = ts.createSourceFile("suite.ts", source, ts.ScriptTarget.Latest, true);
+    const declaration = parsed.statements.find(value => ts.isFunctionDeclaration(value) && value.name?.text === "approveUntilMined");
+    assert.ok(declaration);
+    let polls = 0, staleSuccessReads = 0;
+    const approve = vm.runInNewContext(ts.transpile(declaration.getText(parsed), { target: ts.ScriptTarget.ES2022 }) + "; approveUntilMined", {
+      errors: { TimeoutError: class extends Error {} }, uiCompletionAssertion,
+      confirmedTransactionText: () => ({ isVisible: async () => { staleSuccessReads++; return true; } }),
+      expect: { poll: (read: () => Promise<boolean>, options: { timeout: number }) => {
+        assert.equal(options.timeout, 90_000);
+        return { toBe: async () => { polls++; await read(); } };
+      } },
+    }) as (page: Page, submitted: () => boolean, observer: () => Promise<void>) => Promise<void>;
+    await assert.rejects(approve(page, () => Boolean(scope.helpersHash), observe),
+      (error: { code?: string }) => error.code === "product-reported-revert");
+    assert.equal(polls, 1); assert.equal(staleSuccessReads, 0);
+    assert.equal(scope.helpersHash, hash); assert.equal(result.refs?.attemptId, current.id);
+    assert.equal(result.transactionDisposition, "unknown");
+    assert.equal(result.receipt, undefined); assert.notEqual(result.status, "pass");
+  } finally { local.restore(); }
+});
+
+test("a late predecessor revert cannot retarget the current UI case or its hash", async () => {
+  const local = localPage();
+  try {
+    installUiSwapObservation(local.scope);
+    const old = createSwapDiagnostics({}, undefined, () => {});
+    const current = createSwapDiagnostics({}, undefined, () => {});
+    old.submitted(original); old.failed({ name: "TransactionRevertedError" });
+    const result = { status: "unavailable", transactionDisposition: "unknown" } as ScenarioResult;
+    const { observe, scope } = submitObserver(local.page, result, current.id!);
+    await observe();
+    assert.equal(scope.activeSwapAttempt, current.id); assert.equal(scope.helpersHash, undefined);
+    assert.equal(result.refs?.attemptId, current.id); assert.equal(result.transactionDisposition, "unknown");
+    assert.equal(uiSwapTerminalFailure(await uiSwapObservation(local.page, current.id)), undefined);
+  } finally { local.restore(); }
+});
+
+test("missing hash or a non-reverted observation cannot establish a product-reported revert", () => {
+  const attemptId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e";
+  assert.equal(uiSwapTerminalFailure({ attemptId, outcome: "reverted" }), undefined);
+  for (const outcome of ["started", "submitted", "succeeded", "failed", "unconfirmed"] as const)
+    assert.equal(uiSwapTerminalFailure({ attemptId, outcome, transactionHash: hash }), undefined);
+  assert.equal(uiSwapTerminalFailure(undefined), undefined);
+});
+
+test("hashless native authorization progress is retained for this attempt without claiming settlement", async () => {
+  const local = localPage();
+  try {
+    installUiSwapObservation(local.scope);
+    const old = createSwapDiagnostics({}, undefined, () => {});
+    const current = createSwapDiagnostics({}, undefined, () => {});
+    current.walletStep("signature"); old.walletStep("transaction");
+    const result = { status: "unavailable", transactionDisposition: "unknown" } as ScenarioResult;
+    const { observe, scope } = submitObserver(local.page, result, current.id!);
+    await observe();
+    assert.equal(scope.helpersHash, undefined);
+    assert.deepEqual(scope.confirmation, { elapsedMs: scope.confirmation.elapsedMs, clickAttempts: 0,
+      clickCompleted: 0, appStage: "authorization", appOutcome: "started", walletStep: "signature" });
+    assert.equal(result.transactionDisposition, "unknown");
+    local.scope.dispatchEvent(new CustomEvent(CLIENT_DIAGNOSTIC_EVENT, { detail: { operation: "wallet",
+      attemptId: current.id, walletStep: "private-signature", stage: "private-url", params: ["private-calldata"] } }));
+    assert.doesNotMatch(JSON.stringify(await uiSwapObservation(local.page, current.id)), /private-/);
+  } finally { local.restore(); }
 });

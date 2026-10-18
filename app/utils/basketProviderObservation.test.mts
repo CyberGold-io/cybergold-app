@@ -4,6 +4,9 @@ import { observedBasketProviderEvidence } from '../../tests/trading/providerEvid
 import type { MatrixScenario } from '../../tests/trading/matrix.ts';
 import type { QuoteObservation } from '../../tests/trading/quoteObservation.ts';
 import { tokenAddresses } from '../../tests/fixtures/protocol-configuration.ts';
+import { protocolConfigurationFixture } from '../../tests/fixtures/protocol-configuration.ts';
+import { chromium, expect, type Browser } from '@playwright/test';
+import { observeBrowserQuotes } from '../../tests/trading/browserQuotes.ts';
 
 const scenario = { id: 'core-issue-basket-exact-in-medium', family: 'issue-basket', requestedStrategy: 'core',
   asset: 'BASKET', side: 'buy', inputMode: 'exact-in', size: 'medium', nominalUsd: '100', displayAmount: '0.01',
@@ -41,4 +44,37 @@ test('unfinished and cancelled basket searches stay distinct from completed quot
   assert.deepEqual(observedBasketProviderEvidence([row], scenario).core, { availability: 'pending', searchOutcome: 'running', refs: {} });
   row.interrupted = true;
   assert.deepEqual(observedBasketProviderEvidence([row], scenario).core, { availability: 'unavailable', searchOutcome: 'cancelled', refs: {} });
+});
+
+for (const inputMode of ['exact-in', 'exact-out'] as const) test(`quote-only basket ${inputMode} keeps provider evidence for a supply-limit failure`, async t => {
+  const sale = { ...scenario, id: `core-redeem-basket-${inputMode}-large`, side: 'sell' as const,
+    family: 'redeem-basket' as const, inputMode, size: 'large' as const, nominalUsd: '10000' };
+  const request = inputMode === 'exact-in' ? { mode: 'redeem-exact-in', grossCygldIn: sale.amountRaw }
+    : { mode: 'redeem-exact-out', minimumOutputs: sale.basketAmounts.map((amount, i) => ({
+      kind: 0, token: sale.basketAssets[i], id: '0', minimumAmount: amount })) };
+  const requestId = 'e9eb96b2-8ecf-429d-9e08-244f43257e8e';
+  const observation: QuoteObservation = { path: '/api/quotes/basket-preview', request, status: 422, requestId,
+    terminal: { type: 'error', code: 'insufficient-protocol-supply', requestId, error: 'private-provider-detail' } };
+  let filled = false;
+  const locator = () => {
+    const value = { _apiName: 'Locator', _expect: async () => ({ matches: true }),
+      filter: () => value, first: () => value, last: () => value, or: () => value,
+      getByRole: () => value, locator: () => value, waitFor: async () => {},
+      isVisible: async () => false, click: async () => {}, fill: async () => { filled = true; } };
+    return value;
+  };
+  const page = { setDefaultTimeout: () => {}, addInitScript: async () => {}, goto: async () => {},
+    getByRole: locator, locator, evaluate: async () => filled ? [observation] : [], close: async () => {} };
+  t.mock.method(chromium, 'launch', async () => ({ newPage: async () => page, close: async () => {} } as unknown as Browser));
+  t.mock.method(expect, 'poll', ((read: () => Promise<unknown>) => ({
+    toBe: async (expected: unknown) => assert.equal(await read(), expected),
+  })) as never);
+  const [result] = await observeBrowserQuotes('https://fixture.invalid', protocolConfigurationFixture, {
+    basket: { assets: { status: 'success', value: sale.basketAssets }, targetsPpm: { status: 'success', value: ['500000', '500000'] } },
+  } as never, [sale]);
+  assert.equal(result.status, 'fail'); assert.equal(result.code, 'insufficient-protocol-supply');
+  assert.deepEqual(result.providers?.core, { availability: 'unavailable', searchOutcome: 'error',
+    code: 'insufficient-protocol-supply', refs: { requestId } });
+  assert.deepEqual(result.providers?.market, { availability: 'unsupported', searchOutcome: 'not-run' });
+  assert.doesNotMatch(JSON.stringify(result), /private-provider-detail/);
 });

@@ -22,9 +22,17 @@ import { installSelectionCapture, selectionCaptures, captureSelection, executeAl
 import { installQuoteObservation, quoteObservations } from "../trading/quoteObservation";
 import { safeDiagnosticReferences } from "../../app/utils/diagnosticReferences";
 import { installUiSwapObservation, uiSwapObservation } from "../trading/uiSwapObservation";
-import { confirmedTransactionText, createUiQuoteDiagnostics, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion } from "../trading/uiDiagnostics";
+import { confirmedTransactionText, createUiQuoteDiagnostics, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion, uiSwapTerminalFailure } from "../trading/uiDiagnostics";
+import { enrichResultQuality } from "../trading/quoteQuality";
+import { safeWalletClickError, type UiConfirmationDiagnostic } from "../trading/runnerDiagnostics";
+import { readWalletUiState } from "../trading/walletUiState";
 
-async function approveUntilMined(page: Page, submitted: () => boolean, observe: () => Promise<void> = async () => {}) {
+async function approveUntilMined(page: Page, submitted: () => boolean, observe: () => Promise<void> = async () => {},
+  nativeProgress?: (event: { selection?: Pick<UiConfirmationDiagnostic, "notificationSelection" | "notificationViewCount">;
+    click?: "attempted" | "completed"; error?: unknown; view?: Page }) => void) {
+  const record = (event: Parameters<NonNullable<typeof nativeProgress>>[0]) => {
+    try { nativeProgress?.(event); } catch { /* Optional evidence cannot change a native action. */ }
+  };
   const success = confirmedTransactionText(page);
   const failure = page.getByText(/^Transaction failed$/i);
   await uiCompletionAssertion(() => expect.poll(async () => {
@@ -43,15 +51,18 @@ async function approveUntilMined(page: Page, submitted: () => boolean, observe: 
     }
     const step = await (await getSwapButton(page)).innerText();
     if (!/^MetaMask \d+ of \d+:/.test(step)) return false;
-    const popup = await notification(page, undefined, walletRequestButton);
+    const popup = await notification(page, selection => record({ selection }), walletRequestButton);
     if (popup) {
       // Selection and click use the same native request control.
       const confirm = walletRequestButton(popup);
       // A native request can navigate or close between polls. Let one click
       // check visibility/enabled state atomically, then re-read the App result.
       try {
+        record({ click: "attempted" });
         await confirm.click({ timeout: 1000 });
+        record({ click: "completed" });
       } catch (error) {
+        record({ error, view: popup });
         if (!(error instanceof errors.TimeoutError) && !popup.isClosed()) throw error;
       }
     }
@@ -94,6 +105,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     : activeFixtureIndex !== undefined ? fixtures[activeFixtureIndex] : undefined;
   async function persist() {
     if (!process.env.TRADE_REGRESSION_UI_OUTPUT) return;
+    if (config) for (const row of [...results, ...fixtures]) enrichResultQuality(row, valuation, config);
     const path = process.env.TRADE_REGRESSION_UI_OUTPUT;
     await writeFile(path + ".tmp", JSON.stringify({ schema: "cybergold.trade-regression.v1", matrix: matrixCounts, coverage: executionCoverage(results), valuation, scenarios: results, fixtures }, null, 2) + "\n");
     await rename(path + ".tmp", path);
@@ -224,19 +236,49 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       quote = await capturedUiQuote(page, assets, mode); activeResult()!.uiQuote = quote;
     } catch (error) { captureError = error; }
     observationPhase = "ui-confirmation"; await checkpoint(observationPhase);
-    await approveUntilMined(page, () => Boolean(helpersHash), async () => {
+    const confirmationStarted = performance.now();
+    const confirmation: UiConfirmationDiagnostic = { elapsedMs: 0, clickAttempts: 0, clickCompleted: 0 };
+    const currentResult = activeResult();
+    if (currentResult) currentResult.uiConfirmation = confirmation;
+    let observing = true, readingUi = false;
+    try { await approveUntilMined(page, () => Boolean(helpersHash), async () => {
+      let terminalFailure: ReturnType<typeof uiSwapTerminalFailure>;
       try {
         const observed = await uiSwapObservation(page, activeSwapAttempt);
         if (observed) {
           activeSwapAttempt = observed.attemptId;
+          confirmation.elapsedMs = Math.max(0, Math.round(performance.now() - confirmationStarted));
+          if (observed.stage) confirmation.appStage = observed.stage;
+          if (observed.outcome) confirmation.appOutcome = observed.outcome;
+          if (observed.walletStep) confirmation.walletStep = observed.walletStep;
           if (observed.transactionHash) helpersHash = observed.transactionHash;
+          if (activeResult()) activeResult()!.refs = { ...activeResult()!.refs, attemptId: observed.attemptId };
           // A mined receipt and the UI confirmation are separate assertions.
           // Preserve observed settlement even if the toast/card check later fails.
           if (observed.outcome === "succeeded" && observed.transactionHash && activeResult())
             activeResult()!.transactionDisposition = "confirmed";
+          terminalFailure = uiSwapTerminalFailure(observed);
         }
       } catch { /* Optional observation cannot interrupt the native flow. */ }
-    });
+      // Preserve this bound terminal failure outside the optional read catch.
+      // Its hash/outcome does not establish independent receipt economics.
+      if (terminalFailure) throw terminalFailure;
+    }, event => {
+      confirmation.elapsedMs = Math.max(0, Math.round(performance.now() - confirmationStarted));
+      if (event.selection) Object.assign(confirmation, event.selection);
+      if (event.click === "attempted") confirmation.clickAttempts++;
+      if (event.click === "completed") confirmation.clickCompleted++;
+      if (event.error) Object.assign(confirmation, safeWalletClickError(event.error));
+      if (event.view && !readingUi) {
+        readingUi = true;
+        void readWalletUiState(event.view).then(state => {
+          if (observing && state) confirmation.uiState = state;
+        }).catch(() => {}).finally(() => { readingUi = false; });
+      }
+    }); } finally {
+      observing = false;
+      confirmation.elapsedMs = Math.max(0, Math.round(performance.now() - confirmationStarted));
+    }
     if (captureError) throw captureError;
     requireInvariant(quote, "ui-click-quote-not-observed");
     return quote;
@@ -370,7 +412,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       Object.assign(results[index], binding, settlement, { refs });
       results[index].alternateExecution = await executeAlternate(selected, scenario, selected.intent, page, owner, config, fetcher, undefined, results[index].transactionDisposition);
     } else if (scenario.asset === "BASKET") {
-      results[index].providers = observedBasketProviderEvidence(observations, scenario);
+      results[index].providers = observedBasketProviderEvidence(observations, scenario, config.contracts.core ?? undefined);
       results[index].alternateExecution = { ...notAttemptedAlternate(scenario), provider: "market", reason: "unsupported" };
       results[index].selectedProvider = results[index].providers.core.availability === "qualified" ? "core" : undefined;
     }

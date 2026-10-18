@@ -3,20 +3,21 @@ import type { TradeSelectionObservation } from '../../app/utils/tradeSelectionOb
 import type { TradeQuote, TradeQuoteRequest } from '../../app/utils/tradeQuote.ts';
 import { diagnosticReferences, safeDiagnosticReferences } from '../../app/utils/diagnosticReferences.ts';
 import { fetchQuoteStream } from '../../app/utils/quoteStream.ts';
-import { knownQuoteError } from '../../app/utils/quoteErrors.ts';
-import type { BasketPreview } from '../../app/utils/basketPreview.ts';
+import { knownQuoteError, safeQuoteConstraint, type QuoteConstraint } from '../../app/utils/quoteErrors.ts';
+import type { BasketPreview, BasketPreviewRequest } from '../../app/utils/basketPreview.ts';
 import type { ProtocolConfiguration } from '../../app/utils/protocolConfiguration.ts';
 import type { Page } from '@playwright/test';
 import { semanticDigest, type MatrixScenario } from './matrix.ts';
 import type { QuoteObservation as BrowserQuoteObservation } from './quoteObservation.ts';
 import { resultFor, validateTrade, failureResult, requireInvariant, matchesBasketIntent, type QuoteObservation, type ScenarioResult } from './regression.ts';
 import type { Scenario } from './scenarios.ts';
+import { tradeQualityTerms, basketQualityTerms, type QualityTerms, type QualityMeasurement } from './quoteQuality.ts';
 
 export type Provider = 'core' | 'market';
 export type ProviderAssessment = NonNullable<TradeQuote['providerAssessments']>['core'];
 export type Candidate = components['schemas']['TradeProviderCandidate'];
 export type ProviderQuote = TradeQuote;
-export type ProviderSummary = Pick<ProviderAssessment, 'availability' | 'searchOutcome'> & { code?: string; refs?: ScenarioResult['refs']; context?: ScenarioResult['context']; planDigest?: string; bounds?: ScenarioResult['bounds'] };
+export type ProviderSummary = Pick<ProviderAssessment, 'availability' | 'searchOutcome'> & { code?: string; constraint?: QuoteConstraint; refs?: ScenarioResult['refs']; context?: ScenarioResult['context']; planDigest?: string; bounds?: ScenarioResult['bounds']; quoteTerms?: QualityTerms; quoteQuality?: QualityMeasurement };
 export type AlternateExecution = Omit<ScenarioResult, 'providers' | 'alternateExecution'> & { provider: Provider; role: 'alternate'; attempted: boolean; comparisonState: 'sequential-state' };
 export const emptyProviders = (): Record<Provider, ProviderSummary> => ({ core: { availability: 'not-run', searchOutcome: 'not-run', code: 'provider-evidence-unavailable' }, market: { availability: 'not-run', searchOutcome: 'not-run', code: 'provider-evidence-unavailable' } });
 
@@ -33,10 +34,12 @@ export function providerSummaries(value: Partial<ProviderQuote>, deployment?: Se
   const result = emptyProviders();
   for (const provider of ['core', 'market'] as const) {
     const assessment = value.providerAssessments?.[provider], candidate = value.providerCandidates?.[provider];
+    const constraint = safeQuoteConstraint((assessment as { constraint?: unknown } | undefined)?.constraint);
     if (assessment) result[provider] = { availability: assessment.availability, searchOutcome: assessment.searchOutcome,
-      ...(assessment.code ? { code: assessment.code } : {}) };
+      ...(assessment.code ? { code: assessment.code } : {}), ...(constraint ? { constraint } : {}) };
     if (candidate && assessment?.availability === 'qualified') result[provider] = { ...result[provider],
       refs: diagnosticReferences(candidate.providerQuote), context: candidate.context, planDigest: planDigest(candidate, deployment),
+      quoteTerms: tradeQualityTerms(candidate),
       bounds: { quotedInput: candidate.quotedInput, quotedOutput: candidate.quotedOutput, inputMaximum: candidate.inputMaximum, outputMinimum: candidate.outputMinimum } };
   }
   return result;
@@ -59,7 +62,7 @@ export function captureSelection(value: SelectionCapture) {
   if (!quote) throw new Error('token-selection-not-observed');
   return { captured, primary: { selectedProvider: quote.strategy, planDigest: planDigest(quote.providerCandidates?.[quote.strategy] ?? quote, captured.deployment),
     bounds: { quotedInput: quote.quotedInput, quotedOutput: quote.quotedOutput, inputMaximum: quote.inputMaximum, outputMinimum: quote.outputMinimum }, context: quote.context, deployment: captured.deployment,
-    providers: providerSummaries(quote, captured.deployment), refs: { ...diagnosticReferences(quote.providerQuote), ...safeDiagnosticReferences(captured.diagnostics) } }, alternate: quote.providerCandidates?.[quote.strategy === 'core' ? 'market' : 'core'] };
+    providers: providerSummaries(quote, captured.deployment), quoteTerms: tradeQualityTerms(quote), refs: { ...diagnosticReferences(quote.providerQuote), ...safeDiagnosticReferences(captured.diagnostics) } }, alternate: quote.providerCandidates?.[quote.strategy === 'core' ? 'market' : 'core'] };
 }
 export function notAttemptedAlternate(scenario: Scenario, selected?: ProviderQuote): AlternateExecution {
   const provider = selected?.strategy === 'core' ? 'market' : 'core';
@@ -89,6 +92,7 @@ export async function executeAlternate(capture: SelectionCapture, scenario: Scen
     result.revalidatedPlanDigest = planDigest(revalidated, capture.deployment);
     result.refs = diagnosticReferences(revalidated);
     result.bounds = validateTrade(revalidated, request);
+    result.quoteTerms = tradeQualityTerms(revalidated);
     const observation = { scenario: { ...scenario, requestedStrategy: alternate.strategy }, request,
       value: revalidated.providerQuote, result } as QuoteObservation;
     const boundConfig = { ...config, contracts: { ...config.contracts,
@@ -124,7 +128,7 @@ export function observedProviderEvidence(observation: { frames?: Record<string, 
 }
 
 /** A later UI failure cannot erase the original basket provider observation. */
-export function observedBasketProviderEvidence(observations: readonly BrowserQuoteObservation[], scenario: MatrixScenario): Record<Provider, ProviderSummary> {
+export function observedBasketProviderEvidence(observations: readonly BrowserQuoteObservation[], scenario: MatrixScenario, cygld?: string): Record<Provider, ProviderSummary> {
   const matching = observations.filter(row => row.path === '/api/quotes/basket-preview'
     && row.request.mode === `${scenario.side === 'buy' ? 'issue' : 'redeem'}-${scenario.inputMode}`
     && matchesBasketIntent(row.request, scenario, scenario.amountRaw, scenario.basketAssets ?? []));
@@ -135,11 +139,12 @@ export function observedBasketProviderEvidence(observations: readonly BrowserQuo
   const refs = { ...diagnosticReferences(observed.terminal), ...safeDiagnosticReferences({ requestId: observed.requestId }) };
   if (observed.terminal?.type === 'complete') {
     const preview = observed.terminal.value as BasketPreview;
-    providers.core = { availability: 'qualified', searchOutcome: 'complete', planDigest: semanticDigest(preview), context: preview.context, refs };
+    providers.core = { availability: 'qualified', searchOutcome: 'complete', planDigest: semanticDigest(preview), context: preview.context, refs,
+      ...(cygld ? { quoteTerms: basketQualityTerms(preview, observed.request as BasketPreviewRequest, cygld) } : {}) };
   } else if (observed.terminal?.type === 'error') {
     const error = knownQuoteError(observed.terminal);
     providers.core = { availability: 'unavailable', searchOutcome: error?.code === 'quote-timeout' ? 'timeout' : 'error', refs,
-      ...(error ? { code: error.code } : {}) };
+      ...(error ? { code: error.code, ...(error.constraint ? { constraint: error.constraint } : {}) } : {}) };
   } else {
     providers.core = { availability: observed.interrupted ? 'unavailable' : 'pending', searchOutcome: observed.interrupted ? 'cancelled' : 'running', refs };
   }

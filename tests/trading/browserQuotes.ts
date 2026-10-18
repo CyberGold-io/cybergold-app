@@ -10,13 +10,16 @@ import { QuotePreviewError, knownQuoteError } from "../../app/utils/quoteErrors.
 import { basketFacts, configuredToken, ScenarioUnavailableError, tradeScenarios, type Scenario } from "./scenarios.ts";
 import { failureResult, matchesBasketIntent, requireInvariant, resultFor, tokenRequest, validateBasket, validateTrade, type ScenarioResult } from "./regression.ts";
 import { installQuoteObservation, quoteObservations, type QuoteObservation } from "./quoteObservation.ts";
-import { providerSummaries, planDigest, type ProviderQuote } from "./providerEvidence.ts";
-import { semanticDigest } from "./matrix.ts";
+import { observedBasketProviderEvidence, providerSummaries, planDigest, type ProviderQuote } from "./providerEvidence.ts";
+import type { MatrixScenario, ValuationSnapshot } from "./matrix.ts";
+import { basketQualityTerms, tradeQualityTerms, enrichResultQuality } from "./quoteQuality.ts";
 import { safeRunnerError } from "./runnerDiagnostics.ts";
 import { positiveDisplayedAmount } from "./uiEconomics.ts";
 
 /** Real App interactions: no routes, mocked responses or injected wallet. */
-export async function observeBrowserQuotes(origin: string, config: ProtocolConfiguration, facts: ProtocolFacts, inventory: readonly Scenario[] = tradeScenarios.filter(s => s.requestedStrategy === "core")): Promise<ScenarioResult[]> {
+export async function observeBrowserQuotes(origin: string, config: ProtocolConfiguration, facts: ProtocolFacts,
+  inventory: readonly Scenario[] = tradeScenarios.filter(s => s.requestedStrategy === "core"),
+  checkpoint?: (results: readonly ScenarioResult[]) => Promise<void>, valuation?: ValuationSnapshot): Promise<ScenarioResult[]> {
   const results: ScenarioResult[] = [];
   const unavailable = () => { throw new ScenarioUnavailableError("browser-unavailable"); };
   const browser = await chromium.launch({ headless: true }).catch(unavailable);
@@ -81,7 +84,9 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
         if (!observation?.terminal) throw new ScenarioUnavailableError("quote-stream-interrupted");
         const observed = observation!, request = observed.request, terminal = observed.terminal!;
         result.refs = safeDiagnosticReferences({ ...diagnosticReferences(terminal), requestId: observed.requestId });
-        if (scenario.size) result.providers = providerSummaries(terminal.type === "complete" ? terminal.value as ProviderQuote : terminal as Partial<ProviderQuote>);
+        if (scenario.size) result.providers = scenario.asset === "BASKET"
+          ? observedBasketProviderEvidence([observed], scenario as MatrixScenario, config.contracts.core ?? undefined)
+          : providerSummaries(terminal.type === "complete" ? terminal.value as ProviderQuote : terminal as Partial<ProviderQuote>);
         if (terminal.type === "error") throw knownQuoteError(terminal)
           ?? new QuotePreviewError(observed.status >= 400 ? "quote-service-unavailable" : "quote-unavailable", "quote-unavailable", result.refs);
         if (observed.status < 200 || observed.status >= 300) throw new QuotePreviewError("quote-service-unavailable", "quote-service-unavailable", result.refs);
@@ -93,12 +98,14 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
             ? scenario.inputMode === "exact-in" ? "issueFromBasketExactIn" : "issueFromBasketExactOut"
             : "redeemToBasketExactIn";
           result.context = value.context;
-          if (scenario.size) result.providers = { core: { availability: "qualified", searchOutcome: "complete", planDigest: semanticDigest(value), context: value.context, bounds: result.bounds }, market: { availability: "unsupported", searchOutcome: "not-run" } };
+          if (config.contracts.core) result.quoteTerms = basketQualityTerms(value, request as BasketPreviewRequest, config.contracts.core);
+          if (scenario.size && result.providers) result.providers.core.bounds = result.bounds;
         } else {
           const quote = terminal.value as TradeQuote;
           const token = config.tokens.find(token => token.symbol.toUpperCase() === (scenario.asset === "ETH" ? "WETH" : scenario.asset));
           requireInvariant(token?.type === "erc20" && typeof request.counterToken === "string" && request.counterToken.toLowerCase() === token.address.toLowerCase(), "browser-token-mismatch");
           result.bounds = validateTrade(quote, request as TradeQuoteRequest); result.actualStrategy = quote.strategy;
+          result.quoteTerms = tradeQualityTerms(quote);
           if (scenario.size) Object.assign(result, { selectedProvider: quote.strategy, planDigest: planDigest(quote), executionAttempted: false, transactionDisposition: "not-submitted" }); result.context = quote.context;
           result.quotedOperation = quote.strategy === "market" ? scenario.inputMode === "exact-in" ? "swapExactInput" : "swapExactOutput"
             : buy ? scenario.asset === "ETH" ? "issueFromNativeExactOut" : "issueFromTokenExactOut"
@@ -115,7 +122,12 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
         }
         result.status = "pass"; result.executionStage = "complete"; delete result.code;
       } catch (error) { result = { ...failureResult(result, error), ...safeRunnerError(error), requestedStrategy: "auto" }; }
+      enrichResultQuality(result, valuation, config);
       result.durationMs = Math.round(performance.now() - started); results.push(result);
+      // Reuse the host's owned UI checkpoint contract. A later browser stall
+      // must not erase completed observations; failed optional writes leave
+      // quotation behavior and the original per-operation deadlines unchanged.
+      try { await checkpoint?.(results); } catch { /* Optional evidence cannot stop the remaining cases. */ }
     }
     await page.close().catch(() => {});
   } finally { await browser.close().catch(() => {}); }

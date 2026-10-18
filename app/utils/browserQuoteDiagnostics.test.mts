@@ -5,11 +5,13 @@ import { observeBrowserQuotes } from "../../tests/trading/browserQuotes.ts";
 import { tradeScenarios } from "../../tests/trading/scenarios.ts";
 import { tokenRequest } from "../../tests/trading/regression.ts";
 import { protocolConfigurationFixture } from "../../tests/fixtures/protocol-configuration.ts";
+import type { ScenarioResult } from "../../tests/trading/regression.ts";
 
 type Action = "navigation" | "wallet" | "tokens" | "amount" | "fill" | "observation" | "display";
 
 /** Execute the real observer and picker helpers, replacing only browser I/O. */
-async function firstBrowserCase(t: TestContext, failure?: { action: Action; name: string; code?: string }, terminalError = false) {
+async function firstBrowserCase(t: TestContext, failure?: { action: Action; name: string; code?: string }, terminalError = false,
+  checkpoint?: (results: readonly ScenarioResult[]) => Promise<void>) {
   const actions: string[] = [];
   let navigations = 0, filled = false;
   const action = (name: Action) => {
@@ -58,7 +60,7 @@ async function firstBrowserCase(t: TestContext, failure?: { action: Action; name
     toBe: async (expected: unknown) => assert.equal(await read(), expected),
     toBeGreaterThan: async (expected: bigint) => assert.ok((await read() as bigint) > expected),
   })) as never);
-  const rows = await observeBrowserQuotes("http://fixture.invalid", protocolConfigurationFixture, {} as never);
+  const rows = await observeBrowserQuotes("http://fixture.invalid", protocolConfigurationFixture, {} as never, undefined, checkpoint);
   assert.equal(rows.length, 16); assert.equal(navigations, 16);
   assert.deepEqual(actions.slice(-2), ["page-close", "browser-close"]);
   assert.doesNotMatch(JSON.stringify(rows), /private-/);
@@ -98,4 +100,22 @@ test("quotes-only success preserves original UI actions and quote bounds", async
   assert.equal(first.bounds?.quotedOutput, "100");
   assert.deepEqual(actions, ["default-timeout:20000", "install-observer", "navigation", "wallet",
     "tokens", "tokens", "tokens", "tokens", "amount", "observation", "fill", "observation", "display", "page-close", "browser-close"]);
+});
+
+test("quote observer checkpoints each completed result before moving to the next case", async t => {
+  const snapshots: ScenarioResult[][] = [];
+  const { first } = await firstBrowserCase(t, undefined, false, async rows => { snapshots.push(structuredClone([...rows])); });
+  assert.deepEqual(snapshots.map(rows => rows.length), Array.from({ length: 16 }, (_, i) => i + 1));
+  assert.deepEqual(snapshots[0], [first]);
+  assert.equal(snapshots[1][0].status, "pass"); assert.equal(snapshots[1][1].status, "fail");
+  assert.ok(snapshots.every(rows => rows.at(-1)?.durationMs !== undefined));
+});
+
+test("unavailable optional quote checkpoint storage cannot change a completed quote outcome", async t => {
+  let attempts = 0;
+  const { first } = await firstBrowserCase(t, undefined, false, async () => {
+    attempts++; throw Object.assign(new Error("private-checkpoint-path"), { code: "ENOSPC" });
+  });
+  assert.equal(attempts, 16); assert.equal(first.status, "pass");
+  assert.equal(first.code, undefined); assert.equal(first.executionStage, "complete");
 });
