@@ -251,6 +251,15 @@ If the winning submission is unknown, the alternate is not attempted and records
 A missing transaction hash after wallet submission may still mean an unknown
 outcome; it is not automatically classified as nothing submitted.
 
+UI and independent execution evidence retain `receipt.refunds` as ordered
+`{ asset, amount }` rows from every matching Helpers `DustRefunded` event for
+the payer, including native input and other basket assets. Amounts are raw
+integer strings; repeated asset rows remain separate. An empty array records
+no matching refund events, while an absent field means they were not captured.
+The existing scalar `inputRefund` keeps its input-token meaning. These extra
+event rows do not establish all-asset wallet reconciliation or total value:
+selected input/output bounds and wallet checks retain their existing scope.
+
 Funding behavior is unchanged. The existing faucet and fixed 5-CYGLD bootstrap
 are not assumed sufficient for every $10,000 case. Ordinary funding, balance,
 capacity and setup failures remain visible; no test silently resizes a size or

@@ -21,6 +21,13 @@ export type WalletRequestDiagnostic = {
   uiState?: WalletUiState;
   rpc?: WalletRpcObservation;
 };
+/** Last observed UI/native confirmation progress; never transaction settlement proof. */
+export type UiConfirmationDiagnostic = Pick<WalletRequestDiagnostic, "elapsedMs" | "clickAttempts" | "clickCompleted"
+  | "lastClickErrorClass" | "lastClickErrorKind" | "notificationSelection" | "notificationViewCount" | "uiState"> & {
+  appStage?: "quote" | "balance" | "network" | "authorization" | "preparation" | "simulation" | "submission" | "confirmation";
+  appOutcome?: "started" | "submitted" | "succeeded" | "failed" | "reverted" | "unconfirmed";
+  walletStep?: "approval" | "signature" | "transaction";
+};
 export type WalletTestDiagnostics = Partial<Record<"ui" | "independent", WalletSetupDiagnostic>>;
 export type RunnerDiagnostic = { stage: typeof runnerStages[number]; exitCode?: number; signal?: string;
   walletSetup?: WalletSetupDiagnostic; walletTests?: WalletTestDiagnostics } & Partial<SafeRunnerError>;

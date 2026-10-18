@@ -6,11 +6,13 @@ import type { QuoteIntent } from "../../app/utils/quoteIntent.ts";
 import type { MarketQuote } from "../../app/utils/marketQuote.ts";
 import type { TradeQuote, TradeQuoteRequest } from "../../app/utils/tradeQuote.ts";
 import { fetchQuoteStream } from "../../app/utils/quoteStream.ts";
-import { QuotePreviewError, quoteResponseError } from "../../app/utils/quoteErrors.ts";
+import { QuotePreviewError, quoteResponseError, safeQuoteConstraint, type QuoteConstraint } from "../../app/utils/quoteErrors.ts";
 import { diagnosticReferences, quoteDiagnostics, retainDiagnosticReferences, type DiagnosticReferences, type QuoteDiagnostics } from "../../app/utils/diagnosticReferences.ts";
 import { basketFacts, configuredToken, coreIntentRequest, ScenarioUnavailableError, type Scenario } from "./scenarios.ts";
 import type { UiQuoteSnapshot, UiWalletEvidence } from "./uiEconomics.ts";
 import type { WalletRequestDiagnostic } from "./runnerDiagnostics.ts";
+import type { QualityTerms, QualityMeasurement } from "./quoteQuality.ts";
+import { tradeQualityTerms, basketQualityTerms } from "./quoteQuality.ts";
 
 export type UiObservationPhase = "ui-prepare" | "ui-facts" | "ui-balances" | "ui-submit" | "ui-confirmation"
   | "ui-hash" | "ui-receipt-read" | "ui-transaction-read" | "ui-receipt-assertions" | "ui-balance-postchecks";
@@ -38,11 +40,14 @@ export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "ass
   actualOperation?: string; quotedOperation?: string; layer: "api" | "browser" | "execution"; durationMs?: number; firstExecutableMs?: number;
   code?: string; reason?: QuotePreviewError["code"] | UiObservationPhase | "unsupported" | "no-qualified-plan" | "quote-observation-unavailable" | "predecessor-submission-unknown"; refs?: DiagnosticReferences; transactionHash?: string;
   quoteDiagnostics?: QuoteDiagnostics;
+  constraint?: QuoteConstraint;
   context?: { chainId: number; blockNumber: string; blockHash: string }; bounds?: Record<string, string | string[]>;
-  receipt?: Record<string, string | string[]>; authorization?: string[];
+  receipt?: Record<string, string | string[] | { asset: string; amount: string }[]>; authorization?: string[];
   executionStage?: ExecutionStage; errorClass?: string; errorCode?: string; walletRequestErrorCode?: number; approvalTransactionHashes?: string[];
   lastApproval?: { assetAddress: string; spenderAddress: string; amountRaw: string }; walletRequest?: WalletRequestDiagnostic;
   uiQuote?: UiQuoteSnapshot; wallet?: UiWalletEvidence;
+  uiConfirmation?: import('./runnerDiagnostics.ts').UiConfirmationDiagnostic;
+  quoteTerms?: QualityTerms; executionTerms?: QualityTerms; quoteQuality?: QualityMeasurement; executionQuality?: QualityMeasurement;
 };
 export type RegressionReport = { schema: "cybergold.trade-regression.v1"; runId: string; target: "sandbox" | "mainnet";
   mode: "quotes" | "sandbox-execution" | "fork-execution"; startedAt: string; finishedAt?: string;
@@ -87,9 +92,11 @@ export function failureResult(result: ScenarioResult, error: unknown) {
   const unavailable = error instanceof ScenarioUnavailableError && unexercisedRunnerCodes.has(error.code);
   const timedOut = /Timeout|Abort/.test((error as Error)?.name ?? "");
   const work = quoteDiagnostics(error) ?? quoteDiagnostics(result);
+  const constraint = safeQuoteConstraint((error as { constraint?: unknown } | null)?.constraint) ?? result.constraint;
   return { ...result, status: unavailable ? "unavailable" as const : "fail" as const,
     code: timedOut && code === "unexpected-error" ? "service-unavailable" : code,
     quoteDiagnostics: work,
+    ...(constraint ? { constraint } : {}),
     refs: { ...result.refs, ...diagnosticReferences(error) } };
 }
 
@@ -201,7 +208,7 @@ export function validateBasket(value: BasketPreview, request: BasketPreviewReque
     ? request.minimumOutputs.map(row => row.minimumAmount) : outputs.map(row => String(BigInt(row.amount) * 99n / 100n)) };
 }
 
-export function coreTrade(value: QuoteIntent, request: TradeQuoteRequest, config: ProtocolConfiguration): TradeQuote {
+export function coreTrade(value: QuoteIntent, request: TradeQuoteRequest, config: ProtocolConfiguration): Extract<TradeQuote, { strategy: 'core' }> {
   const buy = request.side === "buy", exactIn = request.mode === "exact-in", cygld = config.contracts.core!;
   const counter = request.native ? zeroAddress : request.counterToken;
   const output = buy ? value.executionAmount : value.expectedOutputAmount ?? (exactIn ? value.displayAmount : "minimumAmountOut" in value.preview ? value.preview.minimumAmountOut : "0");
@@ -225,6 +232,7 @@ export async function observeScenario(scenario: Scenario, config: ProtocolConfig
     const preview = await readJson<BasketPreview>(fetcher, "/api/quotes/basket-preview", basket);
     request = basket; value = preview;
     result.bounds = validateBasket(preview, basket, basketFacts(facts).assets);
+    result.quoteTerms = basketQualityTerms(preview, basket, config.contracts.core!);
     if (value.mode === "issue-exact-in" || value.mode === "issue-exact-out") {
       result.quotedOperation = value.mode === "issue-exact-in" ? "issueFromBasketExactIn" : "issueFromBasketExactOut";
     } else {
@@ -237,6 +245,7 @@ export async function observeScenario(scenario: Scenario, config: ProtocolConfig
       value = await fetchQuoteStream<QuoteIntent, { type: string }>("/api/quotes/intent/stream", provider, signal, events, fetcher);
       requireInvariant(value.mode === provider.mode, "core-provider-mode-mismatch");
       result.bounds = validateTrade(coreTrade(value, request, config), request);
+      result.quoteTerms = tradeQualityTerms({ ...coreTrade(value, request, config), providerRequest: provider });
       uint(value.preview.fees.protocolFeeCygld, "protocol-fee"); uint(value.preview.fees.helperFeeCygld, "helpers-fee");
       result.quotedOperation = scenario.side === "buy" ? scenario.asset === "ETH" ? "issueFromNativeExactOut" : "issueFromTokenExactOut"
         : scenario.asset === "ETH" ? "redeemToNativeExactIn" : "redeemToTokenExactIn";
@@ -250,6 +259,9 @@ export async function observeScenario(scenario: Scenario, config: ProtocolConfig
       result.bounds = validateTrade({ ...value, quotedInput: value.totalInput, quotedOutput: value.netOutput }, request);
       uint(value.fee.amount, "helpers-fee"); uint(value.refundDust, "refund");
       result.bounds = { ...result.bounds, protocolFeeCygld: "0", helperFeeCygld: value.fee.amount, refundDust: value.refundDust };
+      result.quoteTerms = tradeQualityTerms({ strategy: "market", side: request.side, mode: request.mode, tokenIn, tokenOut,
+        quotedInput: value.totalInput, quotedOutput: value.netOutput, inputMaximum: value.inputMaximum,
+        providerRequest: marketRequest, providerQuote: value });
       result.quotedOperation = request.mode === "exact-in" ? "swapExactInput" : "swapExactOutput";
     }
   }

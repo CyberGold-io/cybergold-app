@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { EventEmitter } from "node:events";
 import { expect, type Page } from "@playwright/test";
-import { decodeFunctionData, encodeFunctionData, erc20Abi, type Address, type Hex } from "viem";
+import { decodeFunctionData, encodeAbiParameters, encodeEventTopics, encodeFunctionData, erc20Abi, zeroAddress, type Address, type Hex } from "viem";
 import { appEnvironment, withEnvironment } from "../../tests/fixtures/environment.mts";
 import { protocolConfigurationFixture, tokenAddresses } from "../../tests/fixtures/protocol-configuration.ts";
 import { failureResult, RegressionAssertionError, resultFor, type QuoteObservation, type ScenarioResult } from "../../tests/trading/regression.ts";
@@ -710,6 +710,9 @@ test("optional RPC setup and detach failures cannot reject a successful native h
 
 test("the real independent executor rejects changed mined calldata even with the same valid selector", async () => {
   const { HELPERS_EXECUTION_ABI } = await import("../contracts/cybergold-helpers/execution.ts");
+  const refund = { address: protocolConfigurationFixture.contracts.helpers!,
+    topics: encodeEventTopics({ abi: HELPERS_EXECUTION_ABI, eventName: "DustRefunded", args: { payer: owner, asset: tokenAddresses.XAUT } }),
+    data: encodeAbiParameters([{ type: "uint256" }], [7n]) };
   for (const changed of [false, true]) {
     const scenario = tradeScenarios.find(row => row.id === "core-redeem-usdc-exact-in")!;
     const observation = { scenario, request: { native: false, counterToken: tokenAddresses.USDC }, value: {
@@ -726,11 +729,58 @@ test("the real independent executor rejects changed mined calldata even with the
       const url=String(path);
       if(url.startsWith("/api/account/token-permit")) return Response.json({allowance:{status:"success",value:"1000"}});
       if(url.startsWith("/api/transaction/helpers-execution")) return Response.json({helpers:protocolConfigurationFixture.contracts.helpers,gas:"100000"});
-      if(url.startsWith("/api/transaction/receipt")) return Response.json({receipt:{status:"success",transactionHash:approvalHash,blockNumber:"1",blockHash:`0x${"c".repeat(64)}`,logs:[]}});
+      if(url.startsWith("/api/transaction/receipt")) return Response.json({receipt:{status:"success",transactionHash:approvalHash,blockNumber:"1",blockHash:`0x${"c".repeat(64)}`,logs:[refund]}});
       if(url.startsWith("/api/transaction/wait/transaction")) return Response.json({transaction:{from:owner,to:protocolConfigurationFixture.contracts.helpers,input:changed?altered:sent}});
       assert.fail("unexpected test-only API path");
     }) as typeof fetch;
     await assert.rejects(executeScenario(observation,page,owner,protocolConfigurationFixture,fetcher), error => error instanceof RegressionAssertionError && error.code === (changed ? "execution-calldata-mismatch" : "operation-event-missing"));
     assert.equal(requests,1);assert.equal(observation.result.transactionHash,approvalHash);
+    assert.deepEqual(observation.result.receipt!.refunds, [{ asset: tokenAddresses.XAUT, amount: "7" }]);
   }
+});
+
+for (const kind of ["token", "native", "basket"] as const) test(`independent ${kind} execution retains all owned refunds without adding them to selected-pair amounts`, async () => {
+  const { HELPERS_EXECUTION_ABI } = await import("../contracts/cybergold-helpers/execution.ts");
+  const event = (name: string, args: Record<string, unknown>) => {
+    const abi = HELPERS_EXECUTION_ABI.find(row => row.type === "event" && row.name === name)!;
+    if (abi.type !== "event") throw Error("Fixture event missing");
+    const values = abi.inputs.filter(row => !row.indexed);
+    return { address: protocolConfigurationFixture.contracts.helpers!, topics: encodeEventTopics({ abi: [abi], eventName: name as never, args: args as never }),
+      data: encodeAbiParameters(values, values.map(row => args[row.name]) as never) };
+  };
+  const inputToken = kind === "native" ? zeroAddress : tokenAddresses.USDC;
+  const observation = kind === "basket" ? basketObservation("exact-out") : (() => {
+    const scenario = tradeScenarios.find(row => row.id === `core-issue-${kind === "native" ? "eth" : "usdc"}-exact-in`)!;
+    return { scenario, request: { native: kind === "native", counterToken: tokenAddresses.USDC },
+      value: { executionAmount: "90", preview: { orderedCoreAssets: [tokenAddresses.PAXG, tokenAddresses.XAUT] }, quotes: [] },
+      result: { ...resultFor(scenario, "execution"), bounds: { inputMaximum: "100", outputMinimum: "90" } } } as unknown as QuoteObservation;
+  })();
+  const logs = kind === "basket" ? [event("IssuedFromBasket", { payer: owner, recipient: owner, orderedCoreAssets: [tokenAddresses.PAXG, tokenAddresses.XAUT],
+    amountsIn: [100n, 200n], netCygldOut: 50n, protocolFeeCygld: 0n, helperFeeCygld: 0n })]
+    : [event("Issued", { payer: owner, recipient: owner, inputToken, inputUsed: 80n, netCygldOut: 90n, protocolFeeCygld: 1n, helperFeeCygld: 0n }),
+      event("DustRefunded", { payer: owner, asset: inputToken, amount: 20n })];
+  logs.push(event("DustRefunded", { payer: owner, asset: tokenAddresses.XAUT, amount: 2n ** 100n }));
+  let sent: Hex | undefined, requests = 0;
+  const page = walletPage(async () => approvalHash);
+  Object.assign(page, { evaluate: async (_callback: unknown, request: { params: { data: Hex }[] }) => {
+    requests++; sent = request.params[0].data; return approvalHash;
+  } });
+  const fetcher = (async path => {
+    const url = String(path);
+    if (url.startsWith("/api/governance/helpers-facts")) return installedBasket();
+    if (url.startsWith("/api/account/token-permit")) return Response.json({ allowance: { status: "success", value: "1000" } });
+    if (url.startsWith("/api/transaction/helpers-execution")) return Response.json({ helpers: protocolConfigurationFixture.contracts.helpers, gas: "100000" });
+    if (url.startsWith("/api/transaction/receipt")) return Response.json({ receipt: { status: "success", transactionHash: approvalHash, blockNumber: "1", blockHash: `0x${"c".repeat(64)}`, logs } });
+    if (url.startsWith("/api/transaction/wait/transaction")) return Response.json({ transaction: { from: owner, to: protocolConfigurationFixture.contracts.helpers, input: sent } });
+    assert.fail("unexpected test-only API path");
+  }) as typeof fetch;
+  const result = await executeScenario(observation, page, owner, protocolConfigurationFixture, fetcher);
+  assert.equal(result.status, "pass"); assert.equal(requests, 1);
+  assert.deepEqual(result.receipt!.refunds, [...(kind === "basket" ? [] : [{ asset: inputToken, amount: "20" }]),
+    { asset: tokenAddresses.XAUT, amount: String(2n ** 100n) }]);
+  if (kind === "basket") assert.deepEqual(result.receipt!.amountsIn, ["100", "200"]);
+  else { assert.equal(result.receipt!.inputUsed, "80"); assert.equal(result.receipt!.inputRefund, "20"); assert.equal(result.receipt!.amountOut, "90"); }
+  assert.equal(result.executionTerms!.refundCoverage, "observed-helper-refunds");
+  assert.deepEqual(result.executionTerms!.inputSpent!.map(row => row.amount), kind === "basket" ? ["100", "200"] : ["80"]);
+  assert.deepEqual(result.executionTerms!.netOutput!.map(row => row.amount), kind === "basket" ? ["50"] : ["90", String(2n ** 100n)]);
 });

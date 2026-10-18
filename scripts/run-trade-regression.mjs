@@ -9,6 +9,7 @@ import { failureResult, observeScenario, originFetch, readJson, resultFor } from
 import { executionCoverage } from "../tests/trading/providerEvidence.ts";
 import { buildMatrix, readValuation, matrixCounts, matrixTemplates } from "../tests/trading/matrix.ts";
 import { observeBrowserQuotes } from "../tests/trading/browserQuotes.ts";
+import { enrichResultQuality } from "../tests/trading/quoteQuality.ts";
 import { readWalletSetupDiagnostic, readWalletTestDiagnostics, safeCommandResult, safeRunnerError } from "../tests/trading/runnerDiagnostics.ts";
 
 const { values } = parseArgs({ options: { target: { type: "string" }, mode: { type: "string", default: "quotes" },
@@ -23,6 +24,7 @@ const report = { schema: "cybergold.trade-regression.v1", runId: randomUUID(), t
   startedAt: new Date().toISOString(), matrix: matrixCounts, runnerOutcome: "pass", runnerDiagnostics: { stage: "origin" }, scenarios: [] };
 
 let inventory = matrixTemplates();
+let qualityConfiguration;
 
 async function walletResults() {
   const walletTests = await readWalletTestDiagnostics({ ui: resolve(output, "wallet-fixture-ui.json"),
@@ -120,6 +122,7 @@ try {
     report.runnerDiagnostics.stage = "config-facts";
     const [config, facts] = await Promise.all([readJson(fetcher, "/api/protocol/config"),
       readJson(fetcher, "/api/protocol/facts")]);
+    qualityConfiguration = config;
     report.observations = { chainId: config.chainId, forkGeneration: config.sandboxForkGeneration };
     const diagnosticId = values["diagnostic-scenario"]?.replace(/^ui-/, "");
     const legacy = diagnosticId && tradeScenarios.find(s => s.id === diagnosticId);
@@ -139,8 +142,14 @@ try {
     const matrixPath = resolve(output, "matrix.json");
     await writeFile(matrixPath, JSON.stringify({ matrix: matrixCounts, valuation: report.valuation, scenarios: inventory }) + "\n");
     if (values.mode === "quotes") {
+      const checkpoint = async scenarios => {
+        const path = resolve(output, "regression-ui.json");
+        await writeFile(path + ".tmp", JSON.stringify({ ...report, scenarios,
+          coverage: executionCoverage(scenarios), runnerOutcome: "unavailable", runnerDiagnostics: { stage: "ui-report" } }) + "\n");
+        await rename(path + ".tmp", path);
+      };
       try { report.scenarios.push(...(diagnostic ? [(await observeScenario(diagnostic, config, facts, fetcher)).result]
-        : await observeBrowserQuotes(origin, config, facts, inventory))); }
+        : await observeBrowserQuotes(origin, config, facts, inventory, checkpoint, report.valuation))); }
       catch (error) {
         if (error instanceof ScenarioUnavailableError && error.code === "browser-unavailable") {
           report.runnerOutcome = "unavailable"; report.runnerCode = error.code;
@@ -191,6 +200,10 @@ try {
   }
 }
 if (report.runnerOutcome === "pass") report.runnerDiagnostics.stage = "complete";
+if (qualityConfiguration) for (const result of [...report.scenarios, ...(report.fixtures ?? [])]) {
+  enrichResultQuality(result, report.valuation, qualityConfiguration);
+  if (result.alternateExecution) enrichResultQuality(result.alternateExecution, report.valuation, qualityConfiguration);
+}
 report.coverage = executionCoverage(report.scenarios);
 report.finishedAt = new Date().toISOString();
 await writeFile(resolve(output, "report.json.tmp"), JSON.stringify(report, null, 2) + "\n");

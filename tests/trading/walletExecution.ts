@@ -2,7 +2,7 @@ import { decodeEventLog, decodeFunctionData, encodeFunctionData, erc20Abi, seria
   toHex, zeroAddress, type Address, type Hex } from "viem";
 import { expect, type Page } from "@playwright/test";
 import { HELPERS_EXECUTION_ABI } from "../../app/contracts/cybergold-helpers/execution.ts";
-import { tradeReceipt } from "../../app/utils/tradeReceipt.ts";
+import { tradeReceipt, tradeRefundEvidence } from "../../app/utils/tradeReceipt.ts";
 import { fetchTransactionReceipt } from "../../app/utils/transactionReceipt.ts";
 import { estimateHelpersExecutionGas } from "../../app/utils/helpersExecutionGas.ts";
 import { fetchTokenPermit, tokenPermitTypedData, tokenPurchaseApprovalAmounts, tokenPurchaseAuthorization, signedTokenPermit } from "../../app/utils/tokenPermit.ts";
@@ -21,6 +21,7 @@ import type { QuoteIntent } from "../../app/utils/quoteIntent.ts";
 import type { BasketPreview } from "../../app/utils/basketPreview.ts";
 import type { MarketQuote } from "../../app/utils/marketQuote.ts";
 import type { CygldPermit } from "../../app/hooks/flows/shared/types.ts";
+import { receiptQualityTerms, type QualityAmount } from "./quoteQuality.ts";
 
 const emptyPermit = { value: 0n, deadline: 0n, v: 0, r: `0x${"0".repeat(64)}` as Hex, s: `0x${"0".repeat(64)}` as Hex };
 const emptyPermit2 = { permit: { permitted: [] as { token: Address; amount: bigint }[], nonce: 0n, deadline: 0n }, signature: "0x" as Hex };
@@ -311,6 +312,7 @@ export async function executeScenario(observation: QuoteObservation, page: Page,
   result.transactionHash = hash; // Retain submission evidence before any receipt read.
   result.executionStage = "execution-confirmation";
   const receipt = await waitReceipt(hash, fetcher);
+  result.receipt = { ...result.receipt, refunds: tradeRefundEvidence(receipt.logs, config.contracts.helpers as Address, owner) };
   result.executionStage = "execution-transaction-read";
   const observed = await readJson<{ transaction: { input: Hex; to: string; from: string } | null }>(fetcher, `/api/transaction/wait/transaction?hash=${hash}`);
   result.executionStage = "execution-receipt-assertions";
@@ -318,6 +320,7 @@ export async function executeScenario(observation: QuoteObservation, page: Page,
   requireInvariant(observed.transaction!.input.toLowerCase() === data.toLowerCase(), "execution-calldata-mismatch");
   requireInvariant(decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: observed.transaction!.input }).functionName === operation, "execution-selector-mismatch");
   result.actualOperation = operation;
+  let input: QualityAmount[], output: QualityAmount[], maximumTerms: QualityAmount[];
   if (observation.scenario.asset === "BASKET") {
     const expectedEvent = observation.scenario.side === "buy" ? "IssuedFromBasket" : "RedeemedToBasket";
     const events = receipt.logs.filter(log => log.address.toLowerCase() === config.contracts.helpers!.toLowerCase()).flatMap(log => {
@@ -332,8 +335,11 @@ export async function executeScenario(observation: QuoteObservation, page: Page,
       requireInvariant(event.args.amountsIn.length === maximum.length && event.args.orderedCoreAssets.every((token, index) => token.toLowerCase() === quote.result.orderedCoreAssets[index]?.toLowerCase()), "receipt-basket-order-mismatch");
       event.args.amountsIn.forEach((amount, index) => requireInvariant(amount <= BigInt(maximum[index]), "receipt-basket-budget-exceeded"));
       requireInvariant(event.args.netCygldOut >= BigInt(result.bounds!.outputMinimum as string), "receipt-output-minimum-missed");
-      result.receipt = { amountsIn: event.args.amountsIn.map(String), amountOut: String(event.args.netCygldOut),
+      result.receipt = { ...result.receipt, amountsIn: event.args.amountsIn.map(String), amountOut: String(event.args.netCygldOut),
         protocolFeeCygld: String(event.args.protocolFeeCygld), helperFeeCygld: String(event.args.helperFeeCygld) };
+      input = event.args.orderedCoreAssets.map((asset, i) => ({ asset: asset.toLowerCase(), amount: String(event.args.amountsIn[i]) }));
+      output = [{ asset: config.contracts.core!.toLowerCase(), amount: String(event.args.netCygldOut) }];
+      maximumTerms = event.args.orderedCoreAssets.map((asset, i) => ({ asset: asset.toLowerCase(), amount: maximum[i] }));
     } else if (event.eventName === "RedeemedToBasket") {
       const minimum = result.bounds!.outputMinimum as string[];
       const quote = observation.value as Extract<BasketPreview, { mode: "redeem-exact-in" | "redeem-exact-out" }>;
@@ -341,8 +347,11 @@ export async function executeScenario(observation: QuoteObservation, page: Page,
         && event.args.ids[index] === BigInt(quote.result.projectedCoreOutputs[index].id) && event.args.kinds[index] === quote.result.projectedCoreOutputs[index].kind), "receipt-basket-output-order-mismatch");
       event.args.amounts.forEach((amount, index) => requireInvariant(amount >= BigInt(minimum[index]), "receipt-basket-output-minimum-missed"));
       requireInvariant(event.args.grossCygldIn <= BigInt(result.bounds!.inputMaximum as string), "receipt-input-maximum-exceeded");
-      result.receipt = { inputUsed: String(event.args.grossCygldIn), amountsOut: event.args.amounts.map(String),
+      result.receipt = { ...result.receipt, inputUsed: String(event.args.grossCygldIn), amountsOut: event.args.amounts.map(String),
         protocolFeeCygld: String(event.args.protocolFeeCygld), helperFeeCygld: String(event.args.helperFeeCygld) };
+      input = [{ asset: config.contracts.core!.toLowerCase(), amount: String(event.args.grossCygldIn) }];
+      output = event.args.tokens.map((asset, i) => ({ asset: asset.toLowerCase(), amount: String(event.args.amounts[i]), kind: event.args.kinds[i], id: String(event.args.ids[i]) }));
+      maximumTerms = [{ asset: config.contracts.core!.toLowerCase(), amount: result.bounds!.inputMaximum as string }];
     }
   } else {
     const measured = tradeReceipt(receipt.logs, config.contracts.helpers as Address, owner, observation.scenario.requestedStrategy,
@@ -351,10 +360,26 @@ export async function executeScenario(observation: QuoteObservation, page: Page,
     requireInvariant(measured.inputUsed <= BigInt(result.bounds!.inputMaximum as string), "receipt-input-maximum-exceeded");
     requireInvariant(measured.inputUsed + measured.inputRefund <= BigInt(result.bounds!.inputMaximum as string), "receipt-refund-budget-mismatch");
     requireInvariant(measured.amountOut >= BigInt(result.bounds!.outputMinimum as string), "receipt-output-minimum-missed");
-    result.receipt = { inputUsed: String(measured.inputUsed), amountOut: String(measured.amountOut), inputRefund: String(measured.inputRefund),
+    result.receipt = { ...result.receipt, inputUsed: String(measured.inputUsed), amountOut: String(measured.amountOut), inputRefund: String(measured.inputRefund),
       outputRefund: String(measured.outputRefund), protocolFeeCygld: String(measured.protocolFeeCygld), helperFeeCygld: String(measured.helperFeeCygld),
       recoveryShareAmounts: measured.recoveryShareAmounts.map(String) };
+    const counter = observation.scenario.asset === "ETH" && observation.scenario.requestedStrategy === "core" ? zeroAddress : (observation.request as { counterToken: string }).counterToken;
+    const inputAsset = observation.scenario.side === "buy" ? counter : config.contracts.core!, outputAsset = observation.scenario.side === "buy" ? config.contracts.core! : counter;
+    input = [{ asset: inputAsset.toLowerCase(), amount: String(measured.inputUsed) }];
+    output = [{ asset: outputAsset.toLowerCase(), amount: String(measured.amountOut + measured.outputRefund) },
+      ...measured.recoveryAssets.map((asset, i) => ({ asset: asset.toLowerCase(), amount: String(measured.recoveryShareAmounts[i]), kind: 1 }))];
+    maximumTerms = [{ asset: inputAsset.toLowerCase(), amount: result.bounds!.inputMaximum as string }];
   }
+  const sourceRequest = observation.request;
+  const requested = result.quoteTerms?.requestedInput ?? (observation.scenario.inputMode !== "exact-in" ? undefined
+    : "amount" in sourceRequest ? [{ asset: input![0].asset, amount: sourceRequest.amount }]
+      : sourceRequest.mode === "issue-exact-in" ? (observation.value as Extract<BasketPreview, { mode: "issue-exact-in" }>).result.orderedCoreAssets
+        .map((asset, i) => ({ asset: asset.toLowerCase(), amount: sourceRequest.maximumAmountsIn[i] }))
+        : sourceRequest.mode === "redeem-exact-in" ? [{ asset: config.contracts.core!.toLowerCase(), amount: sourceRequest.grossCygldIn }] : undefined);
+  result.executionTerms = receiptQualityTerms({ inputSpent: input!, netOutput: output!, inputMaximum: maximumTerms!,
+    ...(requested ? { requestedInput: requested } : {}) },
+  result.receipt.refunds as { asset: string; amount: string }[], observation.scenario.requestedStrategy === "market"
+    ? [{ asset: output![0].asset, amount: result.receipt.outputRefund as string }] : []);
   result.context = { chainId: config.chainId, blockNumber: String(receipt.blockNumber), blockHash: receipt.blockHash };
   result.status = "pass"; result.executionStage = "complete"; delete result.code; return result;
   } catch (error) {

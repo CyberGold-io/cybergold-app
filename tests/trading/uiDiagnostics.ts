@@ -4,6 +4,7 @@ import { quoteDiagnostics, safeDiagnosticReferences, safeQuoteDiagnostics, type 
 import { knownQuoteError, type QuotePreviewError } from "../../app/utils/quoteErrors.ts";
 import { failureResult, RegressionAssertionError, tokenRequest, type ScenarioResult, type UiObservationPhase } from "./regression.ts";
 import { ScenarioUnavailableError, type Scenario } from "./scenarios.ts";
+import type { UiSwapObservation } from "./uiSwapObservation.ts";
 
 /** Core confirmation appears in both the receipt card and its existing toast. */
 export function confirmedTransactionText(page: Page) {
@@ -63,6 +64,12 @@ export async function uiCompletionAssertion(assertion: () => Promise<unknown>, s
     }
     throw error;
   }
+}
+
+/** An App-reported revert is a terminal UI failure, not independent receipt proof. */
+export function uiSwapTerminalFailure(observation: UiSwapObservation | undefined) {
+  if (observation?.outcome === "reverted" && observation.transactionHash)
+    return new RegressionAssertionError("product-reported-revert");
 }
 
 /** A constant caller phase fills only the missing context of a generic error or deadline. */
