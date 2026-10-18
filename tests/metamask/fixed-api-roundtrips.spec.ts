@@ -18,7 +18,7 @@ import { fetchTransactionReceipt } from "../../app/utils/transactionReceipt";
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration";
 import type { ProtocolFacts } from "../../app/utils/protocolFacts";
 import { buildMatrix, readValuation, matrixTemplates, matrixCounts, assertMatrixIntent, type MatrixScenario } from "../trading/matrix";
-import { installSelectionCapture, selectionCaptures, captureSelection, executeAlternate, notAttemptedAlternate, providerSummaries, observedProviderEvidence, observedBasketProviderEvidence, executionCoverage, transactionDisposition, type SelectionCapture } from "../trading/providerEvidence";
+import { installSelectionCapture, selectionCaptures, captureSelection, captureBasketSelection, executeAlternate, notAttemptedAlternate, providerSummaries, observedProviderEvidence, observedBasketProviderEvidence, executionCoverage, transactionDisposition, type SelectionCapture } from "../trading/providerEvidence";
 import { installQuoteObservation, quoteObservations } from "../trading/quoteObservation";
 import { safeDiagnosticReferences } from "../../app/utils/diagnosticReferences";
 import { installUiSwapObservation, uiSwapObservation } from "../trading/uiSwapObservation";
@@ -232,6 +232,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
         requireInvariant(clickedSelection, "selection-not-observed");
         assertMatrixIntent(scenarios[activeScenarioIndex], clickedSelection, config);
         if (clickedSelection.quote) Object.assign(results[activeScenarioIndex], captureSelection(clickedSelection).primary);
+        else Object.assign(results[activeScenarioIndex], captureBasketSelection(clickedSelection));
       }
       quote = await capturedUiQuote(page, assets, mode); activeResult()!.uiQuote = quote;
     } catch (error) { captureError = error; }
@@ -415,6 +416,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       results[index].providers = observedBasketProviderEvidence(observations, scenario, config.contracts.core ?? undefined);
       results[index].alternateExecution = { ...notAttemptedAlternate(scenario), provider: "market", reason: "unsupported" };
       results[index].selectedProvider = results[index].providers.core.availability === "qualified" ? "core" : undefined;
+      if (selected) Object.assign(results[index], captureBasketSelection(selected));
     }
     activeScenarioIndex = undefined; activeQuoteDiagnostics = undefined; activeSwapAttempt = undefined;
     await persist();

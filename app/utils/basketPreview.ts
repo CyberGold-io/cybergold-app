@@ -6,12 +6,25 @@ import { diagnosticAttemptId, diagnosticReferences, retainDiagnosticReferences }
 
 export type BasketPreviewRequest = components["schemas"]["BasketPreviewRequest"];
 export type BasketPreview = components["schemas"]["BasketPreview"];
-export type BasketPreviewResults = {
+type NativeBasketPreviewResults = {
   "issue-exact-in": { netCygldOut: bigint; fees: HelperFees; amountsInExact: bigint[]; orderedCoreAssets: `0x${string}`[] };
   "issue-exact-out": { fees: HelperFees; amountsInExact: bigint[]; orderedCoreAssets: `0x${string}`[] };
   "redeem-exact-in": { projectedCoreOutputs: CoreTokenAmount[]; fees: HelperFees };
   "redeem-exact-out": { grossCygldIn: bigint; projectedCoreOutputs: CoreTokenAmount[]; fees: HelperFees };
 };
+
+export type BasketPreviewResults = { [M in keyof NativeBasketPreviewResults]: NativeBasketPreviewResults[M] & { basketPreviewObservation?: BasketPreview } };
+
+function retainPreview<T extends object>(result: T, value: BasketPreview): T & { basketPreviewObservation?: BasketPreview } {
+  try { return { ...result, basketPreviewObservation: structuredClone(value) }; } catch { return result; }
+}
+/** The exact preview retained with the flow's quote, including React Query copies. */
+export function basketPreviewObservation(value: unknown): BasketPreview | undefined {
+  try {
+    return value && typeof value === "object" && "basketPreviewObservation" in value
+      ? structuredClone(value.basketPreviewObservation as BasketPreview | undefined) : undefined;
+  } catch { /* Optional observations cannot interrupt a basket trade. */ }
+}
 
 /** Restore the existing Helpers result shapes without floating point amounts. */
 export function basketPreviewResult(value: BasketPreview): BasketPreviewResults[BasketPreview["mode"]] {
@@ -20,15 +33,15 @@ export function basketPreviewResult(value: BasketPreview): BasketPreviewResults[
   if (value.mode === "issue-exact-in" || value.mode === "issue-exact-out") {
     const result = { fees, amountsInExact: value.result.amountsInExact.map(BigInt),
       orderedCoreAssets: value.result.orderedCoreAssets as `0x${string}`[] };
-    return value.mode === "issue-exact-in" ? { ...result, netCygldOut: BigInt(value.result.netCygldOut) } : result;
+    return retainPreview(value.mode === "issue-exact-in" ? { ...result, netCygldOut: BigInt(value.result.netCygldOut) } : result, value);
   }
   const projectedCoreOutputs = value.result.projectedCoreOutputs.map(row => ({
     kind: row.kind as CoreTokenAmount["kind"], token: row.token as `0x${string}`,
     id: BigInt(row.id), amount: BigInt(row.amount),
   }));
-  return value.mode === "redeem-exact-out"
+  return retainPreview(value.mode === "redeem-exact-out"
     ? { fees, projectedCoreOutputs, grossCygldIn: BigInt(value.result.grossCygldIn) }
-    : { fees, projectedCoreOutputs };
+    : { fees, projectedCoreOutputs }, value);
 }
 
 export async function fetchBasketPreview<M extends BasketPreviewRequest["mode"]>(

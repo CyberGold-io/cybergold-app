@@ -1,3 +1,4 @@
+import { safeSelectedPlan } from './selectedPlan.ts';
 import { chromium, expect } from "@playwright/test";
 import { parseUnits } from "viem";
 import { ensureBasketInputEditable, getMainInput, selectToken, showAllSellTokens } from "../metamask/token-flows/helpers.ts";
@@ -97,7 +98,7 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
           result.actualStrategy = "core"; result.quotedOperation = buy
             ? scenario.inputMode === "exact-in" ? "issueFromBasketExactIn" : "issueFromBasketExactOut"
             : "redeemToBasketExactIn";
-          result.context = value.context;
+          result.context = value.context; result.selectedPlan = safeSelectedPlan({ ...value, basketRequest: request }, 'core');
           if (config.contracts.core) result.quoteTerms = basketQualityTerms(value, request as BasketPreviewRequest, config.contracts.core);
           if (scenario.size && result.providers) result.providers.core.bounds = result.bounds;
         } else {
@@ -105,7 +106,7 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
           const token = config.tokens.find(token => token.symbol.toUpperCase() === (scenario.asset === "ETH" ? "WETH" : scenario.asset));
           requireInvariant(token?.type === "erc20" && typeof request.counterToken === "string" && request.counterToken.toLowerCase() === token.address.toLowerCase(), "browser-token-mismatch");
           result.bounds = validateTrade(quote, request as TradeQuoteRequest); result.actualStrategy = quote.strategy;
-          result.quoteTerms = tradeQualityTerms(quote);
+          result.quoteTerms = tradeQualityTerms(quote); result.selectedPlan = safeSelectedPlan(quote.providerQuote, quote.strategy, quote);
           if (scenario.size) Object.assign(result, { selectedProvider: quote.strategy, planDigest: planDigest(quote), executionAttempted: false, transactionDisposition: "not-submitted" }); result.context = quote.context;
           result.quotedOperation = quote.strategy === "market" ? scenario.inputMode === "exact-in" ? "swapExactInput" : "swapExactOutput"
             : buy ? scenario.asset === "ETH" ? "issueFromNativeExactOut" : "issueFromTokenExactOut"

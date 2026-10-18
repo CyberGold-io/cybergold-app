@@ -152,3 +152,14 @@ test("replacement compares execution economics and anchors complete Core settlem
   assert.equal(preferQuoteIntent("redeem-exact-in", chosen, { ...fresh, projectedCoreOutputs: [{ ...fresh.projectedCoreOutputs[0], amount: 98n }] }), chosen);
   assert.equal(preferQuoteIntent("redeem-exact-in", chosen, { ...fresh, projectedCoreOutputs: [{ ...fresh.projectedCoreOutputs[0], id: 10n }] }), chosen);
 });
+
+test('Core result adaptation retains optional qualified diagnostics and references without changing executable terms', async () => {
+  const {diagnosticReferences,quoteDiagnostics,retainDiagnosticReferences,retainQuoteDiagnostics}=await import('./diagnosticReferences.ts');
+  const input=structuredClone(value), baseline=quoteIntentResult(input), refs={requestId:'00000000-0000-0000-0000-000000000048'};
+  const trace={qualified:true,providerQualifications:{provider:'core',attempts:1,selectedAttempt:1,selectionReason:'complete',selectionMs:1.5,rows:[{attempt:1,stage:'selection',outcome:'qualified',elapsedMs:1.5}]}};
+  retainDiagnosticReferences(input,refs);retainQuoteDiagnostics(input,trace);
+  const observed=quoteIntentResult(input), {quoteDiagnostics:removed,...terms}=observed, {quoteDiagnostics:prior,...previous}=baseline;
+  assert.deepEqual(terms,previous);assert.equal(prior,undefined);assert.ok(removed);
+  assert.deepEqual(quoteDiagnostics(observed),trace);assert.deepEqual(diagnosticReferences(observed),refs);
+  (trace.providerQualifications.rows[0] as {elapsedMs:number}).elapsedMs=999;assert.equal(quoteDiagnostics(observed)?.providerQualifications?.rows[0].elapsedMs,1.5);
+});
