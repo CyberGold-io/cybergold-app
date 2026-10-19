@@ -36,7 +36,7 @@ for (let repeat = 1; repeat <= 3; repeat++) for (const mode of modes) {
       const rows = observed.timings.slice(offset).filter(row => row.mode === mode);
       return { requests: rows.length,
         responseAfterLastEditMs: rows.length ? rows.at(-1)!.completedAt! - lastEditAt : null,
-        displayedInputs: await inputs.evaluateAll(nodes => nodes.map(node => (node as HTMLInputElement).value)) };
+        displayedInputs: await page.locator('input[inputmode="decimal"]:not(#execution-tolerance), #buy-basket-composition output, #buy-amount').evaluateAll(nodes => nodes.map(node => node instanceof HTMLInputElement ? node.value : node.textContent)) };
     };
     const rapid = await measure(["1", "12", "123"]);
     expect(rapid.requests).toBe(3);

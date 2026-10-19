@@ -136,7 +136,7 @@ for (const operation of ["purchase", "redemption"] as const) {
         await page.locator("#sell-amount").click();
       }
       await page.locator("#sell-amount").fill("1");
-      await expect(page.locator("#buy-amount")).toHaveValue("0.999");
+      await expect(page.locator("#buy-amount")).toHaveText("0.999");
       const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
       await expect(swap).toBeEnabled();
       preparing = true;

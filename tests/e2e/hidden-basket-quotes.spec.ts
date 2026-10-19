@@ -21,6 +21,6 @@ test("basket quotes wait while hidden and resume once visible", async ({ page })
     Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
     document.dispatchEvent(new Event("visibilitychange"));
   });
-  await expect(page.getByRole("textbox", { name: "You Buy CYGLD", exact: true })).toHaveValue("1");
+  await expect(page.getByRole("status", { name: "You Buy CYGLD", exact: true })).toHaveText("1");
   expect(quotes).toBe(1);
 });

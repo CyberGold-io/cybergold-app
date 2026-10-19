@@ -21,12 +21,12 @@ for(const mode of ["redeem-exact-in"]) for(const candidate of [false,true]) for(
   await page.goto("/en");await selectBasket(page);
   if(mode.startsWith("redeem"))await page.getByRole("button",{name:"Reverse swap direction"}).click();
   const input=page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first();
-  const quoted=page.getByRole("textbox",{name:"Buy amount (PAXG)",exact:true});
+  const quoted=page.getByLabel("Buy amount (PAXG)", { exact: true });
   await input.click();const start=Date.now();await input.fill(formatUnits(BigInt(amount),18));
-  await expect(quoted).toHaveAttribute("readonly", "");
-  await expect(quoted).toHaveValue(/[1-9]/);const firstMs=Date.now()-start,first=await quoted.inputValue();
+  await expect(quoted).toHaveJSProperty("tagName", "OUTPUT");
+  await expect(quoted).toHaveText(/[1-9]/);const firstMs=Date.now()-start,first=(await quoted.textContent())!;
   const completionAtFirst=completed;await expect.poll(()=>completed).toBe(true);await page.waitForTimeout(50);
-  const final=await quoted.inputValue();expect(first).toBe(final);expect(requests).toBe(1);expect(completionAtFirst).toBe(!candidate);
+  const final=(await quoted.textContent())!;expect(first).toBe(final);expect(requests).toBe(1);expect(completionAtFirst).toBe(!candidate);
   const result={mode,index:index+1,candidate,firstMs,completedAtFirst:completionAtFirst,first,final,requests,snapshotBytes:JSON.stringify(snapshot).length,scope:"Already-paid integer state delivered through the normal facts response; unchanged state, controlled 250ms Helpers. No cold acquisition, execution qualification or extra RPC saving is inferred."};
   await test.info().attach("warm-basket-display",{contentType:"application/json",body:JSON.stringify(result)});
   if(process.env.QUOTE_EVALUATION_DIR){await mkdir(process.env.QUOTE_EVALUATION_DIR,{recursive:true});await writeFile(`${process.env.QUOTE_EVALUATION_DIR}/basket-model-${mode}-${candidate}-${index}.json`,JSON.stringify(result,null,2));}

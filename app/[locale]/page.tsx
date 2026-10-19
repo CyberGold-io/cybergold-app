@@ -5,6 +5,7 @@ import { useTradeModel } from "@/app/hooks/flows/quotes/useTradeModel";
 import { useTradeFlow } from "@/app/hooks/flows/useTradeFlow";
 import { captureTradeQuote, type TradeQuoteResult, type TradeQuoteRequest } from "@/app/utils/tradeQuote";
 import { basketPreviewObservation } from "@/app/utils/basketPreview";
+import { fetchBasketMax, type BasketMax } from "@/app/utils/basketMax";
 import { observeTradeSelection } from "@/app/utils/tradeSelectionObservation";
 import { tradeReceipt, type TradeReceipt } from "@/app/utils/tradeReceipt";
 import { useLocalBasketModel } from "@/app/hooks/flows/quotes/useLocalBasketModel";
@@ -205,8 +206,12 @@ const swapStyles = {
     "min-w-0 break-words text-right font-semibold tabular-nums text-text-input",
   amountInput:
     "min-w-0 w-full rounded-md pl-1 pr-2 sm:pr-6 outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring tabular-nums text-base sm:text-3xl font-semibold",
+  amountOutput:
+    "block min-w-0 w-full break-words pl-1 pr-2 sm:pr-6 select-text cursor-default tabular-nums text-base sm:text-3xl font-semibold",
   basketInput:
     "block min-w-0 w-full rounded-md border border-swap-container-border bg-background-swap p-2 text-start text-sm tabular-nums editable-caret transition-colors focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+  basketOutput:
+    "block min-w-0 w-full break-words p-2 text-start text-sm tabular-nums select-text cursor-default",
 } as const;
 
 function SwapTokenBalance({ token, balance, isLoading, side }: {
@@ -392,6 +397,7 @@ function TradingScreen() {
   // Preserve exact MAX balances while displaying shortened decimal amounts.
   const [sellAmountRawOverride, setSellAmountRawOverride] = useState<bigint | undefined>(undefined);
   const [driverAmountRawOverride, setDriverAmountRawOverride] = useState<bigint | undefined>(undefined);
+  const [basketMaxAmounts, setBasketMaxAmounts] = useState<BasketMax>();
   const { isSellModalOpen, setIsSellModalOpen, isBuyModalOpen, setIsBuyModalOpen } = useTokenPickerPresentation();
   // The driver is the editable basket component used to derive the other amounts.
   const [driverToken, setDriverToken] = useState<Address | undefined>(undefined);
@@ -410,6 +416,8 @@ function TradingScreen() {
 
   const mainSellInputRef = useRef<HTMLInputElement | null>(null);
   const sellMaxRequestRef = useRef(0);
+  const basketMaxRequestRef = useRef(0);
+  const basketMaxAbortRef = useRef<AbortController | null>(null);
   const sellTokenPickerRef = useRef<HTMLButtonElement | null>(null);
   const buyTokenPickerRef = useRef<HTMLButtonElement | null>(null);
   const basketSellInputRefs = useRef<Array<HTMLInputElement | null>>([]);
@@ -509,6 +517,7 @@ function TradingScreen() {
     setSellAmount("");
     setSellAmountRawOverride(undefined);
     setDriverAmountRawOverride(undefined);
+    setBasketMaxAmounts(undefined);
     clearFailedQuoteFormState();
   }, [clearFailedQuoteFormState]);
 
@@ -659,14 +668,18 @@ function TradingScreen() {
   );
 
   const derivedBasketAmountsAsBigIntMap = useMemo(
-    () => deriveBasketComponentsAmountsFromSingleInput(basketComponents, driverToken, driverAmountStr, driverAmountRawOverride, locale),
-    [basketComponents, driverToken, driverAmountStr, driverAmountRawOverride, locale]
+    () => basketMaxAmounts ? Object.fromEntries(basketComponents.map(component => [component.token.address,
+      BigInt(basketMaxAmounts.maximumAmountsIn[basketMaxAmounts.orderedCoreAssets.findIndex(
+        asset => asset.toLowerCase() === component.token.address.toLowerCase())] ?? "0"),
+    ])) : deriveBasketComponentsAmountsFromSingleInput(basketComponents, driverToken, driverAmountStr, driverAmountRawOverride, locale),
+    [basketMaxAmounts, basketComponents, driverToken, driverAmountStr, driverAmountRawOverride, locale]
   );
 
   // Preview amounts must follow the protocol's basket component order.
   const derivedBasketAmountsAsBigIntLst = useMemo(() => {
-    return basketAmountsMapToOrderedBigIntArray(basketComponents, derivedBasketAmountsAsBigIntMap);
-  }, [basketComponents, derivedBasketAmountsAsBigIntMap]);
+    return basketMaxAmounts ? basketMaxAmounts.maximumAmountsIn.map(BigInt)
+      : basketAmountsMapToOrderedBigIntArray(basketComponents, derivedBasketAmountsAsBigIntMap);
+  }, [basketMaxAmounts, basketComponents, derivedBasketAmountsAsBigIntMap]);
 
   const hasDerivedBasketAmounts = useMemo(
     () => derivedBasketAmountsAsBigIntLst.some((amount) => amount > 0n),
@@ -837,11 +850,14 @@ function TradingScreen() {
     : undefined;
   const remainingGrossCapacity = isActiveTokenFlow ? undefined : purchaseCapacity?.grossRemaining;
   const isIssuanceCapError = activeQuoteStatus === "failed" && activeQuoteError === t("quoteIssuanceCapExceeded");
-  const isPurchaseOverCap = !isActiveTokenFlow && isIssue && (isIssuanceCapError ||
+  // MAX was sized and previewed by the Backend; a cached model cannot override it.
+  const isObservedBasketPurchaseOverCap = !basketMaxAmounts && (
     (remainingNetCapacity === 0n && (rawQuoteAmount > 0n || hasDerivedBasketAmounts)) || (
     requestedGrossIssuance !== undefined && remainingGrossCapacity !== undefined && requestedGrossIssuance > remainingGrossCapacity
   ));
-  const purchaseCapacityLabel = remainingNetCapacity === 0n ? t("cygldSupplyCapReached")
+  const isPurchaseOverCap = !isActiveTokenFlow && isIssue && (isIssuanceCapError || isObservedBasketPurchaseOverCap);
+  const purchaseCapacityLabel = remainingNetCapacity === 0n || (isIssuanceCapError && purchaseCapacity?.available === 0n)
+    ? t("cygldSupplyCapReached")
     : remainingNetCapacity !== undefined ? t(isPurchaseOverCap ? "cygldPurchaseCapExceeded" : "cygldAvailableToBuy", {
       amount: formatCygldCapacity(remainingNetCapacity, cygldDecimals, locale),
     }) : isIssuanceCapError ? t("reduceAmountToSupplyLimit") : undefined;
@@ -1134,6 +1150,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
     sellTokenId, buyTokenId, configurationIdentity,
     sellAmount, sellAmountRawOverride,
     driverToken, driverAmountStr, driverAmountRawOverride,
+    derivedBasketAmountsAsBigIntLst,
     basketComponents.map(component => [component.token.address, component.token.decimals, component.targetWeight])];
   const retainedReceiveQuote = useRetainedQuoteDisplay(displayQuoteIdentity,
     quoteInputPending ? EMPTY_PREFILL : computedReceiveQuote, quoteInputPending ? "idle" : activeQuoteStatus, isSubmittingSwap);
@@ -1145,6 +1162,10 @@ const computedReceiveQuote = useMemo((): Prefill => {
   const localBasketPrefill = useMemo<Prefill | undefined>(() => {
     if (flowState?.route !== "basket" || (activeQuoteStatus !== "loading" && !isPurchaseOverCap) || retainedReceiveQuote.retained) return undefined;
     const mode = flowState.direction === "issue" ? "issue-exact-in" : "redeem-exact-in";
+    if (mode === "issue-exact-in" && basketMaxAmounts) {
+      const amount = BigInt(basketMaxAmounts.netCygldOut);
+      return { main: amount > 0n ? formatAmount(amount, cygldDecimals) : "", mainRaw: amount, components: [], componentRaws: [] };
+    }
     const value = localBasketQuote(localBasketModel, mode, basketComponents.map(c => c.token.address), rawQuoteAmount, derivedBasketAmountsAsBigIntLst, issuanceModel);
     if (!value) return undefined;
     const amounts = value.componentAmounts ?? [];
@@ -1154,7 +1175,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
     return { main: amount > 0n ? formatAmount(amount, cygldDecimals) : "", mainRaw: amount,
       components: amounts.map((n, i) => formatAmount(n, basketComponents[i].token.decimals)), componentRaws: amounts };
   }, [flowState, activeQuoteStatus, isPurchaseOverCap, retainedReceiveQuote.retained,
-    requestedBasketPurchase?.net, localBasketModel, issuanceModel, basketComponents, rawQuoteAmount, derivedBasketAmountsAsBigIntLst, cygldDecimals]);
+    basketMaxAmounts, requestedBasketPurchase?.net, localBasketModel, issuanceModel, basketComponents, rawQuoteAmount, derivedBasketAmountsAsBigIntLst, cygldDecimals]);
   const receiveQuote = localBasketPrefill ? localBasketPrefill
     : localPrefill && retainedReceiveQuote.value.mainRaw <= 0n ? localPrefill : retainedReceiveQuote.value;
   const buyAmountBigInt = receiveQuote.mainRaw;
@@ -1203,6 +1224,13 @@ const computedReceiveQuote = useMemo((): Prefill => {
   ]);
 
   const canUseSellMax = isConnected && isSellTokenSpendable && sellToken !== undefined && sellTokenBalanceKnown;
+  const basketWalletMax = useMemo(() => proportionalBasketWalletMax(basketComponents, walletBalanceByTokenId),
+    [basketComponents, walletBalanceByTokenId]);
+  const basketMaxInputKey = JSON.stringify([
+    basketWalletMax?.driverToken, basketWalletMax?.maximumAmountsIn.map(String),
+    basketComponents.map(component => [component.token.address, component.token.decimals, String(component.targetWeight)]),
+  ]);
+  const canUseBasketSellMax = isConnected && isSellBasket && basketWalletMax !== undefined;
   const { data: currentGasFees, isError: gasFeesUnavailable,
     isFetching: isFetchingGasFees, refetch: refetchGasFees } = networkGasFees;
 
@@ -1211,6 +1239,12 @@ const computedReceiveQuote = useMemo((): Prefill => {
     address, connectedChainId, isConnected, sellTokenId, buyTokenId,
     sellAmount, sellAmountRawOverride, driverToken, driverAmountStr, driverAmountRawOverride,
     sellTokenWalletBalance, estimatedSwapGas, slippageBps,
+  ]);
+
+  useEffect(() => () => { basketMaxRequestRef.current++; basketMaxAbortRef.current?.abort(); }, [
+    address, connectedChainId, isConnected, sellTokenId, buyTokenId,
+    sellAmount, sellAmountRawOverride, driverToken, driverAmountStr, driverAmountRawOverride,
+    basketMaxInputKey, configurationIdentity, locale,
   ]);
 
   const getSpendableInputForMax = useCallback(async () => {
@@ -1239,18 +1273,28 @@ const computedReceiveQuote = useMemo((): Prefill => {
     setSellAmount(truncateDecimalString(formatUnits(amount, sellToken.decimals), 3));
   }, [canUseSellMax, sellToken, getSpendableInputForMax]);
 
-  const basketWalletMax = useMemo(() => proportionalBasketWalletMax(basketComponents, walletBalanceByTokenId),
-    [basketComponents, walletBalanceByTokenId]);
-  const canUseBasketSellMax = isConnected && isSellBasket && basketWalletMax !== undefined;
-
-  const handleSetBasketSellMax = useCallback(() => {
+  const handleSetBasketSellMax = useCallback(async () => {
     if (!canUseBasketSellMax || !basketWalletMax) return;
-    const driver = basketComponents.find(component => component.token.address === basketWalletMax.driverToken)!;
-    setDriverToken(basketWalletMax.driverToken);
-    setDriverAmountRawOverride(basketWalletMax.driverAmountRawOverride);
-    setDriverAmountStr(truncateDecimalString(formatUnits(basketWalletMax.driverAmountRawOverride, driver.token.decimals), 3)
-      .replace(".", getLocaleDecimalSeparator(locale)));
-  }, [canUseBasketSellMax, basketWalletMax, basketComponents, locale]);
+    const request = ++basketMaxRequestRef.current;
+    basketMaxAbortRef.current?.abort();
+    const controller = new AbortController();
+    basketMaxAbortRef.current = controller;
+    try {
+      const maximum = await fetchBasketMax({ driverToken: basketWalletMax.driverToken,
+        maximumAmountsIn: basketWalletMax.maximumAmountsIn.map(String) }, controller.signal);
+      if (controller.signal.aborted || request !== basketMaxRequestRef.current) return;
+      const amount = BigInt(maximum.driverAmount);
+      const driver = basketComponents.find(component => component.token.address === basketWalletMax.driverToken)!;
+      setDriverToken(basketWalletMax.driverToken);
+      setDriverAmountRawOverride(amount);
+      setBasketMaxAmounts(maximum);
+      setDriverAmountStr(truncateDecimalString(formatUnits(amount, driver.token.decimals), 3)
+        .replace(".", getLocaleDecimalSeparator(locale)));
+    } catch (error) {
+      if (controller.signal.aborted || request !== basketMaxRequestRef.current) return;
+      toast.error(t("quoteFailed"), { description: quoteErrorMessage(error instanceof Error ? error : new Error(), t) });
+    }
+  }, [canUseBasketSellMax, basketWalletMax, basketComponents, locale, t]);
 
   const isSellAmountOverWalletBalance = useMemo(() => {
 
@@ -1547,6 +1591,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
     setDriverToken(undefined);
     setDriverAmountStr("");
     setDriverAmountRawOverride(undefined);
+    setBasketMaxAmounts(undefined);
     setDisplayedQuoteProgressPercent(0);
   }, [buyTokenId, sellTokenId]);
 
@@ -1562,6 +1607,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
     setDriverToken(undefined);
     setDriverAmountStr("");
     setDriverAmountRawOverride(undefined);
+    setBasketMaxAmounts(undefined);
   }, [sellTokenId]);
 
   // Keep CYGLD on exactly one side, choosing a valid counterpart when sell becomes CYGLD.
@@ -1619,8 +1665,10 @@ const computedReceiveQuote = useMemo((): Prefill => {
       return;
     }
     if (isSwapActionDisabled || !address || !publicClient || !activeFlow) return;
-    // The accepted visible amount supersedes any earlier MAX fee read.
+    // The accepted visible amount supersedes any earlier MAX response.
     sellMaxRequestRef.current++;
+    basketMaxRequestRef.current++;
+    basketMaxAbortRef.current?.abort();
     // Capture the execution closure and visible terms before the first await.
     const executionFlow = activeFlow;
     const selectedTrade = isActiveTokenFlow ? tradeFlow.selected : undefined;
@@ -2235,6 +2283,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
                             ? ""
                             : displayedValue;
                         if (driverToken !== componentAddress) {
+                          setBasketMaxAmounts(undefined);
                           setDriverAmountRawOverride(derivedBasketAmountsAsBigIntMap[componentAddress]);
                           setDriverToken(componentAddress);
                           setDriverAmountStr(next);
@@ -2245,6 +2294,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
                         });
                       }}
                       onChange={(event) => {
+                        setBasketMaxAmounts(undefined);
                         setDriverAmountRawOverride(undefined);
                         applyLocalizedInputValue(
                           event.currentTarget,
@@ -2293,7 +2343,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
         <div className={cn("relative", isBuyModalOpen && "z-40")}>
           <div className="mb-2 flex items-baseline justify-between gap-2">
             <label id="buy-amount-label" htmlFor={!showBuyBasket ? "buy-amount" : undefined} className="shrink-0 text-sm text-text-input">{t('youBuy')}</label>
-            {buyTokenId === cygldTokenId && (showSellBasket || isIssuanceCapError) && (
+            {buyTokenId === cygldTokenId && ((showSellBasket && (!basketMaxAmounts || basketMaxAmounts.netCygldOut === "0")) || isIssuanceCapError) && (
               <span
                 role="note"
                 data-testid="cygld-purchase-capacity"
@@ -2330,24 +2380,19 @@ const computedReceiveQuote = useMemo((): Prefill => {
                   {hasProgressiveBuyEstimate && (
                     <span id="quote-buy-estimate" data-testid="quote-estimate-description" className="sr-only">{t('quoteEstimate')}</span>
                   )}
-                  <input
+                  <output
                     id="buy-amount"
                     aria-labelledby="buy-amount-label buy-token-label"
                     className={cn(
-                      swapStyles.amountInput,
+                      swapStyles.amountOutput,
                       isPurchaseOverCap ? "text-red-500" : shouldMuteQuotedBuyAmounts ? "text-text-input-disabled" : "text-text-input"
                     )}
-                    readOnly
                     aria-busy={shouldBlockQuotedBuyInput || undefined}
-                    aria-invalid={isPurchaseOverCap || undefined}
                     aria-describedby={["receive-amount-description", isPurchaseOverCap && "purchase-cap-warning",
                       hasProgressiveBuyEstimate && "quote-buy-estimate"].filter(Boolean).join(" ")}
-                    type="text"
-                    inputMode="decimal"
-                    value={displayedQuotedBuyAmount}
-                    min={0}
-                    placeholder={buyAmountPlaceholderText}
-                  />
+                  >
+                    {displayedQuotedBuyAmount || buyAmountPlaceholderText}
+                  </output>
                   </>
                 )}
               </div>
@@ -2423,7 +2468,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
         </div>
 
         {isPurchaseOverCap && <p id="purchase-cap-warning" role="status" className="mt-2 text-xs text-red-500">
-          {t("purchaseCapWarning")}
+          {t(remainingNetCapacity === 0n ? "purchaseCapReachedWarning" : "purchaseCapWarning")}
         </p>}
 
          {/* Basket component inputs */}
@@ -2473,19 +2518,18 @@ const computedReceiveQuote = useMemo((): Prefill => {
                       <span className="whitespace-nowrap text-text-muted">{weightPercent}%</span>
                     </div>
 
-                    <input
-                      type="text"
-                      readOnly
+                    <output
                       aria-label={t("buyAmount", { symbol: componentSymbol })}
                       aria-describedby="receive-amount-description"
                       aria-busy={shouldBlockQuotedBuyInput || undefined}
-                      className={cn(swapStyles.basketInput,
+                      className={cn(swapStyles.basketOutput,
                         shouldMuteQuotedBuyAmounts ? "text-text-input-disabled" : "text-text-input")}
-                      value={shouldHideQuotedBasketBuyAmounts ? loadingAmountPlaceholder
+                    >
+                      {shouldHideQuotedBasketBuyAmounts ? loadingAmountPlaceholder
                         : receiveQuote.components.length
                           ? formatMeaningfulDecimalString(receiveQuote.components[index] ?? "", locale)
                           : zeroAmountPlaceholder}
-                    />
+                    </output>
 
                     <div
                       className="hidden min-w-0 truncate text-right text-text-input text-xs font-medium tabular-nums sm:block"

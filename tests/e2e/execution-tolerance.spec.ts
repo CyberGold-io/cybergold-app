@@ -71,7 +71,7 @@ test("redemption uses the slider's selected minimum in final calldata", async ({
   await page.getByRole("switch").uncheck(); await choose(page, "ETH");
   await page.getByRole("button", { name: "Reverse swap direction", exact: true }).click();
   await page.locator("#sell-amount").click(); await page.locator("#sell-amount").fill("1");
-  await expect(page.locator("#buy-amount")).toHaveValue("1");
+  await expect(page.locator("#buy-amount")).toHaveText("1");
   await expandFees(page);
   await expect(page.getByTestId("swap-minimum-output")).toContainText("0.99 ETH");
   await expect(page.getByTestId("swap-maximum-input")).toHaveCount(0);
@@ -80,7 +80,7 @@ test("redemption uses the slider's selected minimum in final calldata", async ({
   await slider.focus(); await slider.press("ArrowRight");
   await expect(page.locator("#execution-tolerance")).toHaveValue("0.25");
   await expect(page.getByTestId("swap-minimum-output")).toContainText("0.9975 ETH");
-  await expect(page.locator("#buy-amount")).toHaveValue("1");
+  await expect(page.locator("#buy-amount")).toHaveText("1");
   await expect.poll(() => observed.intents.at(-1)?.slippageBps).toBe(25);
   const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
   await expect(swap).toBeEnabled(); await swap.click();
@@ -111,7 +111,7 @@ for (const width of [1280, 390]) {
     const slider = page.getByRole("slider", { name: "Ajuster la tolérance d’exécution", exact: true });
     await slider.focus(); await slider.press("ArrowRight");
     await expect(field).toHaveValue("0.26");
-    await expect(page.locator("#buy-amount")).toHaveValue("1");
+    await expect(page.locator("#buy-amount")).toHaveText("1");
     const control = page.getByTestId("execution-tolerance-control");
     expect(await control.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -123,7 +123,7 @@ test("fees accordion owns tolerance, retains its value and shows only the active
   const observed = await install(page);
   await page.goto("/en"); await choose(page, "WETH");
   const sell = page.locator("#sell-amount"), buy = page.locator("#buy-amount");
-  await sell.fill("1"); await expect(buy).toHaveValue("1");
+  await sell.fill("1"); await expect(buy).toHaveText("1");
   const accordion = page.getByRole("button", { name: /Total fee/ });
   await expect(accordion).toHaveAttribute("aria-expanded", "false");
   await expect(page.getByTestId("execution-tolerance-control")).toHaveCount(0);
@@ -175,7 +175,7 @@ for (const side of ["issue", "redeem"] as const) test(`${side}: a Backend defaul
   if (side === "redeem") await page.getByRole("button", { name: "Reverse swap direction", exact: true }).click();
   const edited = page.locator("#sell-amount");
   await edited.click(); await edited.fill("1");
-  await expect(page.locator("#buy-amount")).toHaveValue("1");
+  await expect(page.locator("#buy-amount")).toHaveText("1");
   await expect.poll(() => observed.intents.length).toBeGreaterThan(0);
   // App sends only an economic trade intent. The Backend fixture resolves its
   // concrete Core adapter, which the existing approval read and calldata use.

@@ -38,25 +38,25 @@ for (const symbol of ["WETH", "USDC"] as const) {
       await page.goto("/en"); await choose(page, symbol);
       if (operation.startsWith("redeem")) await page.getByRole("button", { name: "Reverse swap direction" }).click();
       const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)'), exactIn = operation.endsWith("-in");
-      const edited = exactIn ? inputs.first() : inputs.last(), quoted = exactIn ? inputs.last() : inputs.first();
+      const edited = inputs.first(), quoted = page.locator("#buy-amount");
       await edited.click(); await edited.fill("1");
       await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
       const start = performance.now();
       advance("qualified"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
       const qualifiedVisibleMs = performance.now() - start;
       await expect(page.getByTestId("quote-estimate-description")).not.toBeAttached();
-      const first = Number(await quoted.inputValue());
+      const first = Number((await quoted.textContent())!);
       // A display-only update cannot replace checked execution terms.
-      advance("better"); await expect(quoted).toHaveValue(String(first));
+      advance("better"); await expect(quoted).toHaveText(String(first));
       advance("qualified-better");
-      await expect.poll(async () => Number(await quoted.inputValue())).toEqual(exactIn ? first * 2 : first / 2);
-      const improved = await quoted.inputValue();
-      advance("first"); await expect(quoted).toHaveValue(improved); // A weaker advisory estimate cannot replace the selected Backend plan.
-      advance("error"); await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).toHaveValue(improved);
+      await expect.poll(async () => Number((await quoted.textContent())!)).toEqual(exactIn ? first * 2 : first / 2);
+      const improved = (await quoted.textContent())!;
+      advance("first"); await expect(quoted).toHaveText(improved); // A weaker advisory estimate cannot replace the selected Backend plan.
+      advance("error"); await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).toHaveText(improved);
       await expect(page.getByText("The quote service could not process this request. Retry.", { exact: true })).toHaveCount(0);
       expect(observed.intents).toHaveLength(1);
       phase = "partial"; await edited.fill("3");
-      await expect(quoted).toHaveValue(""); await expect(quoted).toHaveAttribute("aria-busy", "true");
+      await expect(quoted).toHaveText("..."); await expect(quoted).toHaveAttribute("aria-busy", "true");
       await test.info().attach("qualified-readiness", { contentType: "application/json", body: JSON.stringify({
         symbol, operation, qualifiedVisibleMs,
         scope: "Controlled streaming fixture; no remote latency or RPC reduction is inferred.",
@@ -104,9 +104,9 @@ test("wallet preparation pauses quote search, freezes terms and resumes after fa
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
   await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
   advance("qualified");
-  const quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
+  const quoted = page.locator("#buy-amount");
   const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
-  await expect(swap).toBeEnabled(); const displayed = await quoted.inputValue();
+  await expect(swap).toBeEnabled(); const displayed = (await quoted.textContent())!;
   const searching = [...active.keys()];
   expect(searching).toHaveLength(1);
   await page.evaluate(() => { (window as unknown as { quotePreparationFixture: { hold: boolean } }).quotePreparationFixture.hold = true; });
@@ -115,23 +115,23 @@ test("wallet preparation pauses quote search, freezes terms and resumes after fa
   await expect.poll(() => searching.every(response => !active.has(response))).toBe(true);
   expect(active.size).toBe(0);
   advance("qualified-better"); await page.waitForTimeout(100);
-  await expect(quoted).toHaveValue(displayed);
+  await expect(quoted).toHaveText(displayed);
   expect(active.size).toBe(0);
   await page.evaluate(() => { (window as unknown as { quotePreparationFixture: { release: () => void } }).quotePreparationFixture.release(); });
   await expect(page.getByText(/^Wrong network — switch to /)).toBeVisible();
-  await expect(quoted).not.toHaveValue(displayed);
+  await expect(quoted).not.toHaveText(displayed);
   expect(await page.evaluate(() => (window as unknown as { quotePreparationFixture: { rejected: string[] } }).quotePreparationFixture.rejected)).toEqual([]);
 });
 
 test("a proven invalidation keeps the amount indicative until a new checked tuple arrives", async ({ page }) => {
   await install(page, "", undefined, streamUrl); await page.goto("/en"); await choose(page, "WETH");
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
-  const quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
+  const quoted = page.locator("#buy-amount");
   await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
   advance("qualified"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
-  const previous = await quoted.inputValue();
-  advance("invalidated"); await expect(quoted).toHaveAttribute("aria-busy", "true"); await expect(quoted).toHaveValue(previous);
-  advance("qualified-better"); await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).not.toHaveValue(previous);
+  const previous = (await quoted.textContent())!;
+  advance("invalidated"); await expect(quoted).toHaveAttribute("aria-busy", "true"); await expect(quoted).toHaveText(previous);
+  advance("qualified-better"); await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).not.toHaveText(previous);
 });
 
 test("an expired qualified tuple is replaced under the ordinary deadline policy", async ({ page }) => {
@@ -139,7 +139,7 @@ test("an expired qualified tuple is replaced under the ordinary deadline policy"
   await page.clock.install();
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
   await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
-  advance("qualified"); const quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last(); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
+  advance("qualified"); const quoted = page.locator("#buy-amount"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
   const count = observed.intents.length;
   phase = "partial"; await page.clock.fastForward(601_000);
   await expect.poll(() => observed.intents.length).toBe(count+1);
@@ -156,7 +156,7 @@ test("a new intent gets a fresh deadline after renewal, clearing and an idle per
   await page.goto("/en"); await choose(page, "WETH");
   await page.clock.install();
   const edited = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first();
-  const quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
+  const quoted = page.locator("#buy-amount");
   await edited.fill("1");
   await page.clock.runFor(250);
   await expect.poll(() => requests.length).toBe(1);
@@ -168,7 +168,7 @@ test("a new intent gets a fresh deadline after renewal, clearing and an idle per
   advance("qualified"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
   await edited.fill("");
   await page.clock.runFor(250);
-  await expect(quoted).toHaveValue("");
+  await expect(quoted).toHaveText(/^0(?:[.,]0+)?$/);
 
   await page.clock.fastForward(601_000);
   phase = "partial";
@@ -186,7 +186,7 @@ test("intents after renewal still reuse an exact fresh browser quote before debo
   await page.goto("/en"); await choose(page, "WETH");
   await page.clock.install();
   const edited = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first();
-  const quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
+  const quoted = page.locator("#buy-amount");
   await edited.fill("1");
   await expect.poll(async () => { await page.clock.runFor(250); return observed.intents.length; }).toBe(1);
   advance("qualified"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
@@ -199,14 +199,14 @@ test("intents after renewal still reuse an exact fresh browser quote before debo
   await edited.fill("2"); await page.clock.runFor(250);
   await expect.poll(() => observed.intents.length).toBe(3);
   await expect(quoted).not.toHaveAttribute("aria-busy", "true");
-  const cachedValue = await quoted.inputValue();
+  const cachedValue = (await quoted.textContent())!;
   await edited.fill("3"); await page.clock.runFor(250);
   await expect.poll(() => observed.intents.length).toBe(4);
   await expect(quoted).not.toHaveAttribute("aria-busy", "true");
   const pausedAt = await page.evaluate(() => Date.now());
   await page.clock.pauseAt(new Date(pausedAt + 1000));
   await edited.fill("2");
-  await expect(quoted).toHaveValue(cachedValue);
+  await expect(quoted).toHaveText(cachedValue);
   await expect(quoted).not.toHaveAttribute("aria-busy", "true");
   expect(observed.intents.length).toBe(4);
 });
@@ -225,17 +225,17 @@ for (const symbol of ["WETH", "ETH", "USDC"] as const) {
       await page.goto("/en"); await choose(page, symbol);
       if (operation.startsWith("redeem")) await page.getByRole("button", { name: "Reverse swap direction" }).click();
       const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)');
-      const exactIn = operation.endsWith("-in"), edited = exactIn ? inputs.first() : inputs.last();
+      const exactIn = operation.endsWith("-in"), edited = inputs.first();
       await edited.click(); await edited.fill("1");
-      const quoted = exactIn ? inputs.last() : inputs.first();
+      const quoted = page.locator("#buy-amount");
       const label = page.getByTestId("quote-estimate-description");
-      await expect(label).toBeAttached(); await expect(quoted).toHaveAttribute("aria-describedby", /quote-(sell|buy)-estimate/); await expect(quoted).not.toHaveValue(""); await expect(quoted).toHaveAttribute("aria-busy", "true");
-      const first = Number((await quoted.inputValue()).replace(/\s/g, "")); expect(first).toBeGreaterThan(0);
+      await expect(label).toBeAttached(); await expect(quoted).toHaveAttribute("aria-describedby", /quote-(sell|buy)-estimate/); await expect(quoted).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/); await expect(quoted).toHaveAttribute("aria-busy", "true");
+      const first = Number(((await quoted.textContent())!).replace(/\s/g, "")); expect(first).toBeGreaterThan(0);
       advance("better");
-      await expect.poll(async () => { const value = Number((await quoted.inputValue()).replace(/\s/g, "")); return exactIn ? value > first : value < first; }).toBe(true);
+      await expect.poll(async () => { const value = Number(((await quoted.textContent())!).replace(/\s/g, "")); return exactIn ? value > first : value < first; }).toBe(true);
       await expect(label).toBeAttached(); await expect(quoted).toHaveAttribute("aria-busy", "true"); expect(active.size).toBe(1);
       expect(observed.intents).toHaveLength(1);
-      advance("complete"); await expect(label).not.toBeAttached(); await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).not.toHaveValue("");
+      advance("complete"); await expect(label).not.toBeAttached(); await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
     });
   }
 }
@@ -246,7 +246,7 @@ test("an errored intent removes its provisional amount", async ({ page }) => {
   await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
   advance("error");
   await expect(page.getByTestId("quote-estimate-description")).not.toBeAttached();
-  await expect(page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last()).toHaveValue("");
+  await expect(page.locator("#buy-amount")).toHaveText("...");
   await expect(page.getByText("The quote service could not process this request. Retry.", { exact: true }).first()).toBeVisible();
 });
 
@@ -256,7 +256,7 @@ test("changed input amounts cancel old intents and clear old estimates", async (
   await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
   const old = [...active.keys()]; phase = "partial"; await edited.fill("2");
   await expect.poll(() => old.every(response => !active.has(response))).toBe(true);
-  await expect(page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last()).toHaveValue("");
+  await expect(page.locator("#buy-amount")).toHaveText("...");
   advance("first"); await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
 });
 
@@ -292,7 +292,7 @@ async function visible(page: import("@playwright/test").Page, value: boolean) {
 test("a hidden tab cancels its stream and renews an expired quote only when visible", async ({ page }) => {
   const observed = await install(page, "", undefined, streamUrl); await page.goto("/en"); await choose(page, "WETH");
   await page.clock.install();
-  const edited = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first(), quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
+  const edited = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first(), quoted = page.locator("#buy-amount");
   await edited.fill("1");
   await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
   advance("qualified"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
@@ -322,13 +322,13 @@ test("returning promptly to a completed fresh quote does not restart it", async 
   const observed = await install(page, "", undefined, streamUrl); await page.goto("/en"); await choose(page, "WETH");
   await page.clock.install();
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
-  await expect(page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last()).not.toHaveAttribute("aria-busy", "true");
-  await expect(page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last()).toHaveValue("2");
+  await expect(page.locator("#buy-amount")).not.toHaveAttribute("aria-busy", "true");
+  await expect(page.locator("#buy-amount")).toHaveText("2");
   const before = observed.intents.length;
   await visible(page, false); await page.clock.runFor(1_000); await visible(page, true);
   await page.clock.runFor(250);
   expect(observed.intents.length).toBe(before);
-  await expect(page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last()).toHaveValue("2");
+  await expect(page.locator("#buy-amount")).toHaveText("2");
 });
 
 test("an initially hidden page defers its first quote until it becomes visible", async ({ page }) => {
@@ -360,7 +360,7 @@ test("token changes and reversal cancel old intents and wait for a new spend amo
   const before = [...active.keys()]; await page.getByRole("button", { name: "Reverse swap direction" }).click();
   await expect.poll(() => before.every(response => !active.has(response))).toBe(true);
   await expect(page.locator("#sell-amount")).toHaveValue("");
-  await expect(page.locator("#buy-amount")).toHaveValue("");
+  await expect(page.locator("#buy-amount")).toHaveText(/^0(?:[.,]0+)?$/);
   await expect.poll(() => active.size).toBe(0);
   await page.locator("#sell-amount").fill("3");
   await expect.poll(() => [...active.values()].map(request => ({ mode: request.mode, token: request.quoteToken.toLowerCase(), amount: request.amount })))
@@ -370,16 +370,16 @@ test("token changes and reversal cancel old intents and wait for a new spend amo
 test("a previous estimate stays visible while an improved preview is pending", async ({ page }) => {
   await install(page, "", undefined, streamUrl); await page.goto("/en"); await choose(page, "WETH");
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
-  const quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last(); await expect(quoted).toHaveValue("1");
-  advance("preview-pending"); await expect(quoted).toHaveValue("1"); await expect(quoted).toHaveAttribute("aria-busy", "true");
-  advance("better"); await expect(quoted).toHaveValue("2");
-  advance("complete"); await expect(quoted).toHaveValue("2"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
+  const quoted = page.locator("#buy-amount"); await expect(quoted).toHaveText("1");
+  advance("preview-pending"); await expect(quoted).toHaveText("1"); await expect(quoted).toHaveAttribute("aria-busy", "true");
+  advance("better"); await expect(quoted).toHaveText("2");
+  advance("complete"); await expect(quoted).toHaveText("2"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
 });
 
 test("partial route progress produces no basket estimate", async ({ page }) => {
   phase = "partial"; await install(page, "", undefined, streamUrl); await page.goto("/en"); await choose(page, "WETH");
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1"); await expect.poll(() => active.size).toBe(1);
-  await expect(page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last()).toHaveValue("");
+  await expect(page.locator("#buy-amount")).toHaveText("...");
   advance("first"); await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
 });
 
@@ -389,27 +389,27 @@ for (const width of [1280, 390]) {
     await install(page, "", undefined, streamUrl);
     await page.goto("/en"); await choose(page, "USDC");
     const edited = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first();
-    const quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
+    const quoted = page.locator("#buy-amount");
     const equivalent = page.getByTestId("buy-amount-equivalents").filter({ visible: true });
     await edited.fill("1");
-    await expect(quoted).toHaveValue("1");
+    await expect(quoted).toHaveText("1");
     await expect(equivalent).toContainText("200");
     await page.evaluate(() => {
       const frames: Array<{ amount: string; value: string }> = [];
       Object.assign(window, { amountValueFrames: frames });
       new MutationObserver(() => {
-        const input = document.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]:not(#execution-tolerance)')[1];
+        const output = document.querySelector<HTMLOutputElement>("#buy-amount")!;
         const value = [...document.querySelectorAll<HTMLElement>('[data-testid="buy-amount-equivalents"]')]
           .find(element => element.getClientRects().length > 0);
-        frames.push({ amount: input.value, value: value?.textContent ?? "" });
+        frames.push({ amount: output.textContent ?? "", value: value?.textContent ?? "" });
       }).observe(document.body, { subtree: true, childList: true, characterData: true, attributes: true });
     });
-    advance("better"); await expect(quoted).toHaveValue("2");
+    advance("better"); await expect(quoted).toHaveText("2");
     await expect(equivalent).toContainText("400");
-    advance("complete"); await expect(quoted).toHaveValue("2");
+    advance("complete"); await expect(quoted).toHaveText("2");
     await expect(equivalent).toContainText("400");
     phase = "partial"; await edited.fill("3");
-    await expect(quoted).toHaveValue("");
+    await expect(quoted).toHaveText("...");
     await expect(equivalent).not.toContainText("400");
     const frames = await page.evaluate(() => (window as unknown as {
       amountValueFrames: Array<{ amount: string; value: string }>
@@ -417,7 +417,7 @@ for (const width of [1280, 390]) {
     for (const frame of frames) {
       if (frame.amount === "1") expect(frame.value).toContain("200");
       if (frame.amount === "2") expect(frame.value).toContain("400");
-      if (frame.amount === "") expect(frame.value).not.toMatch(/200|400/);
+      if (frame.amount === "...") expect(frame.value).not.toMatch(/200|400/);
     }
     await test.info().attach("amount-value-frames", {
       contentType: "application/json", body: JSON.stringify({ width, frames,

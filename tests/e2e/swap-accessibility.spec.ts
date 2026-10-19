@@ -57,7 +57,7 @@ test("amount controls and wallet filter have names and visible keyboard focus", 
   await choose(page, "WETH");
   const sell = page.getByRole("textbox", { name: "You Sell WETH", exact: true });
   await expect(sell).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "You Buy CYGLD", exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "You Buy CYGLD", exact: true })).toBeVisible();
   const walletFilter = page.getByRole("switch", { name: "Show only tokens available in wallet", exact: true });
   await walletFilter.focus();
   await walletFilter.press("Tab");

@@ -13,16 +13,16 @@ test("regression helpers select tokens and preserve input-driven quotes on the c
   await selectToken(page, "buy", "CYGLD");
   await expect(getTokenButton(page, "sell", "USDC")).toBeVisible();
   await getMainInput(page, "sell").fill("1");
-  await expect(getMainInput(page, "buy")).toHaveValue("1");
+  await expect(getMainInput(page, "buy")).toHaveText("1");
   await getMainInput(page, "buy").click();
-  await expect(getMainInput(page, "buy")).toHaveJSProperty("readOnly", true);
+  await expect(getMainInput(page, "buy")).toHaveJSProperty("tagName", "OUTPUT");
   await expect(getMainInput(page, "sell")).toHaveValue("1");
   await expect.poll(async () => (await quoteObservations(page)).some(row => row.request.mode === "exact-in"
     && row.request.amount === "1000000" && row.terminal?.type === "complete")).toBe(true);
   expect(observed.intents.every(request => request.mode === "issue-exact-in")).toBe(true);
   await page.getByRole("button", { name: "Reverse swap direction" }).click();
   await expect(getMainInput(page, "sell")).toHaveValue("");
-  await expect(getMainInput(page, "buy")).toHaveValue("");
+  await expect(getMainInput(page, "buy")).toHaveText(/^0(?:[.,]0+)?$/);
   await selectToken(page, "buy", "ETH");
   await expect(getTokenButton(page, "sell", "CYGLD")).toBeVisible();
   await expect(getTokenButton(page, "buy", "ETH")).toBeVisible();
@@ -33,7 +33,7 @@ test("regression token picker stays selectable after an input-driven basket quot
   await page.goto("/en");
   await selectToken(page, "sell", "BASKET");
   await (await ensureBasketInputEditable(page, "sell")).fill("2");
-  await expect(getMainInput(page, "buy")).not.toHaveValue("");
+  await expect(getMainInput(page, "buy")).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
   await expect(getTokenButton(page, "sell", "BASKET")).toBeVisible();
   await selectToken(page, "sell", "PAXG");
   await expect(getMainInput(page, "sell")).toBeVisible();
@@ -47,9 +47,9 @@ test("regression basket output remains a read-only estimate when focused or clic
   await selectToken(page, "buy", "BASKET");
   await getMainInput(page, "sell").fill("1");
   const output = page.getByLabel("Buy amount (PAXG)", { exact: true });
-  await expect(output).toHaveValue("1");
-  await output.focus(); await output.click();
-  await expect(output).toHaveJSProperty("readOnly", true);
+  await expect(output).toHaveText("1");
+  await output.focus(); await expect(output).not.toBeFocused(); await output.click();
+  await expect(output).toHaveJSProperty("tagName", "OUTPUT");
   await expect(getMainInput(page, "sell")).toHaveValue("1");
   expect(observed.timings.filter(row => row.mode.startsWith("redeem")).every(row => row.mode === "redeem-exact-in")).toBe(true);
 });
