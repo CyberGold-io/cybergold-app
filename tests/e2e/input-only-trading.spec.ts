@@ -26,10 +26,17 @@ test("basket receive components cannot become output targets", async ({ page }) 
   const observed = await installBasket(page);
   await page.goto("/en");
   await selectBasket(page);
+  const driver = page.getByRole("textbox", { name: "Sell amount (PAXG)", exact: true });
+  await driver.fill("1");
+  await expect.poll(() => observed.previews).toContain("issue-exact-in");
   await page.getByRole("button", { name: "Reverse swap direction", exact: true }).click();
+  await expect(page.locator("#sell-amount")).toHaveValue("");
+  await expect(page.locator("#sell-amount")).toBeFocused();
   await page.locator("#sell-amount").fill("3");
   const received = page.locator('#buy-basket-composition input[readonly]').first();
   await expect(received).toBeVisible();
+  await expect.poll(() => observed.previews).toContain("redeem-exact-in");
+  await expect(received).not.toHaveAttribute("aria-busy", "true");
   const amount = await received.inputValue();
   await received.click();
   await page.keyboard.press("ControlOrMeta+A");
@@ -40,6 +47,10 @@ test("basket receive components cannot become output targets", async ({ page }) 
   await expect(page.getByRole("button", { name: /Edit buy amount/ })).toHaveCount(0);
   expect(observed.previews).toContain("redeem-exact-in");
   expect(observed.previews.some(mode => mode.endsWith("exact-out"))).toBe(false);
+  await page.getByRole("button", { name: "Reverse swap direction", exact: true }).click();
+  await expect(driver).toHaveValue("");
+  await expect(driver).toBeFocused();
+  await expect(page.locator("#buy-amount")).toHaveValue("");
 });
 
 test("direction reversal clears the spend draft and requotes only after a new input", async ({ page }) => {
