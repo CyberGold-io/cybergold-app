@@ -6,8 +6,8 @@ import type { PoolSnapshot } from '../../app/utils/poolSnapshot.ts';
 import { pools } from '../../app/config/pools.ts';
 import { configuredToken, ScenarioUnavailableError, type Scenario } from './scenarios.ts';
 
-export const matrixCounts = { scenarioCount: 48, providerAssessmentCount: 96, maximumTradeExecutions: 96 } as const;
 export const tiers = { small: '1', medium: '100', large: '10000' } as const;
+export const matrixCounts = matrixCountsFor(activeMatrixTemplates());
 export type MatrixScenario = Scenario & { size: keyof typeof tiers; nominalUsd: string; amountRaw: string;
   valuationId: string; sizingError?: 'valuation-unavailable'; basketAmounts?: string[]; basketAssets?: string[] };
 type Ratio = { numerator: string; denominator: string };
@@ -71,6 +71,7 @@ export async function readValuation(config: ProtocolConfiguration, facts: Protoc
   return valuationSnapshot(config, facts, observations);
 }
 
+/** Complete retained capability definitions, including deferred output intents. */
 export function matrixTemplates(): Scenario[] {
   return (['PAXG', 'USDC', 'ETH', 'BASKET'] as const).flatMap(asset => (['buy', 'sell'] as const).flatMap(side =>
     (['exact-in', 'exact-out'] as const).flatMap(inputMode => Object.entries(tiers).map(([size]) => ({
@@ -80,15 +81,30 @@ export function matrixTemplates(): Scenario[] {
     })))));
 }
 
+/** Operating journeys use spend intents; named producer diagnostics remain separate. */
+export function activeScenarios<T extends Scenario>(scenarios: readonly T[]): T[] {
+  return scenarios.filter(scenario => scenario.inputMode === 'exact-in');
+}
+
+export function activeMatrixTemplates(): Scenario[] {
+  return activeScenarios(matrixTemplates());
+}
+
+export function matrixCountsFor(scenarios: readonly Scenario[], providerCount = 2) {
+  return { scenarioCount: scenarios.length, providerAssessmentCount: scenarios.length * providerCount,
+    maximumTradeExecutions: scenarios.length * providerCount };
+}
+
 /** Match the product's first-component driver and ordered integer basket derivation. */
-export function buildMatrix(config: ProtocolConfiguration, valuation: ValuationSnapshot): MatrixScenario[] {
+export function buildMatrix(config: ProtocolConfiguration, valuation: ValuationSnapshot,
+  templates: readonly Scenario[] = activeMatrixTemplates()): MatrixScenario[] {
   const price = (symbol: string) => {
     const token = configuredToken(config, symbol === 'ETH' ? 'WETH' : symbol);
     const p = token.type === 'erc20' ? valuation.prices[token.address.toLowerCase()] : undefined;
     if (!p || BigInt(p.numerator) <= 0n || BigInt(p.denominator) <= 0n) throw new ScenarioUnavailableError('valuation-unavailable');
     return p;
   };
-  return matrixTemplates().map(template => {
+  return templates.map(template => {
     const size = template.id.split('-').at(-1) as keyof typeof tiers, nominalUsd = tiers[size];
     try {
     const basketEdited = template.asset === 'BASKET' && (template.side === 'buy') === (template.inputMode === 'exact-in');

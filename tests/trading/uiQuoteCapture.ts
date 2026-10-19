@@ -9,6 +9,16 @@ type Descriptor = Pick<UiAmount, "type" | "token" | "decimals"> & { symbol: stri
 type RawCapture = { input: string[]; output: string[]; tolerance: string; bound: string; mode: string };
 type CaptureWindow = Window & { __cybergoldUiEconomics?: RawCapture; __cybergoldReadUiEconomics?: () => RawCapture };
 
+/** Read either the current amount input or its future read-only text presentation. */
+export async function displayedUiAmount(control: Locator): Promise<string> {
+  return control.evaluate(element => element instanceof HTMLInputElement ? element.value : element.textContent?.trim() ?? "");
+}
+
+/** Existing quoted edit buttons and read-only inputs/text retain the amount's accessible label. */
+export function basketAmountControls(page: Page, side: "sell" | "buy") {
+  return page.locator(`#${side}-basket-composition`).getByLabel(new RegExp(`^(?:Edit ${side} amount|${side === "sell" ? "Sell" : "Buy"} amount) \\(`));
+}
+
 export function quoteAssets(scenario: Scenario, config: ProtocolConfiguration, basket: readonly string[]) {
   const describe = (symbol: string): Descriptor[] => {
     const tokens = symbol === "BASKET" ? basket.map(address => config.tokens.find(token => token.type === "erc20"
@@ -54,15 +64,18 @@ export async function armUiQuoteCapture(button: Locator, assets: ReturnType<type
   await button.evaluate((element, descriptors) => {
     const read = (): RawCapture => {
       const amounts = (side: "sell" | "buy", basket: boolean, tokens: { symbol: string }[]) => tokens.map(token => {
-        if (!basket) return (document.getElementById(`${side}-amount`) as HTMLInputElement | null)?.value ?? "";
+        if (!basket) {
+          const control = document.getElementById(`${side}-amount`);
+          return control instanceof HTMLInputElement ? control.value : control?.textContent?.trim() ?? "";
+        }
         const box = document.getElementById(`${side}-basket-composition`);
-        const control = [...box?.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button[aria-label]") ?? []]
+        const control = [...box?.querySelectorAll<HTMLElement>("[aria-label]") ?? []]
           .find(node => [`${side === "sell" ? "Sell" : "Buy"} amount (${token.symbol})`,
             `Edit ${side} amount (${token.symbol})`].includes(node.getAttribute("aria-label") ?? ""));
         return control instanceof HTMLInputElement ? control.value : control?.textContent?.trim() ?? "";
       });
       const edited = document.getElementById("sell-amount") as HTMLInputElement | null;
-      const sellBasketEdited = [...document.querySelectorAll("#sell-basket-composition input")].length > 0;
+      const sellBasketEdited = [...document.querySelectorAll<HTMLInputElement>("#sell-basket-composition input")].some(input => !input.readOnly);
       const mode = sellBasketEdited || (edited && !edited.readOnly) ? "exact-in" : "exact-out";
       return { input: amounts("sell", descriptors.inputBasket, descriptors.input),
         output: amounts("buy", descriptors.outputBasket, descriptors.output),

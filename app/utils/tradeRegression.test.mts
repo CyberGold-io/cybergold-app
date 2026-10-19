@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -15,7 +15,7 @@ import { createQuoteDiagnostics, type ClientDiagnostic } from "./clientDiagnosti
 import { fetchQuoteStream } from "./quoteStream.ts";
 import { observeBrowserQuotes } from "../../tests/trading/browserQuotes.ts";
 import { protocolConfigurationFixture } from "../../tests/fixtures/protocol-configuration.ts";
-import { matrixTemplates } from "../../tests/trading/matrix.ts";
+import { activeMatrixTemplates } from "../../tests/trading/matrix.ts";
 import { installQuoteObservation } from "../../tests/trading/quoteObservation.ts";
 import { createUiQuoteDiagnostics, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion } from "../../tests/trading/uiDiagnostics.ts";
 import { readWalletSetupDiagnostic, safeRunnerError, walletFixtureOutput, walletOnboardingStep, observeWalletOnboarding } from "../../tests/trading/runnerDiagnostics.ts";
@@ -527,7 +527,7 @@ function start() {
 let replacement;
 const input = { click: async () => {
   if (mode === "before-snapshot-abort") { start(); await new Promise(resolve => setImmediate(resolve)); }
-}, inputValue: async () => "1", fill: async () => {
+}, evaluate: async () => "1", fill: async () => {
   if (mode !== "before-snapshot-abort") start();
   if (["aborted-replacement", "before-snapshot-abort", "aborted-without-replacement"].includes(mode)) {
     await new Promise(resolve => setImmediate(resolve)); controllers[0].abort();
@@ -599,7 +599,7 @@ for (const mode of ["nonaborted-abort-error", "qualified-eof"] as const)
     assert.doesNotMatch(JSON.stringify(result), /private transport detail/);
   });
 
-test("a quote runner startup failure retains all48 stable unavailable scenario rows", () => {
+test("a quote runner startup failure retains all24 stable unavailable scenario rows", () => {
   const output = mkdtempSync(join(tmpdir(), "cybergold-trade-regression-"));
   const env = { ...process.env }; delete env.APP_BASE_URL;
   try {
@@ -608,15 +608,35 @@ test("a quote runner startup failure retains all48 stable unavailable scenario r
     assert.equal(child.status, 1);
     const report = JSON.parse(readFileSync(join(output, "report.json"), "utf8"));
     assert.equal(report.runnerCode, "app-origin-unavailable");
-    assert.equal(report.scenarios.length, 48);
-    assert.equal(new Set(report.scenarios.map((row: { id: string }) => row.id)).size, 48);
+    assert.equal(report.scenarios.length, 24);
+    assert.equal(new Set(report.scenarios.map((row: { id: string }) => row.id)).size, 24);
     assert.equal(report.scenarios.filter((row: { layer: string }) => row.layer === "api").length, 0);
-    assert.equal(report.scenarios.filter((row: { layer: string }) => row.layer === "browser").length, 48);
+    assert.equal(report.scenarios.filter((row: { layer: string }) => row.layer === "browser").length, 24);
+    assert.deepEqual(report.matrix, { scenarioCount: 24, providerAssessmentCount: 48, maximumTradeExecutions: 48 });
+    assert.ok(report.scenarios.every((row: { inputMode: string }) => row.inputMode === "exact-in"));
     assert.ok(report.scenarios.every((row: { status: string; code: string }) => row.status === "unavailable" && row.code === "app-origin-unavailable"));
   } finally { rmSync(output, { recursive: true, force: true }); }
 });
 
-test("a served protocol-facts timeout fails required startup observations for all48 paths", () => {
+test("an explicitly named exact-out diagnostic keeps its own API row when startup fails", () => {
+  const output = mkdtempSync(join(tmpdir(), "cybergold-trade-diagnostic-"));
+  const env = { ...process.env }; delete env.APP_BASE_URL;
+  const scenario = tradeScenarios.find(row => row.id === "core-redeem-usdc-exact-out")!;
+  try {
+    const child = spawnSync(process.execPath, ["scripts/run-trade-regression.mjs", "--target", "mainnet", "--mode", "quotes",
+      "--diagnostic-scenario", scenario.id, "--output-dir", output], { cwd: new URL("../../", import.meta.url), env, stdio: "ignore" });
+    assert.equal(child.status, 1);
+    const report = JSON.parse(readFileSync(join(output, "report.json"), "utf8"));
+    assert.deepEqual(report.matrix, { scenarioCount: 1, providerAssessmentCount: 1, maximumTradeExecutions: 1 });
+    assert.equal(report.scenarios.length, 1);
+    assert.equal(report.scenarios[0].id, scenario.id);
+    assert.equal(report.scenarios[0].inputMode, "exact-out");
+    assert.equal(report.scenarios[0].layer, "api");
+    assert.equal(report.scenarios[0].code, "app-origin-unavailable");
+  } finally { rmSync(output, { recursive: true, force: true }); }
+});
+
+test("a served protocol-facts timeout fails required startup observations for all24 paths", () => {
   const output = mkdtempSync(join(tmpdir(), "cybergold-trade-regression-"));
   const requestId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e";
   const correlationId = "eb3e6932-a2af-4303-a09e-35831f864a1d";
@@ -628,7 +648,7 @@ test("a served protocol-facts timeout fails required startup observations for al
     assert.equal(child.status, 1);
     const report = JSON.parse(readFileSync(join(output, "report.json"), "utf8"));
     assert.equal(report.runnerOutcome, "fail"); assert.equal(report.runnerCode, "rpc-timeout");
-    assert.equal(report.scenarios.length, 48);
+    assert.equal(report.scenarios.length, 24);
     assert.ok(report.scenarios.every((row: { status: string; code: string; refs: unknown }) => row.status === "fail" && row.code === "rpc-timeout"));
     assert.deepEqual(report.scenarios[0].refs, { requestId, correlationId });
     assert.doesNotMatch(JSON.stringify(report), /private-provider-token/);
@@ -649,7 +669,7 @@ function runSandboxRunnerFixture(options: SandboxRunnerFixture) {
 import { mock } from "node:test";
 import * as matrix from ${JSON.stringify(fileURLToPath(new URL("../../tests/trading/matrix.ts", import.meta.url)))};
 mock.module(${JSON.stringify(fileURLToPath(new URL("../../tests/trading/matrix.ts", import.meta.url)))}, { namedExports: {
-  ...matrix, readValuation: async () => ({ id: "synthetic-runner-control" }), buildMatrix: () => matrix.matrixTemplates(),
+  ...matrix, readValuation: async () => ({ id: "synthetic-runner-control" }), buildMatrix: (_config, _valuation, templates = matrix.activeMatrixTemplates()) => templates,
 } });
 import childProcess from "node:child_process";
 import assert from "node:assert/strict";
@@ -698,7 +718,8 @@ syncBuiltinESMExports();
       "--mode", "sandbox-execution", "--base-url", "http://app.test", "--output-dir", output,
       ...(options.diagnosticScenario ? ["--diagnostic-scenario", options.diagnosticScenario] : [])],
     { cwd: new URL("../../", import.meta.url), stdio: "ignore" });
-    return { exitCode: child.status, report: JSON.parse(readFileSync(join(output, "report.json"), "utf8")) };
+    return { exitCode: child.status, report: JSON.parse(readFileSync(join(output, "report.json"), "utf8")),
+      manifest: existsSync(join(output, "matrix.json")) ? JSON.parse(readFileSync(join(output, "matrix.json"), "utf8")) : undefined };
   } finally { rmSync(output, { recursive: true, force: true }); }
 }
 
@@ -706,22 +727,40 @@ function sandboxSuiteReports() {
   return {
     independent: { schema: "cybergold.trade-regression.v1", scenarios: tradeScenarios.map(scenario => ({
       ...resultFor(scenario, "execution"), status: "pass", code: undefined })) },
-    ui: { schema: "cybergold.trade-regression.v1", scenarios: matrixTemplates()
+    ui: { schema: "cybergold.trade-regression.v1", scenarios: activeMatrixTemplates()
       .map(scenario => ({ ...resultFor(scenario, "execution"), id: `ui-${scenario.id}`, requestedStrategy: "auto", status: "pass", code: undefined })) },
   };
 }
 
-test("regression runner retains extension readiness and consumes only its48UI scenario report", () => {
+test("regression runner retains extension readiness and consumes only its24UI scenario report", () => {
   const suites = sandboxSuiteReports();
-  const { exitCode, report } = runSandboxRunnerFixture({ independent: suites.independent, ui: suites.ui,
+  const { exitCode, report, manifest } = runSandboxRunnerFixture({ independent: suites.independent, ui: suites.ui,
     cacheCheckpoint: { stage: "extension", result: "pass" } });
   assert.equal(exitCode, 0); assert.equal(report.runnerOutcome, "pass");
   assert.deepEqual(report.runnerDiagnostics.walletSetup, { stage: "extension", result: "pass" });
-  assert.equal(report.scenarios.length, 48);
+  assert.equal(report.scenarios.length, 24);
+  assert.deepEqual(report.matrix, { scenarioCount: 24, providerAssessmentCount: 48, maximumTradeExecutions: 48 });
+  assert.deepEqual(manifest.matrix, report.matrix);
+  assert.deepEqual(manifest.scenarios.map((row: { id: string }) => `ui-${row.id}`), report.scenarios.map((row: { id: string }) => row.id));
+  assert.ok(manifest.scenarios.every((row: { inputMode: string }) => row.inputMode === "exact-in"));
   assert.ok(report.scenarios.every((row: { status: string }) => row.status === "pass"));
 });
 
-test("wallet cache failure fails the runner and leaves all48 cases unstarted with safe setup diagnostics", () => {
+test("a named exact-out execution diagnostic keeps one selected manifest and its direct result", () => {
+  const scenario = tradeScenarios.find(row => row.id === "core-issue-paxg-exact-out")!;
+  const independent = { schema: "cybergold.trade-regression.v1", scenarios: [{ ...resultFor(scenario, "execution"), status: "pass", code: undefined }] };
+  const { exitCode, report, manifest } = runSandboxRunnerFixture({ independent, diagnosticScenario: scenario.id });
+  assert.equal(exitCode, 0);
+  assert.deepEqual(report.matrix, { scenarioCount: 1, providerAssessmentCount: 1, maximumTradeExecutions: 1 });
+  assert.deepEqual(manifest.matrix, report.matrix);
+  assert.deepEqual(manifest.scenarios, [scenario]);
+  assert.equal(report.scenarios.length, 1);
+  assert.equal(report.scenarios[0].id, scenario.id);
+  assert.equal(report.scenarios[0].inputMode, "exact-out");
+  assert.equal(report.scenarios[0].layer, "execution");
+});
+
+test("wallet cache failure fails the runner and leaves all24 cases unstarted with safe setup diagnostics", () => {
   const { exitCode, report } = runSandboxRunnerFixture({ cacheExitCode: 1,
     cacheCheckpoint: { stage: "wallet-onboarding", result: "fail", errorClass: "TimeoutError",
       onboarding: { step: "import-wallet", elapsedMs: 1200, message: "private-onboarding-error" },
@@ -731,8 +770,8 @@ test("wallet cache failure fails the runner and leaves all48 cases unstarted wit
   assert.equal(report.runnerDiagnostics.stage, "wallet-cache"); assert.equal(report.runnerDiagnostics.exitCode, 1);
   assert.deepEqual(report.runnerDiagnostics.walletSetup, { stage: "wallet-onboarding", result: "fail", errorClass: "TimeoutError",
     onboarding: { step: "import-wallet", elapsedMs: 1200 } });
-  assert.equal(report.scenarios.length, 48);
-  assert.equal(new Set(report.scenarios.map((row: { id: string }) => row.id)).size, 48);
+  assert.equal(report.scenarios.length, 24);
+  assert.equal(new Set(report.scenarios.map((row: { id: string }) => row.id)).size, 24);
   assert.ok(report.scenarios.every((row: { status: string; code: string }) => row.status === "unavailable" && row.code === "wallet-setup-unavailable"));
   assert.doesNotMatch(JSON.stringify(report), /private-errno|private-error-message|private-wallet-seed|private-rpc|private-onboarding-error/);
 });
@@ -762,12 +801,12 @@ test("a child spawn failure retains its safe system code and never exports an ar
   assert.equal(report.runnerOutcome, "fail"); assert.equal(report.runnerCode, "wallet-setup-failed");
   assert.equal(report.runnerDiagnostics.stage, "wallet-cache");
   assert.equal(report.runnerDiagnostics.errorClass, "UnknownError"); assert.equal(report.runnerDiagnostics.errorCode, "ENOENT");
-  assert.equal(report.scenarios.length, 48);
+  assert.equal(report.scenarios.length, 24);
   assert.ok(report.scenarios.every((row: { status: string }) => row.status === "unavailable"));
   assert.doesNotMatch(JSON.stringify(report), /private-error-name|private-error-message/);
 });
 
-test("missing execution reports fail the runner without inventing attempted failures for all48 cases", () => {
+test("missing execution reports fail the runner without inventing attempted failures for all24 cases", () => {
   for (const command of [{ testExitCode: 1 }, { testSignal: "SIGTERM" }]) {
     const { exitCode, report } = runSandboxRunnerFixture(command);
     assert.equal(exitCode, 1);
@@ -776,7 +815,7 @@ test("missing execution reports fail the runner without inventing attempted fail
     assert.equal(report.runnerDiagnostics.exitCode, command.testExitCode);
     assert.equal(report.runnerDiagnostics.signal, command.testSignal);
     assert.equal(report.runnerDiagnostics.errorClass, "Error"); assert.equal(report.runnerDiagnostics.errorCode, "ENOENT");
-    assert.equal(report.scenarios.length, 48);
+    assert.equal(report.scenarios.length, 24);
     assert.equal(report.scenarios.filter((row: { status: string }) => row.status === "fail").length, 0);
     assert.ok(report.scenarios.filter((row: { id: string }) => !row.id.startsWith("ui-"))
       .every((row: { status: string; code: string }) => row.status === "unavailable" && row.code === "execution-results-unavailable"));
@@ -787,16 +826,16 @@ test("missing execution reports fail the runner without inventing attempted fail
 
 test("an absent independent report is irrelevant and partial UI evidence retains all other unstarted cases", () => {
   const transactionHash = `0x${"d".repeat(64)}`;
-  const ui = { schema: "cybergold.trade-regression.v1", scenarios: matrixTemplates()
+  const ui = { schema: "cybergold.trade-regression.v1", scenarios: activeMatrixTemplates()
     .map((scenario, index) => ({ ...resultFor(scenario, "execution"), id: `ui-${scenario.id}`, requestedStrategy: "auto",
       ...(index === 0 ? { status: "pass", code: undefined, transactionHash, actualOperation: "issueFromTokenExactOut",
         receipt: { transactionHash, blockNumber: "26100001", netPaid: ["100"], netReceived: ["90"] } } : {}) })) };
   const { exitCode, report } = runSandboxRunnerFixture({ testExitCode: 1, ui });
   assert.equal(exitCode, 1);
   assert.equal(report.runnerOutcome, "fail"); assert.equal(report.runnerCode, "wallet-tests-failed");
-  assert.equal(report.scenarios.length, 48);
+  assert.equal(report.scenarios.length, 24);
   assert.equal(report.scenarios.filter((row: { status: string }) => row.status === "pass").length, 1);
-  assert.equal(report.scenarios.filter((row: { status: string }) => row.status === "unavailable").length, 47);
+  assert.equal(report.scenarios.filter((row: { status: string }) => row.status === "unavailable").length, 23);
   const mined = report.scenarios.find((row: { id: string }) => row.id === ui.scenarios[0].id);
   assert.equal(mined.transactionHash, transactionHash);
   assert.equal(mined.actualOperation, "issueFromTokenExactOut"); assert.deepEqual(mined.receipt, ui.scenarios[0].receipt);
@@ -835,7 +874,7 @@ test("optional missing or invalid wallet setup diagnostics cannot reject success
     { uiFixtureDiagnosticText: "invalid optional json", independentFixtureDiagnostic: { stage: "private-stage", result: "private-result" } }]) {
     const { exitCode, report } = runSandboxRunnerFixture({ ...sandboxSuiteReports(), ...checkpoint });
     assert.equal(exitCode, 0);
-    assert.equal(report.runnerOutcome, "pass"); assert.equal(report.scenarios.length, 48);
+    assert.equal(report.runnerOutcome, "pass"); assert.equal(report.scenarios.length, 24);
     assert.ok(report.scenarios.every((row: { status: string }) => row.status === "pass"));
     assert.doesNotMatch(JSON.stringify(report), /private-stage|private-result|private-error-name|private-error-message/);
   }

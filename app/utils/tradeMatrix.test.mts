@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildMatrix, valuationSnapshot, matrixCounts, matrixTemplates, semanticDigest, repetitionManifest, assertMatrixIntent, type ValuationSnapshot } from '../../tests/trading/matrix.ts';
+import { activeMatrixTemplates, activeScenarios, buildMatrix, valuationSnapshot, matrixCounts, matrixCountsFor, matrixTemplates, semanticDigest, repetitionManifest, assertMatrixIntent, type ValuationSnapshot } from '../../tests/trading/matrix.ts';
 import { captureSelection, executeAlternate, planDigest, executionCoverage, notAttemptedAlternate, transactionDisposition, observedProviderEvidence, providerSummaries, type Candidate, type ProviderQuote } from '../../tests/trading/providerEvidence.ts';
 import { protocolConfigurationFixture as config, tokenAddresses } from '../../tests/fixtures/protocol-configuration.ts';
 import { tokenRequest, resultFor } from '../../tests/trading/regression.ts';
@@ -12,16 +12,24 @@ const p = (wholeUsd: bigint, decimals: number) => ({ numerator: String(wholeUsd)
 const valuation: ValuationSnapshot = { id: 'a'.repeat(64), source: 'usdc-anchored-pool-observations', observedAt: '2026-10-17T00:00:00Z', assumption: 'one-usdc-is-one-usd', rounding: 'floor-raw-units',
  prices: { [tokenAddresses.USDC.toLowerCase()]: p(1n, 6), [tokenAddresses.PAXG.toLowerCase()]: p(4000n, 18), [tokenAddresses.XAUT.toLowerCase()]: p(4000n, 6), [tokenAddresses.WETH.toLowerCase()]: p(2000n, 18), [tokenAddresses.CYGLD.toLowerCase()]: p(100n, 18) },
  basketAssets: [tokenAddresses.PAXG, tokenAddresses.XAUT], basketWeights: ['500000', '500000'], observations: [] };
-const matrix = buildMatrix(config, valuation);
+const matrix = buildMatrix(config, valuation, matrixTemplates());
 const candidate = (strategy: 'core' | 'market'): Candidate => ({ strategy, side: 'sell', mode: 'exact-out', tokenIn: tokenAddresses.CYGLD, tokenOut: tokenAddresses.USDC,
  quotedInput: '100', quotedOutput: '1000000', inputMaximum: '100', outputMinimum: '1000000', context: { chainId: 31337, blockNumber: '100', blockHash: `0x${'b'.repeat(64)}` },
  providerRequest: { mode: 'redeem-exact-out', token: tokenAddresses.USDC, quoteToken: tokenAddresses.USDC, native: false, amount: '1000000', deadline: '2000000000', adapter: config.contracts.uniswapAdapter, orderedAssets: [], targets: [], slippageBps: 100 },
  providerQuote: { workId: '01a13184-39fb-7b81-8a3c-39e29218b069' }, evaluation: { core: 'complete', market: 'complete' }, metrics: { totalMs: 1, targetReads: 0 } } as unknown as Candidate);
 const quote = (): ProviderQuote => ({ ...candidate('core'), providerAssessments: { core: { availability: 'qualified', searchOutcome: 'complete' }, market: { availability: 'qualified', searchOutcome: 'timeout' } }, providerCandidates: { core: candidate('core'), market: candidate('market') } } as unknown as ProviderQuote);
 
-test('one inventory has48 economic scenarios and96 provider slots, never96 independent primary rows', () => {
+test('operating defaults select24 spend journeys while retaining all48 capability definitions', () => {
+ const active = buildMatrix(config, valuation);
+ assert.equal(active.length, 24); assert.equal(new Set(active.map(r => r.id)).size, 24);
+ assert.ok(active.every(row => row.inputMode === 'exact-in'));
+ assert.deepEqual(active.map(row => row.id), activeMatrixTemplates().map(row => row.id));
+ assert.deepEqual(active, activeScenarios(matrix));
+ assert.deepEqual(matrixCounts, { scenarioCount: 24, providerAssessmentCount: 48, maximumTradeExecutions: 48 });
+ assert.deepEqual(matrixCountsFor(active), matrixCounts);
+ for (const asset of ['PAXG','USDC','ETH','BASKET']) for (const side of ['buy','sell']) assert.equal(active.filter(r => r.asset === asset && r.side === side).length, 3);
  assert.equal(matrix.length, 48); assert.equal(new Set(matrix.map(r => r.id)).size, 48);
- assert.deepEqual(matrixCounts, { scenarioCount: 48, providerAssessmentCount: 96, maximumTradeExecutions: 96 });
+ assert.deepEqual(matrixCountsFor(matrix), { scenarioCount: 48, providerAssessmentCount: 96, maximumTradeExecutions: 96 });
  for (const asset of ['PAXG','USDC','ETH','BASKET']) for (const side of ['buy','sell']) for (const inputMode of ['exact-in','exact-out']) assert.equal(matrix.filter(r => r.asset === asset && r.side === side && r.inputMode === inputMode).length, 3);
  assert.equal(matrixTemplates().length,48);
 });
@@ -42,14 +50,14 @@ test('basket vectors share one captured composition with mixed decimals and corr
  assertMatrixIntent(input,{basketRequest:{mode:'issue-exact-in',maximumAmountsIn:input.basketAmounts!}},config);
  assert.throws(() => assertMatrixIntent(input,{basketRequest:{mode:'issue-exact-in',maximumAmountsIn:['1','2']}},config),/matrix-intent/);
  const unusual = structuredClone(valuation); unusual.prices[tokenAddresses.USDC.toLowerCase()] = {numerator:'3',denominator:'1000000'};
- assert.equal(buildMatrix(config,unusual).find(r=>r.asset==='USDC'&&r.side==='sell'&&r.inputMode==='exact-out'&&r.size==='small')!.amountRaw,'333333');
+ assert.equal(buildMatrix(config,unusual,matrixTemplates()).find(r=>r.asset==='USDC'&&r.side==='sell'&&r.inputMode==='exact-out'&&r.size==='small')!.amountRaw,'333333');
 });
 test('absent valuation remains an ordinary sizing error instead of inventing a price or shrinking a case',()=>{
  const absent = structuredClone(valuation); delete absent.prices[tokenAddresses.WETH.toLowerCase()];
  const rows=buildMatrix(config,absent);
  assert.ok(rows.filter(r=>r.asset==='ETH'&&((r.side==='buy')===(r.inputMode==='exact-in'))).every(r=>r.sizingError==='valuation-unavailable'));
  assert.ok(rows.filter(r=>r.asset==='USDC').every(r=>!r.sizingError));
- assert.equal(rows.length,48);
+ assert.equal(rows.length,24);
  const source = semanticDigest(valuation); buildMatrix(config,valuation); assert.equal(semanticDigest(valuation),source);
 });
 test('cutoff copies complete plans and keeps provider availability independent from timeout',()=>{
@@ -128,7 +136,7 @@ test('the actual marginal observation source derives integer token and Core bask
  const observations=[pool(tokenAddresses.USDC,tokenAddresses.WETH,'500000000'),pool(tokenAddresses.PAXG,tokenAddresses.WETH,'2'),pool(tokenAddresses.XAUT,tokenAddresses.WETH,'2000000000000')];
  const source=valuationSnapshot(config,facts,observations); const price=source.prices[tokenAddresses.CYGLD.toLowerCase()];
  assert.equal(BigInt(price.numerator)*10n**18n/BigInt(price.denominator),100n);
- assert.equal(buildMatrix(config,source).find(r=>r.asset==='USDC'&&r.side==='buy'&&r.inputMode==='exact-out'&&r.size==='small')!.amountRaw,'10000000000000000');
+ assert.equal(buildMatrix(config,source,matrixTemplates()).find(r=>r.asset==='USDC'&&r.side==='buy'&&r.inputMode==='exact-out'&&r.size==='small')!.amountRaw,'10000000000000000');
  assert.equal(source.assumption,'one-usdc-is-one-usd');assert.equal(source.observations.length,3);assert.equal(source.id.length,64);
 });
 
@@ -144,9 +152,9 @@ test('wallet submission uncertainty survives missing transaction hash for both e
 test('sizing does not silently raise a sub-unit target or lose integers beyond Number precision',()=>{
  const source=structuredClone(valuation);
  source.prices[tokenAddresses.USDC.toLowerCase()]={numerator:'2000000',denominator:'1000000'};
- assert.equal(buildMatrix(config,source).find(r=>r.asset==='USDC'&&r.side==='sell'&&r.inputMode==='exact-out'&&r.size==='small')!.amountRaw,'0');
+ assert.equal(buildMatrix(config,source,matrixTemplates()).find(r=>r.asset==='USDC'&&r.side==='sell'&&r.inputMode==='exact-out'&&r.size==='small')!.amountRaw,'0');
  source.prices[tokenAddresses.USDC.toLowerCase()]={numerator:'1',denominator:String(10n**40n)};
- assert.equal(buildMatrix(config,source).find(r=>r.asset==='USDC'&&r.side==='sell'&&r.inputMode==='exact-out'&&r.size==='large')!.amountRaw,String(10n**44n));
+ assert.equal(buildMatrix(config,source,matrixTemplates()).find(r=>r.asset==='USDC'&&r.side==='sell'&&r.inputMode==='exact-out'&&r.size==='large')!.amountRaw,String(10n**44n));
 });
 
 test('the actual submit helper settles its opened wallet flow before propagating capture failures',async()=>{
@@ -192,7 +200,7 @@ test('frozen valuation discloses raw-unit pricing and configured decimals in its
  assert.equal(frozen.assetDecimals?.[tokenAddresses.USDC.toLowerCase()],6); assert.equal(id,semanticDigest(body));
  assert.equal(frozen.prices[tokenAddresses.PAXG.toLowerCase()].denominator,String(BigInt(wide)*10n**6n));
  assert.equal(frozen.prices[tokenAddresses.WETH.toLowerCase()],undefined);
- const rows=buildMatrix(config,frozen); assert.equal(rows.length,48); assert.ok(rows.some(row=>row.sizingError==='valuation-unavailable'));
+ const rows=buildMatrix(config,frozen); assert.equal(rows.length,24); assert.ok(rows.some(row=>row.sizingError==='valuation-unavailable'));
  const different=structuredClone(config); different.tokens.find(t=>t.type==='erc20'&&t.symbol==='PAXG')!.decimals=17;
  assert.notEqual(valuationSnapshot(different,facts,observations).id,id); assert.equal(semanticDigest(body),id);
 });

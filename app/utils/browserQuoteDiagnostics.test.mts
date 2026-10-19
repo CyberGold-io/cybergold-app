@@ -36,7 +36,7 @@ async function firstBrowserCase(t: TestContext, failure?: { action: Action; name
       isVisible: async () => false,
       click: async () => { action(kind === "amount" ? "amount" : "tokens"); },
       fill: async () => { action("fill"); filled = true; },
-      inputValue: async () => { action("display"); return "1"; },
+      evaluate: async () => { action("display"); return "1"; },
     };
     return value;
   };
@@ -61,7 +61,7 @@ async function firstBrowserCase(t: TestContext, failure?: { action: Action; name
     toBeGreaterThan: async (expected: bigint) => assert.ok((await read() as bigint) > expected),
   })) as never);
   const rows = await observeBrowserQuotes("http://fixture.invalid", protocolConfigurationFixture, {} as never, undefined, checkpoint);
-  assert.equal(rows.length, 16); assert.equal(navigations, 16);
+  assert.equal(rows.length, 8); assert.equal(navigations, 8);
   assert.deepEqual(actions.slice(-2), ["page-close", "browser-close"]);
   assert.doesNotMatch(JSON.stringify(rows), /private-/);
   return { first: rows[0], actions, requestId };
@@ -105,7 +105,7 @@ test("quotes-only success preserves original UI actions and quote bounds", async
 test("quote observer checkpoints each completed result before moving to the next case", async t => {
   const snapshots: ScenarioResult[][] = [];
   const { first } = await firstBrowserCase(t, undefined, false, async rows => { snapshots.push(structuredClone([...rows])); });
-  assert.deepEqual(snapshots.map(rows => rows.length), Array.from({ length: 16 }, (_, i) => i + 1));
+  assert.deepEqual(snapshots.map(rows => rows.length), Array.from({ length: 8 }, (_, i) => i + 1));
   assert.deepEqual(snapshots[0], [first]);
   assert.equal(snapshots[1][0].status, "pass"); assert.equal(snapshots[1][1].status, "fail");
   assert.ok(snapshots.every(rows => rows.at(-1)?.durationMs !== undefined));
@@ -116,6 +116,6 @@ test("unavailable optional quote checkpoint storage cannot change a completed qu
   const { first } = await firstBrowserCase(t, undefined, false, async () => {
     attempts++; throw Object.assign(new Error("private-checkpoint-path"), { code: "ENOSPC" });
   });
-  assert.equal(attempts, 16); assert.equal(first.status, "pass");
+  assert.equal(attempts, 8); assert.equal(first.status, "pass");
   assert.equal(first.code, undefined); assert.equal(first.executionStage, "complete");
 });

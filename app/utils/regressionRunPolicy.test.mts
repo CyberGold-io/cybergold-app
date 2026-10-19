@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser } from '@playwright/test';
 import { observeBrowserQuotes } from '../../tests/trading/browserQuotes.ts';
-import { matrixTemplates } from '../../tests/trading/matrix.ts';
+import { activeMatrixTemplates } from '../../tests/trading/matrix.ts';
 import { regressionPolicy, unexpectedFailure } from '../../tests/trading/runPolicy.ts';
 import type { ScenarioResult } from '../../tests/trading/regression.ts';
 import { protocolConfigurationFixture } from '../../tests/fixtures/protocol-configuration.ts';
@@ -33,7 +33,7 @@ test('unexpected failure uses observed role status without an error-code whiteli
 
 for (const policy of ['diagnostic', 'full'] as const) test(`real browser observer ${policy} policy keeps the inventory and stops only the selected run`, async t => {
   let navigations = 0, closed = 0, checkpoints = 0;
-  const inventory = matrixTemplates(), snapshots: ScenarioResult[][] = [];
+  const inventory = activeMatrixTemplates(), snapshots: ScenarioResult[][] = [];
   t.mock.method(chromium, 'launch', async () => ({
     newPage: async () => ({ setDefaultTimeout() {}, addInitScript: async () => {},
       goto: async () => { navigations++; throw new Error('private-original-navigation-error'); },
@@ -41,8 +41,8 @@ for (const policy of ['diagnostic', 'full'] as const) test(`real browser observe
   } as unknown as Browser));
   const rows = await observeBrowserQuotes('https://fixture.invalid', protocolConfigurationFixture, {} as never,
     inventory, async result => { checkpoints++; snapshots.push(structuredClone([...result])); }, undefined, policy);
-  assert.equal(rows.length, 48); assert.deepEqual(rows.map(row => row.id), inventory.map(row => `ui-${row.id}`));
-  assert.equal(navigations, policy === 'diagnostic' ? 1 : 48); assert.equal(checkpoints, navigations);
+  assert.equal(rows.length, 24); assert.deepEqual(rows.map(row => row.id), inventory.map(row => `ui-${row.id}`));
+  assert.equal(navigations, policy === 'diagnostic' ? 1 : 24); assert.equal(checkpoints, navigations);
   assert.equal(closed, 2); assert.equal(rows[0].status, 'fail'); assert.equal(rows[0].code, 'unexpected-error');
   assert.ok(rows.every(row => row.executionAttempted === false && row.transactionDisposition === 'not-submitted'));
   if (policy === 'diagnostic') for (const row of rows.slice(1)) {
@@ -50,13 +50,13 @@ for (const policy of ['diagnostic', 'full'] as const) test(`real browser observe
     assert.equal(row.providers, undefined); assert.equal(row.durationMs, undefined);
   }
   else assert.ok(rows.every(row => row.status === 'fail' && row.durationMs !== undefined));
-  assert.equal(snapshots.at(-1)?.length, 48);
+  assert.equal(snapshots.at(-1)?.length, 24);
   assert.doesNotMatch(JSON.stringify(rows), /private-original/);
 });
 
 test('diagnostic unavailable quote result stops after the completed case even if optional checkpoint writing fails', async t => {
   let navigations = 0, writes = 0;
-  const inventory = matrixTemplates(); inventory[0].sizingError = 'valuation-unavailable';
+  const inventory = activeMatrixTemplates(); inventory[0].sizingError = 'valuation-unavailable';
   t.mock.method(chromium, 'launch', async () => ({
     newPage: async () => ({ setDefaultTimeout() {}, addInitScript: async () => {},
       goto: async () => { navigations++; }, close: async () => {} }), close: async () => {},
@@ -78,7 +78,7 @@ import { chromium } from ${JSON.stringify(source('../../node_modules/@playwright
 import { writeFileSync } from 'node:fs';
 import * as matrix from ${JSON.stringify(source('../../tests/trading/matrix.ts'))};
 mock.module(${JSON.stringify(source('../../tests/trading/matrix.ts'))}, { namedExports: {
-  ...matrix, readValuation: async () => ({id:'frozen-policy-valuation'}), buildMatrix: () => matrix.matrixTemplates(),
+  ...matrix, readValuation: async () => ({id:'frozen-policy-valuation'}), buildMatrix: () => matrix.activeMatrixTemplates(),
 } });
 let navigations = 0;
 chromium.launch = async () => ({ newPage: async () => ({ setDefaultTimeout() {}, addInitScript:async()=>{},
@@ -101,8 +101,8 @@ globalThis.fetch = async url => new URL(url).pathname === '/en'
 }
 
 for (const [input, policy, navigations] of [
-  [{}, 'full', 48], [{ environment: 'diagnostic' }, 'diagnostic', 1],
-  [{ cli: 'full', environment: 'diagnostic' }, 'full', 48], [{ cli: 'diagnostic' }, 'diagnostic', 1],
+  [{}, 'full', 24], [{ environment: 'diagnostic' }, 'diagnostic', 1],
+  [{ cli: 'full', environment: 'diagnostic' }, 'full', 24], [{ cli: 'diagnostic' }, 'diagnostic', 1],
 ] as const) test(`actual quote CLI ${JSON.stringify(input)} preserves policy, completed progress and unexercised remainder`, () => {
   const { output, child } = runQuotePolicy(input);
   try {
@@ -111,7 +111,7 @@ for (const [input, policy, navigations] of [
     const report = JSON.parse(readFileSync(join(output, 'report.json'), 'utf8'));
     const checkpoint = JSON.parse(readFileSync(join(output, 'regression-ui.json'), 'utf8'));
     assert.equal(report.runPolicy, policy); assert.equal(checkpoint.runPolicy, policy);
-    assert.equal(report.scenarios.length, 48); assert.deepEqual(report.scenarios, checkpoint.scenarios);
+    assert.equal(report.scenarios.length, 24); assert.deepEqual(report.scenarios, checkpoint.scenarios);
     const completed = report.scenarios.slice(0, navigations).map((row: ScenarioResult) => row.id);
     assert.deepEqual(report.progress, { completedScenarioIds: completed });
     assert.deepEqual(checkpoint.progress, report.progress);
@@ -148,7 +148,7 @@ test('actual execution CLI propagates selected policy to both wallet children an
 import { mock } from 'node:test';
 import * as matrix from ${JSON.stringify(source('../../tests/trading/matrix.ts'))};
 mock.module(${JSON.stringify(source('../../tests/trading/matrix.ts'))}, { namedExports: {
-  ...matrix, readValuation:async()=>({id:'frozen-wallet-policy'}), buildMatrix:()=>matrix.matrixTemplates(),
+  ...matrix, readValuation:async()=>({id:'frozen-wallet-policy'}), buildMatrix:()=>matrix.activeMatrixTemplates(),
 } });
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
@@ -163,7 +163,7 @@ childProcess.spawn = (_executable,args,options) => {
   const child = new EventEmitter(); child.kill=()=>true;
   const setup=args[0]==='scripts/cache-metamask-wallet.mjs';
   if (!setup) {
-    const scenarios=matrix.matrixTemplates().map((scenario,i)=>({...resultFor(scenario,'execution'), id:'ui-'+scenario.id,
+    const scenarios=matrix.activeMatrixTemplates().map((scenario,i)=>({...resultFor(scenario,'execution'), id:'ui-'+scenario.id,
       executionAttempted:false, transactionDisposition:'not-submitted', ...(i===0?{status:'fail',code:'fresh-business-error'}:{})}));
     writeFileSync(options.env.TRADE_REGRESSION_UI_OUTPUT,JSON.stringify({suite:'sequential',scenarios,
       progress:{completedScenarioIds:[scenarios[0].id]},diagnosticStop:{scenarioId:scenarios[0].id,role:'winner'}}));
@@ -180,7 +180,7 @@ childProcess.spawn = (_executable,args,options) => {
     assert.equal(child.status, 1, child.stderr);
     assert.deepEqual(JSON.parse(readFileSync(join(output, 'children.json'), 'utf8')), ['diagnostic', 'diagnostic']);
     const report = JSON.parse(readFileSync(join(output, 'report.json'), 'utf8'));
-    assert.equal(report.runPolicy, 'diagnostic'); assert.equal(report.suite, 'sequential'); assert.equal(report.scenarios.length, 48);
+    assert.equal(report.runPolicy, 'diagnostic'); assert.equal(report.suite, 'sequential'); assert.equal(report.scenarios.length, 24);
     assert.deepEqual(report.progress, { completedScenarioIds: [report.scenarios[0].id] });
     assert.deepEqual(report.diagnosticStop, { scenarioId: report.scenarios[0].id, role: 'winner' });
     assert.ok(report.scenarios.slice(1).every((row: ScenarioResult) => row.code === 'not-exercised' && row.providers === undefined));

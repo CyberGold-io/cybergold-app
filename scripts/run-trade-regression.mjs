@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { ScenarioUnavailableError, tradeScenarios } from "../tests/trading/scenarios.ts";
 import { failureResult, observeScenario, originFetch, readJson, resultFor } from "../tests/trading/regression.ts";
 import { executionCoverage } from "../tests/trading/providerEvidence.ts";
-import { buildMatrix, readValuation, matrixCounts, matrixTemplates } from "../tests/trading/matrix.ts";
+import { activeMatrixTemplates, buildMatrix, readValuation, matrixCountsFor, matrixTemplates } from "../tests/trading/matrix.ts";
 import { observeBrowserQuotes } from "../tests/trading/browserQuotes.ts";
 import { enrichResultQuality } from "../tests/trading/quoteQuality.ts";
 import { readWalletSetupDiagnostic, readWalletTestDiagnostics, safeCommandResult, safeRunnerError } from "../tests/trading/runnerDiagnostics.ts";
@@ -23,12 +23,15 @@ if (!["quotes", "sandbox-execution", "fork-execution"].includes(values.mode)) th
 if (!values["output-dir"]) throw new Error("--output-dir is required");
 const output = resolve(values["output-dir"]);
 await mkdir(output, { recursive: true });
+const diagnosticId = values["diagnostic-scenario"]?.replace(/^ui-/, "");
+const legacyDiagnostic = diagnosticId && tradeScenarios.find(s => s.id === diagnosticId);
+let inventory = legacyDiagnostic ? [legacyDiagnostic]
+  : diagnosticId ? matrixTemplates().filter(scenario => scenario.id === diagnosticId) : activeMatrixTemplates();
 const report = { schema: "cybergold.trade-regression.v1", runId: randomUUID(), target: values.target, mode: values.mode, runPolicy,
   ...(values.mode === 'sandbox-execution' ? { suite: 'sequential' } : {}),
-  startedAt: new Date().toISOString(), matrix: matrixCounts, progress: { completedScenarioIds: [] },
+  startedAt: new Date().toISOString(), matrix: matrixCountsFor(inventory, diagnosticId ? 1 : 2), progress: { completedScenarioIds: [] },
   runnerOutcome: "pass", runnerDiagnostics: { stage: "origin" }, scenarios: [] };
 
-let inventory = matrixTemplates();
 let qualityConfiguration;
 
 async function walletResults() {
@@ -61,9 +64,14 @@ async function walletResults() {
   return !firstProblem;
 }
 
-function unobservedRows(code, ui = true) {
+function unobservedRows(code, ui = !diagnosticId) {
   return inventory.map(scenario => ({ ...resultFor(scenario, "execution"), code, executionAttempted: false, transactionDisposition: 'not-submitted',
     ...(ui ? { id: `ui-${scenario.id}`, requestedStrategy: "auto" } : {}) }));
+}
+
+function quoteFailure(scenario, error) {
+  const result = failureResult(resultFor(scenario, diagnosticId ? "api" : "browser"), error);
+  return diagnosticId ? result : { ...result, id: `ui-${scenario.id}`, requestedStrategy: "auto" };
 }
 
 function command(executable, args, env) {
@@ -132,23 +140,20 @@ try {
       readJson(fetcher, "/api/protocol/facts")]);
     qualityConfiguration = config;
     report.observations = { chainId: config.chainId, forkGeneration: config.sandboxForkGeneration };
-    const diagnosticId = values["diagnostic-scenario"]?.replace(/^ui-/, "");
-    const legacy = diagnosticId && tradeScenarios.find(s => s.id === diagnosticId);
-    if (legacy) inventory = [legacy];
+    if (legacyDiagnostic) inventory = [legacyDiagnostic];
     else {
       report.valuation = await readValuation(config, facts, fetcher);
-      inventory = buildMatrix(config, report.valuation);
-      if (diagnosticId) inventory = inventory.filter(s => s.id === diagnosticId);
+      inventory = buildMatrix(config, report.valuation, inventory);
     }
     const diagnostic = diagnosticId ? inventory[0] : undefined;
     if (diagnosticId) {
       if (!diagnostic) throw new ScenarioUnavailableError("diagnostic-scenario-unavailable");
-      report.matrix = { scenarioCount: 1, providerAssessmentCount: 1, maximumTradeExecutions: 1 };
-      report.diagnostic = { scenarioId: diagnostic.id, source: legacy ? "legacy-scenario" : "matrix-scenario", newAttempt: true };
+      report.diagnostic = { scenarioId: diagnostic.id, source: legacyDiagnostic ? "legacy-scenario" : "matrix-scenario", newAttempt: true };
       if (diagnostic.sizingError) throw new ScenarioUnavailableError(diagnostic.sizingError);
     }
     const matrixPath = resolve(output, "matrix.json");
-    await writeFile(matrixPath, JSON.stringify({ matrix: matrixCounts, valuation: report.valuation, scenarios: inventory }) + "\n");
+    report.matrix = matrixCountsFor(inventory, diagnosticId ? 1 : 2);
+    await writeFile(matrixPath, JSON.stringify({ matrix: report.matrix, valuation: report.valuation, scenarios: inventory }) + "\n");
     if (values.mode === "quotes") {
       const checkpoint = async scenarios => {
         const completed = scenarios.filter(row => row.code !== 'not-exercised');
@@ -173,7 +178,7 @@ try {
           report.runnerOutcome = "unavailable"; report.runnerCode = error.code;
         }
         for (const scenario of inventory)
-          report.scenarios.push({ ...failureResult(resultFor(scenario, "browser"), error), id: `ui-${scenario.id}`, requestedStrategy: "auto" });
+          report.scenarios.push(quoteFailure(scenario, error));
       }
       report.observations.correlationAvailable = report.scenarios.some(row => row.refs?.requestId);
     } else {
@@ -210,8 +215,8 @@ try {
   report.runnerDiagnostics = { ...report.runnerDiagnostics, ...safeRunnerError(error) };
   if (values.mode === "quotes") {
     const observed = new Set(report.scenarios.map(row => row.id));
-    for (const scenario of inventory) if (!observed.has(`ui-${scenario.id}`))
-      report.scenarios.push({ ...failureResult(resultFor(scenario, "browser"), error), id: `ui-${scenario.id}`, requestedStrategy: "auto" });
+    for (const scenario of inventory) if (!observed.has(diagnosticId ? scenario.id : `ui-${scenario.id}`))
+      report.scenarios.push(quoteFailure(scenario, error));
   } else if (!report.scenarios.length) {
     const code = report.runnerDiagnostics.stage === "wallet-cache" ? "wallet-setup-unavailable" : "execution-results-unavailable";
     report.scenarios = unobservedRows(code);
