@@ -94,7 +94,7 @@ function transportFailure(path: PublicBackendPath, error: unknown, elapsedMs: nu
   if (path === "/api/pools/catalog") {
     return Response.json({ error: "Pool inventory is temporarily unavailable." }, { status: 503, headers });
   }
-  if (path === "/api/quotes/basket-preview") {
+  if (path === "/api/quotes/basket-preview" || path === "/api/quotes/basket-max") {
     return Response.json({ error: "Basket previews are temporarily unavailable." }, { status: 503, headers });
   }
   if (path === "/api/quotes/token-preview") {

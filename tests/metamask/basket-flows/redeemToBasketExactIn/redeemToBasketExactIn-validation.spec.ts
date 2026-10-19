@@ -130,7 +130,7 @@ async function getSellMainInput(page: Page) {
 
 async function getBasketComponentValue(page: Page, symbol: string) {
   const basketForm = page.locator("#buy-basket-composition");
-  return basketForm.getByRole("textbox", { name: `Buy amount (${symbol})`, exact: true });
+  return basketForm.getByLabel(`Buy amount (${symbol})`, { exact: true });
 }
 
 async function getSwapButton(page: Page) {
@@ -158,8 +158,8 @@ test.describe("Redeem To Basket Exact In", () => {
 
     const basketForm = page.locator("#buy-basket-composition");
     await expect(basketForm).toBeVisible();
-    await expect(await getBasketComponentValue(page, "PAXG")).toHaveValue(/^(?:|0(?:[.,]0*)?)$/);
-    await expect(await getBasketComponentValue(page, "XAUt")).toHaveValue(/^(?:|0(?:[.,]0*)?)$/);
+    await expect(await getBasketComponentValue(page, "PAXG")).toHaveText(/^(?:|0(?:[.,]0*)?)$/);
+    await expect(await getBasketComponentValue(page, "XAUt")).toHaveText(/^(?:|0(?:[.,]0*)?)$/);
 
     const swapButton = await getSwapButton(page);
     await expect(swapButton).toBeDisabled();

@@ -208,7 +208,7 @@ for (const mode of ["exact-in"] as const) {
     await selectBasket(page);
     const amount = mode === "exact-in"
       ? page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first()
-      : page.getByRole("textbox", { name: "You Buy CYGLD", exact: true });
+      : page.getByLabel("You Buy CYGLD", { exact: true });
     await amount.click();
     await amount.fill("1");
     const submit = page.getByRole("button", { name: "Swap currencies", exact: true });

@@ -89,7 +89,7 @@ test("ETH MAX uses refreshed fees while the previous gas presentation is retaine
   try {
     await choose(page, "ETH");
     await sell(page).fill("1");
-    await expect(page.getByRole("textbox", { name: "You Buy CYGLD", exact: true })).toHaveValue("1");
+    await expect(page.getByRole("status", { name: "You Buy CYGLD", exact: true })).toHaveText("1");
     await page.getByRole("button", { name: /Total fee/ }).click();
     const gas = page.getByText("Transaction fee (gas):", { exact: true }).locator("..");
     const gasValue = gas.locator("span").last();

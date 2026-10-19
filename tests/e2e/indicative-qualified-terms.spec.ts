@@ -24,21 +24,21 @@ test("fee row stays visible, and qualified issuance uses execution fees without 
     await expect(feeRow).toBeVisible(); await feeRow.click();
     await expect(page.getByText("Protocol fee", { exact: false })).toBeVisible();
     await choose(page, "WETH");
-    const quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
+    const quoted = page.locator("#buy-amount");
     await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("3");
-    await expect(quoted).toHaveValue("3"); await expect(quoted).toHaveAttribute("aria-busy", "true");
+    await expect(quoted).toHaveText("3"); await expect(quoted).toHaveAttribute("aria-busy", "true");
     await expect(feeRow).toBeVisible();
     const value = intentFixture(input!);
     value.initialPreview!.fees = { protocolFeeCygld: "10000000000000000", helperFeeCygld: "0" };
     value.preview.fees = { protocolFeeCygld: "1000000000000000", helperFeeCygld: "0" };
     response!.write(JSON.stringify(tradeIntentEvent({ type: "qualified", value }, input!)) + "\n");
-    await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).toHaveValue("3");
+    await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).toHaveText("3");
     await expect(page.getByText(/^0\.001 CYGLD/)).toBeVisible();
     await expect(page.getByText(/^0\.01 CYGLD/)).toHaveCount(0);
     await expect(page.getByTestId("quote-estimate-description")).not.toBeAttached();
     response!.end(JSON.stringify(tradeIntentEvent({ type: "complete", value }, input!)) + "\n");
     await expect(feeRow).toBeVisible(); expect(requests).toBe(1);
     await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("");
-    await expect(quoted).toHaveValue(""); await expect(feeRow).toBeVisible();
+    await expect(quoted).toHaveText(/^0(?:[.,]0+)?$/); await expect(feeRow).toBeVisible();
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });

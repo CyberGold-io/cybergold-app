@@ -17,7 +17,7 @@ for (const action of ["click", "edit"] as const) test(`no selected input token: 
   await expect(page.getByPlaceholder("Search currency...")).toBeVisible();
   await pickPaxg(page);
   await page.locator("#sell-amount").fill("2");
-  await expect(page.locator("#buy-amount")).toHaveValue("1.998");
+  await expect(page.locator("#buy-amount")).toHaveText("1.998");
 });
 
 test("dark token search uses readable foreground and placeholder colors", async ({ page }) => {
@@ -44,7 +44,7 @@ test("market front-end fee is distinct from Core Helpers fee, and tolerance only
     await route.fallback();
   });
   await page.goto("/en"); await page.locator("#sell-amount").click(); await pickPaxg(page);
-  await page.locator("#sell-amount").fill("1"); await expect(page.locator("#buy-amount")).toHaveValue("0.999");
+  await page.locator("#sell-amount").fill("1"); await expect(page.locator("#buy-amount")).toHaveText("0.999");
   await page.getByRole("button", { name: /Total fee/ }).click();
   await expect(page.getByText("Front-end fee (0.1%):", { exact: true })).toBeVisible();
   await expect(page.getByTestId("swap-helpers-fee").locator("span").last()).toHaveText("—");
@@ -52,14 +52,14 @@ test("market front-end fee is distinct from Core Helpers fee, and tolerance only
   const before = (await page.getByTestId("swap-minimum-output").textContent())!;
   await page.locator("#execution-tolerance").fill("0.5");
   await expect.poll(() => waiting).toBeGreaterThan(0);
-  await expect(page.locator("#buy-amount")).toHaveValue("0.999");
+  await expect(page.locator("#buy-amount")).toHaveText("0.999");
   await expect(page.locator("#buy-amount")).toHaveAttribute("aria-busy", "true");
   await expect(page.getByText("Front-end fee (0.1%):", { exact: true })).toBeVisible();
   await expect(page.getByTestId("swap-helpers-fee").locator("span").last()).toHaveText("—");
   await expect(page.getByTestId("swap-minimum-output")).toHaveText(before);
   release();
   await expect.poll(() => observed.requests.at(-1)?.slippageBps).toBe(50);
-  await expect(page.locator("#buy-amount")).toHaveValue("0.999");
+  await expect(page.locator("#buy-amount")).toHaveText("0.999");
   await expect(page.getByTestId("swap-minimum-output")).not.toHaveText(before);
 
 });
@@ -74,14 +74,14 @@ test("Core nominal redemption output is independent of its protective minimum", 
   await page.goto("/en"); await page.locator("#sell-amount").click(); await pickPaxg(page);
   await page.getByRole("button", { name: "Reverse swap direction" }).click();
   await page.locator("#sell-amount").click(); await page.locator("#sell-amount").fill("1");
-  await expect(page.locator("#buy-amount")).toHaveValue("1");
+  await expect(page.locator("#buy-amount")).toHaveText("1");
   await expect(page.getByTestId("trade-mechanism")).toHaveCount(0);
   await page.getByRole("button", { name: /Total fee/ }).click();
   await expect(page.getByText("Helpers fee (0%):", { exact: true })).toBeVisible();
   const before = (await page.getByTestId("swap-minimum-output").textContent())!;
   await page.locator("#execution-tolerance").fill("0.5");
   await expect(page.getByTestId("swap-minimum-output")).not.toHaveText(before);
-  await expect(page.locator("#buy-amount")).toHaveValue("1");
+  await expect(page.locator("#buy-amount")).toHaveText("1");
 });
 
 test("a later selected Core plan replaces the complete market tuple without a strategy toggle", async ({ page }) => {
@@ -95,14 +95,14 @@ test("a later selected Core plan replaces the complete market tuple without a st
   });
   await page.goto("/en"); await page.locator("#sell-amount").click(); await pickPaxg(page); await page.locator("#sell-amount").fill("1");
   await expect(page.getByTestId("trade-mechanism")).toHaveCount(0);
-  await expect(page.locator("#buy-amount")).toHaveValue("2");
+  await expect(page.locator("#buy-amount")).toHaveText("2");
   await expect(page.getByRole("button", { name: "Liquidity swap", exact: true })).toHaveCount(0);
 });
 
 test("rapid tolerance edits retain nominal terms and start one settled competition", async ({ page }) => {
   const observed = await installMarket(page); await page.goto("/en");
   await page.locator("#sell-amount").click(); await pickPaxg(page); await page.locator("#sell-amount").fill("1");
-  await expect(page.locator("#buy-amount")).toHaveValue("0.999");
+  await expect(page.locator("#buy-amount")).toHaveText("0.999");
   await page.getByRole("button", { name: /Total fee/ }).click();
   await expect(page.getByTestId("swap-minimum-output")).toContainText("CYGLD");
   const before = observed.requests.length, originalBound = (await page.getByTestId("swap-minimum-output").textContent())!;
@@ -112,7 +112,7 @@ test("rapid tolerance edits retain nominal terms and start one settled competiti
     await page.locator("#execution-tolerance").fill(value);
     await page.clock.runFor(0);
     await expect(page.locator("#execution-tolerance")).toHaveValue(value);
-    await expect(page.locator("#buy-amount")).toHaveValue("0.999");
+    await expect(page.locator("#buy-amount")).toHaveText("0.999");
     await expect(page.getByText("Front-end fee (0.1%):", { exact: true })).toBeVisible();
     await expect(page.getByTestId("swap-minimum-output")).toHaveText(originalBound);
   }
@@ -121,7 +121,7 @@ test("rapid tolerance edits retain nominal terms and start one settled competiti
   await expect.poll(async () => { await page.clock.runFor(0); return observed.requests.length; }).toBe(before + 1);
   expect(observed.requests.at(-1)?.slippageBps).toBe(70);
   await expect(page.getByTestId("swap-minimum-output")).toContainText("CYGLD");
-  await expect(page.locator("#buy-amount")).toHaveValue("0.999");
+  await expect(page.locator("#buy-amount")).toHaveText("0.999");
 });
 
 for (const mode of ["exact-in"] as ("exact-in" | "exact-out")[]) test(`${mode}: tolerance refresh keeps amounts, fee colors and displayed bounds steady`, async ({ page }) => {
@@ -141,7 +141,7 @@ for (const mode of ["exact-in"] as ("exact-in" | "exact-out")[]) test(`${mode}: 
     const bound = page.getByTestId(mode === "exact-in" ? "swap-minimum-output" : "swap-maximum-input");
     await expect(bound).toContainText(mode === "exact-in" ? "CYGLD" : "PAXG");
     await expect(page.getByTestId("swap-fees")).toHaveAttribute("aria-busy", "false");
-    const originalAmount = await computed.inputValue(), originalBound = (await bound.textContent())!;
+    const originalAmount = (await computed.textContent())!, originalBound = (await bound.textContent())!;
     const colors = () => page.evaluate(({ amountId, boundId }) => {
       const fees = document.querySelector('[data-testid="swap-fees"]')!;
       const row = [...fees.querySelectorAll("span")].find(value => value.textContent?.startsWith("Front-end fee ("))!.parentElement!;
@@ -151,14 +151,14 @@ for (const mode of ["exact-in"] as ("exact-in" | "exact-out")[]) test(`${mode}: 
     }, { amountId: mode === "exact-in" ? "#buy-amount" : "#sell-amount", boundId: mode === "exact-in" ? "swap-minimum-output" : "swap-maximum-input" });
     const originalColors = await colors();
     await page.locator("#execution-tolerance").fill("0.5");
-    await expect(computed).toHaveValue(originalAmount); await expect(bound).toHaveText(originalBound);
+    await expect(computed).toHaveText(originalAmount); await expect(bound).toHaveText(originalBound);
     expect(await colors()).toEqual(originalColors);
     await expect.poll(() => waiting).toBeGreaterThan(0);
     await expect(computed).toHaveAttribute("aria-busy", "true"); // The current quote is still preparing execution terms.
-    await expect(computed).toHaveValue(originalAmount); await expect(bound).toHaveText(originalBound);
+    await expect(computed).toHaveText(originalAmount); await expect(bound).toHaveText(originalBound);
     expect(await colors()).toEqual(originalColors);
     release();
-    await expect(bound).not.toHaveText(originalBound); await expect(computed).toHaveValue(originalAmount);
+    await expect(bound).not.toHaveText(originalBound); await expect(computed).toHaveText(originalAmount);
     expect(await colors()).toEqual(originalColors);
   } finally { release(); }
 });

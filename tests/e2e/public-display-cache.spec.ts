@@ -78,7 +78,7 @@ test("retained display metadata cannot issue a quote or execute before live conf
   await expect(page.getByRole("button", { name: "Open wallet menu", exact: true })).toBeVisible();
   await page.getByRole("switch").uncheck(); await selectPaxg(page);
   await page.locator("#sell-amount").fill("1");
-  await expect(page.locator("#buy-amount")).toHaveValue("1");
+  await expect(page.locator("#buy-amount")).toHaveText("1");
   await expect.poll(async () => (await cached(page, tokenKey))?.some((token: { id: string }) => token.id === "paxg")).toBe(true);
   const quoteRequests = observed.rawIntents.length;
   const configuration = await hold(page, "**/api/protocol/config");
@@ -98,7 +98,7 @@ test("retained display metadata cannot issue a quote or execute before live conf
       .then(methods => methods.some(method => method.startsWith("eth_sign") || method === "eth_sendTransaction"))).toBe(false);
     configuration.release();
     await expect.poll(async () => { await page.clock.runFor(500); return observed.rawIntents.length; }).toBeGreaterThan(quoteRequests);
-    await expect(page.locator("#buy-amount")).toHaveValue("2");
+    await expect(page.locator("#buy-amount")).toHaveText("2");
     await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
   } finally { configuration.release(); }
 });

@@ -102,7 +102,7 @@ test("known token controls and safety labels remain visible while independent da
     await openFees(page);
     await expect(page.locator("#sell-amount")).toHaveValue("1");
     await expect(page.locator("#buy-amount")).toBeVisible();
-    await expect(page.locator("#buy-amount")).toHaveAttribute("placeholder", "...");
+    await expect(page.locator("#buy-amount")).toHaveText("...");
     await expect(page.getByTestId("swap-minimum-output")).toContainText("...");
     await expect(page.getByRole("button", { name: "Reverse swap direction", exact: true })).toContainText("1 CYGLD ≈ ...");
     await expect(page.getByTestId("sell-amount-equivalents").filter({ visible: true })).toContainText("...");
@@ -134,7 +134,7 @@ for (const strategy of ["core", "market"] as const) {
       await expect(page.getByTestId("swap-minimum-output")).toContainText("...");
       const before = await page.getByTestId("swap-fees").boundingBox();
       release();
-      await expect(page.locator("#buy-amount")).toHaveValue(strategy === "market" ? "0.999" : "1");
+      await expect(page.locator("#buy-amount")).toHaveText(strategy === "market" ? "0.999" : "1");
       await expect(page.getByTestId("swap-minimum-output")).not.toContainText("...");
       for (const row of feeRows) await expect(page.getByTestId(row)).toBeVisible();
       const after = await page.getByTestId("swap-fees").boundingBox();

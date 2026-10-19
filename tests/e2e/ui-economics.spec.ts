@@ -46,7 +46,7 @@ test("actual App click captures refreshed displayed amounts and committed tolera
   await installTokens(page); await installReadOnlyWallet(page); await page.goto("/en");
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible(); await showAllSellTokens(page);
   await selectToken(page, "sell", "USDC"); await selectToken(page, "buy", "CYGLD");
-  await getMainInput(page, "sell").fill("1"); await expect(getMainInput(page, "buy")).toHaveValue("1");
+  await getMainInput(page, "sell").fill("1"); await expect(getMainInput(page, "buy")).toHaveText("1");
   await openFeeDetails(page);
   await page.locator("#execution-tolerance").fill("0.25");
   await expect(page.locator('[data-testid="execution-tolerance-control"] input[type="range"]')).toHaveValue("0.25");
@@ -54,7 +54,7 @@ test("actual App click captures refreshed displayed amounts and committed tolera
   const button = await getSwapButton(page); await armUiQuoteCapture(button, assets);
   // The observer is armed before the quote changes, but must capture only the
   // displayed values at the real click, not this earlier ready preview.
-  await getMainInput(page, "sell").fill("2"); await expect(getMainInput(page, "buy")).toHaveValue("2");
+  await getMainInput(page, "sell").fill("2"); await expect(getMainInput(page, "buy")).toHaveText("2");
   await expect(page.getByTestId("swap-minimum-output")).toContainText("2 CYGLD");
   await page.locator("#execution-tolerance").fill("invalid draft");
   await button.click(); // The fixture wallet rejects writes; no real wallet or chain is used.

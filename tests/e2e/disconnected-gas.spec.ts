@@ -59,11 +59,11 @@ test("disconnected gas-price cache refreshes only after the head hash changes", 
   await expect(gas).toHaveText("Transaction fee (gas):...");
   const edited = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first();
   await edited.fill("1");
-  await expect(page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last()).toHaveValue("1");
+  await expect(page.locator("#buy-amount")).toHaveText("1");
   await expect(gas).toContainText("~ 0.000415 ETH");
   const initialFees = fees;
   await edited.fill("2");
-  await expect(page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last()).toHaveValue("2");
+  await expect(page.locator("#buy-amount")).toHaveText("2");
   await page.clock.install(); await page.clock.runFor(60_000);
   expect(fees).toBe(initialFees);
   head = { ...head, blockHash: `0x${"b".repeat(64)}` };

@@ -54,14 +54,14 @@ test("one trading form acquires a fee-aware baseline before any amount or wallet
   expect(observed.models[0].amount).toBe("0");
   expect(observed.models.every(request => !("recipient" in request) && !("orderedAssets" in request))).toBe(true);
   await page.locator("#sell-amount").fill("1");
-  await expect(page.locator("#buy-amount")).toHaveValue("0.999");
+  await expect(page.locator("#buy-amount")).toHaveText("0.999");
   await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
   await expect.poll(() => observed.requests.length).toBeGreaterThan(0);
   await page.locator("#sell-amount").fill("2");
-  await expect(page.locator("#buy-amount")).toHaveValue("1.998");
+  await expect(page.locator("#buy-amount")).toHaveText("1.998");
   expect(observed.coreObservations.intents).toEqual([]);
   finish();
-  await expect(page.locator("#buy-amount")).not.toHaveValue("");
+  await expect(page.locator("#buy-amount")).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
   await page.getByRole("button", { name: /Total fee/ }).click();
   await expect(page.getByTestId("swap-minimum-output")).toContainText("CYGLD");
   await page.screenshot({ path: "out/audit/uniswap-v4-unified-trade.png", fullPage: true });
@@ -71,8 +71,8 @@ test("one token screen supports input-driven market purchases and sales with pro
   const observed = await installMarket(page);
   await page.goto("/en"); await selectPaxg(page);
   await page.locator("#sell-amount").fill("1");
-  await expect(page.locator("#buy-amount")).toHaveValue("0.999");
-  await expect(page.locator("#buy-amount")).not.toHaveValue("");
+  await expect(page.locator("#buy-amount")).toHaveText("0.999");
+  await expect(page.locator("#buy-amount")).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
   await page.getByRole("button", { name: /Total fee/ }).click();
   await expect(page.getByTestId("swap-minimum-output")).toContainText("CYGLD");
   await page.getByRole("button", { name: "Reverse swap direction" }).click();
@@ -95,8 +95,8 @@ test("a Core provider error cannot erase the Backend-selected market plan", asyn
     ].map(event => JSON.stringify(event)).join("\n") + "\n" });
   });
   await page.goto("/en"); await selectPaxg(page); await page.locator("#sell-amount").fill("1");
-  await expect(page.locator("#buy-amount")).not.toHaveValue("");
-  await expect(page.locator("#buy-amount")).toHaveValue("0.999");
+  await expect(page.locator("#buy-amount")).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
+  await expect(page.locator("#buy-amount")).toHaveText("0.999");
   await expect(page.getByText("Core cap reached", { exact: true })).toHaveCount(0);
 });
 
@@ -112,8 +112,8 @@ test("verification invalidation replaces only its selected family with checked e
     ].map(event => JSON.stringify(event)).join("\n") + "\n" });
   });
   await page.goto("/en"); await selectPaxg(page); await page.locator("#sell-amount").fill("1");
-  await expect(page.locator("#buy-amount")).not.toHaveValue("");
-  await expect(page.locator("#buy-amount")).toHaveValue("0.999");
+  await expect(page.locator("#buy-amount")).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
+  await expect(page.locator("#buy-amount")).toHaveText("0.999");
 });
 
 test("replacement heads compete again, while input edits cancel an obsolete answer", async ({ page }) => {
@@ -127,12 +127,12 @@ test("replacement heads compete again, while input edits cancel an obsolete answ
   await page.route("**/api/transaction/wait/head", route => route.fulfill({ json: { ...head, blockTimestamp: String(Math.floor(Date.now() / 1000)) } }));
   await page.goto("/en"); await selectPaxg(page); await page.locator("#sell-amount").fill("1");
   await expect.poll(() => observed.requests.length).toBe(1);
-  await expect(page.locator("#buy-amount")).toHaveValue("0.999");
+  await expect(page.locator("#buy-amount")).toHaveText("0.999");
   await page.clock.install();
   head = { ...head, blockHash: `0x${"d".repeat(64)}` };
   await page.clock.runFor(12_500);
   expect(observed.requests).toHaveLength(1); expect(aborted).toEqual([]);
-  release(); await expect(page.locator("#buy-amount")).not.toHaveValue("");
+  release(); await expect(page.locator("#buy-amount")).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
   waiting = new Promise<void>(resolve => { release = resolve; });
   head = { ...head, blockHash: `0x${"e".repeat(64)}` };
   await page.clock.runFor(12_500); await expect.poll(() => observed.requests.length).toBe(2);
@@ -141,13 +141,13 @@ test("replacement heads compete again, while input edits cancel an obsolete answ
   await expect.poll(() => observed.requests.length).toBe(3);
   await expect.poll(() => aborted).toContain("1000000000000000000");
   expect(observed.requests.at(-1)?.amount).toBe("2000000000000000000");
-  release(); await expect(page.locator("#buy-amount")).toHaveValue("1.998");
+  release(); await expect(page.locator("#buy-amount")).toHaveText("1.998");
   waiting = new Promise<void>(resolve => { release = resolve; });
   head = { ...head, blockHash: `0x${"f".repeat(64)}` };
   await page.clock.runFor(12_500); await expect.poll(() => observed.requests.length).toBe(4);
   await page.locator("#sell-amount").fill("");
   await expect.poll(() => aborted).toContain("2000000000000000000"); release();
-  await expect(page.locator("#buy-amount")).toHaveValue("");
+  await expect(page.locator("#buy-amount")).toHaveText(/^0(?:[.,]0+)?$/);
   expect(observed.requests).toHaveLength(4);
 });
 
@@ -196,7 +196,7 @@ for (const rejected of [false, true]) test(`native market permit ${rejected ? "r
   await selectPaxg(page);
   await page.getByRole("button", { name: "Reverse swap direction" }).click();
   await page.locator("#sell-amount").click(); await page.locator("#sell-amount").fill("1");
-  await expect(page.locator("#buy-amount")).not.toHaveValue("");
+  await expect(page.locator("#buy-amount")).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
   if (!rejected) await page.clock.install();
   await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
   const selected = marketTradeFixture(observed.requests.at(-1)!);
@@ -210,8 +210,8 @@ for (const rejected of [false, true]) test(`native market permit ${rejected ? "r
     await page.clock.runFor(12_500);
     await expect.poll(() => headReads.includes(head.blockHash)).toBe(true);
     expect(observed.requests).toHaveLength(before);
-    await expect(page.locator("#buy-amount")).not.toHaveValue("");
-    await expect(page.locator("#buy-amount")).toHaveValue("0.999");
+    await expect(page.locator("#buy-amount")).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
+    await expect(page.locator("#buy-amount")).toHaveText("0.999");
     await expect(page.locator("#sell-amount")).toBeDisabled();
     await expect(page.getByRole("button", { name: "Reverse swap direction" })).toBeDisabled();
     await page.evaluate(() => (window as unknown as { __resumeMarketSignature: () => void }).__resumeMarketSignature());

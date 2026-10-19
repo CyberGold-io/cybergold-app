@@ -26,8 +26,9 @@ test.describe("Redeem To Token Exact In", () => {
     await sellInput.fill(cygldIn);
     await expect(sellInput).toHaveValue(cygldIn);
 
-    const buyInput = getMainInput(page, "buy");
-    await expect(buyInput).toHaveJSProperty("readOnly", true);
+    const buyOutput = getMainInput(page, "buy");
+    await expect(buyOutput).toHaveJSProperty("tagName", "OUTPUT");
+    await expect(buyOutput).toHaveJSProperty("tabIndex", -1);
     await expectQuotedAmount(page, "buy");
 
     await expectFeeDetails(page);

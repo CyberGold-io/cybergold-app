@@ -20,9 +20,10 @@ acceptance cases; it does not describe active output entry.
 
 1. Enter each supported spend asset and obtain an exact-in quote. The receive
    amount displays the selected plan's estimate and minimum received.
-2. Focus, click, type or paste into the receive amount or any receive basket
-   component. No output-target mode, request or amount mutation is activated;
-   estimates remain selectable and copyable.
+2. Select and copy the receive amount or any receive basket component as plain
+   text. Clicking an amount does not focus an input or show an editing caret,
+   border or focus ring. Typing or pasting cannot activate an output-target
+   mode, request or amount mutation.
 3. Reverse the token pair. Both amounts and the basket driver clear, focus
    moves to the new spend field, and a new quote requires new spend input.
 4. Restore an old output-driven session. Pair and filter preferences remain;
@@ -53,7 +54,7 @@ These checks are part of the clean-launch token flow, not a migration case:
    - expect: Submit credits the selected token and the bound recovery
      share vector to the final wallet; recovery shares are not included in the
      aggregate token amount.
-3. Focus, select and copy the received-token estimate while an impaired leg exists.
+3. Select and copy the received-token estimate while an impaired leg exists.
    - expect: The receive amount remains read-only; no output-target quote is sent.
    - expect: Recovery shares remain separate and are bound by the selected input-driven plan.
 4. Change the basket or impaired-asset set after a quote and submit the stale

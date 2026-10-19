@@ -179,7 +179,7 @@ for (const mode of ["supported", "unsupported", "ready", "unavailable", "other-c
 for (const exactOut of [false]) {
   test(`basket purchase batches its first-use approval: ${exactOut ? "exact-out" : "exact-in"}`, async ({ page }) => {
     const observed = await setup(page, "supported"); await selectBasket(page);
-    const amount = exactOut ? page.getByRole("textbox", { name: "You Buy CYGLD", exact: true })
+    const amount = exactOut ? page.getByLabel("You Buy CYGLD", { exact: true })
       : page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first();
     await amount.click(); await amount.fill("1");
     const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
@@ -309,7 +309,7 @@ for (const outcome of ["reverted", "outage", "rejected"] as const) {
     await page.locator("#sell-amount").fill("1");
     const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
     await expect(swap).toBeEnabled(); await swap.click();
-    const notice = page.locator("main").getByRole("status");
+    const notice = page.locator('main [role="status"]');
     if (outcome === "rejected") {
       await expect(page.getByText("Wallet request cancelled", { exact: true })).toBeVisible();
       await expect(page.locator("#sell-amount")).toHaveValue("1");
@@ -387,7 +387,7 @@ for (const mode of ["unsupported", "supported"] as const) for (const exactOut of
   test(`all-native basket groups signatures and retains ${mode} transaction transport: ${exactOut ? "exact-out" : "exact-in"}`, async ({ page }) => {
     const observed = await setup(page, mode, "success", false, "metamask", "standard", [paxg, xaut]);
     await selectBasket(page);
-    const amount = exactOut ? page.getByRole("textbox", { name: "You Buy CYGLD", exact: true })
+    const amount = exactOut ? page.getByLabel("You Buy CYGLD", { exact: true })
       : page.getByRole("textbox", { name: "Sell amount (PAXG)", exact: true });
     await amount.click(); await amount.fill("1");
     const swap = page.getByRole("button", { name: "Swap currencies", exact: true });

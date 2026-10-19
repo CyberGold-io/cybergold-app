@@ -24,7 +24,7 @@ test("one configuration bootstrap supplies Core, market and the token catalog wi
   const bootstrapCalls = configurations;
   await selectPaxg(page);
   await page.locator("#sell-amount").fill("1");
-  await expect(page.locator("#buy-amount")).toHaveValue("0.999");
+  await expect(page.locator("#buy-amount")).toHaveText("0.999");
   await page.locator("#sell-amount").fill("2");
   await expect.poll(() => observed.requests.some(request => request.amount === "2000000000000000000")).toBe(true);
   expect(configurations).toBe(bootstrapCalls);
@@ -38,14 +38,17 @@ test("configuration failure leaves the shell interactive and reconnect restores 
     calls++; return route.fulfill(available ? { json: protocolConfigurationFixture }
       : { status: 503, json: { error: "Configuration temporarily unavailable" } });
   });
+  const failedBootstrap = page.waitForResponse("**/api/protocol/config");
   await page.goto("/en");
+  expect((await failedBootstrap).status()).toBe(503);
+  await expect(page.getByRole("button", { name: "Select token", exact: true }).first()).not.toHaveAttribute("aria-busy", "true");
   await expect(page.getByText("You Sell", { exact: true })).toBeVisible();
   await expect(page.getByTestId("trade-mechanism")).toHaveCount(0);
   available = true;
   await page.evaluate(() => { window.dispatchEvent(new Event("offline")); window.dispatchEvent(new Event("online")); });
   await expect.poll(() => calls).toBeGreaterThan(1);
   await selectPaxg(page); await page.locator("#sell-amount").fill("1");
-  await expect(page.locator("#buy-amount")).toHaveValue("0.999");
+  await expect(page.locator("#buy-amount")).toHaveText("0.999");
 });
 
 test("ordinary head refresh replaces the cached adapter and Helpers without rebuilding the App", async ({ page }) => {
@@ -60,7 +63,7 @@ test("ordinary head refresh replaces the cached adapter and Helpers without rebu
     blockTimestamp: String(Math.floor(Date.now() / 1000)) } }));
   await page.goto("/en"); await selectPaxg(page);
   await page.locator("#sell-amount").fill("1");
-  await expect(page.locator("#buy-amount")).toHaveValue("0.999");
+  await expect(page.locator("#buy-amount")).toHaveText("0.999");
   const before = calls, previousQuotes = observed.requests.length;
   configuration = { ...protocolConfigurationFixture, contracts: { ...protocolConfigurationFixture.contracts,
     helpers: changedHelpers, uniswapAdapter: changedAdapter }, sandboxForkGeneration: "next-generation" };

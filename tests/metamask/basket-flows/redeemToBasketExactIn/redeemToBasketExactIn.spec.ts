@@ -173,7 +173,7 @@ async function getSellMainInput(page: Page) {
 
 async function getBasketComponentValue(page: Page, symbol: string) {
   const basketForm = page.locator("#buy-basket-composition");
-  return basketForm.getByRole("textbox", { name: `Buy amount (${symbol})`, exact: true });
+  return basketForm.getByLabel(`Buy amount (${symbol})`, { exact: true });
 }
 
 async function getSwapButton(page: Page) {
@@ -233,9 +233,9 @@ test.describe("Redeem To Basket Exact In", () => {
     const paxgOutput = await getBasketComponentValue(page, "PAXG");
     const xautOutput = await getBasketComponentValue(page, "XAUt");
     await expect(paxgOutput).toBeVisible();
-    await expect(paxgOutput).toHaveValue(/^[0-9]/, { timeout: 30000 });
+    await expect(paxgOutput).toHaveText(/^[0-9]/, { timeout: 30000 });
     await expect(xautOutput).toBeVisible();
-    await expect(xautOutput).toHaveValue(/^[0-9]/, { timeout: 30000 });
+    await expect(xautOutput).toHaveText(/^[0-9]/, { timeout: 30000 });
 
     await openFeeDetails(page);
     await expect(page.getByText(/protocol fee/i)).toBeVisible();

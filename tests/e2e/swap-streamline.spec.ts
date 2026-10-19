@@ -18,7 +18,7 @@ test("a fresh disconnected form asks for a sell token and exposes all receive as
   await expect(pickers.first()).toHaveText("Select token");
   await choose(page, "WETH");
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
-  await expect(page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last()).toHaveValue("1");
+  await expect(page.locator("#buy-amount")).toHaveText("1");
   await pickers.last().click();
   const buy = page.getByRole("dialog");
   await expect(buy.getByRole("button", { name: "USDC USDC USDC", exact: true })).toBeVisible();
