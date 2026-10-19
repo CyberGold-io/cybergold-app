@@ -16,12 +16,15 @@ import type { MatrixScenario, ValuationSnapshot } from "./matrix.ts";
 import { basketQualityTerms, tradeQualityTerms, enrichResultQuality } from "./quoteQuality.ts";
 import { safeRunnerError } from "./runnerDiagnostics.ts";
 import { positiveDisplayedAmount } from "./uiEconomics.ts";
+import { regressionPolicy, unexpectedFailure, type RegressionRunPolicy } from './runPolicy.ts';
 
 /** Real App interactions: no routes, mocked responses or injected wallet. */
 export async function observeBrowserQuotes(origin: string, config: ProtocolConfiguration, facts: ProtocolFacts,
   inventory: readonly Scenario[] = tradeScenarios.filter(s => s.requestedStrategy === "core"),
-  checkpoint?: (results: readonly ScenarioResult[]) => Promise<void>, valuation?: ValuationSnapshot): Promise<ScenarioResult[]> {
+  checkpoint?: (results: readonly ScenarioResult[]) => Promise<void>, valuation?: ValuationSnapshot,
+  runPolicy: RegressionRunPolicy = 'full'): Promise<ScenarioResult[]> {
   const results: ScenarioResult[] = [];
+  const policy = regressionPolicy(runPolicy);
   const unavailable = () => { throw new ScenarioUnavailableError("browser-unavailable"); };
   const browser = await chromium.launch({ headless: true }).catch(unavailable);
   try {
@@ -29,7 +32,8 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
     page.setDefaultTimeout(20_000);
     await page.addInitScript(installQuoteObservation as () => void).catch(unavailable);
     for (const scenario of inventory) {
-      let result = { ...resultFor(scenario, "browser"), id: `ui-${scenario.id}`, requestedStrategy: "auto" as const };
+      let result: ScenarioResult = { ...resultFor(scenario, "browser"), id: `ui-${scenario.id}`, requestedStrategy: "auto" as const,
+        executionAttempted: false, transactionDisposition: 'not-submitted' as const };
       const started = performance.now();
       try {
         if (scenario.sizingError) throw new ScenarioUnavailableError(scenario.sizingError);
@@ -125,10 +129,16 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
       } catch (error) { result = { ...failureResult(result, error), ...safeRunnerError(error), requestedStrategy: "auto" }; }
       enrichResultQuality(result, valuation, config);
       result.durationMs = Math.round(performance.now() - started); results.push(result);
+      const stopped = policy === 'diagnostic' && unexpectedFailure(result);
+      if (stopped) results.push(...inventory.slice(results.length).map(remaining => ({
+        ...resultFor(remaining, 'browser'), id: `ui-${remaining.id}`, requestedStrategy: 'auto' as const,
+        executionAttempted: false, transactionDisposition: 'not-submitted' as const,
+      })));
       // Reuse the host's owned UI checkpoint contract. A later browser stall
       // must not erase completed observations; failed optional writes leave
       // quotation behavior and the original per-operation deadlines unchanged.
       try { await checkpoint?.(results); } catch { /* Optional evidence cannot stop the remaining cases. */ }
+      if (stopped) break;
     }
     await page.close().catch(() => {});
   } finally { await browser.close().catch(() => {}); }

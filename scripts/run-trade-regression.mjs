@@ -11,18 +11,22 @@ import { buildMatrix, readValuation, matrixCounts, matrixTemplates } from "../te
 import { observeBrowserQuotes } from "../tests/trading/browserQuotes.ts";
 import { enrichResultQuality } from "../tests/trading/quoteQuality.ts";
 import { readWalletSetupDiagnostic, readWalletTestDiagnostics, safeCommandResult, safeRunnerError } from "../tests/trading/runnerDiagnostics.ts";
+import { regressionPolicy, unexpectedFailure } from "../tests/trading/runPolicy.ts";
 
 const { values } = parseArgs({ options: { target: { type: "string" }, mode: { type: "string", default: "quotes" },
-  "diagnostic-scenario": { type: "string" }, "output-dir": { type: "string" }, "base-url": { type: "string" } } });
+  "diagnostic-scenario": { type: "string" }, "output-dir": { type: "string" }, "base-url": { type: "string" },
+  "run-policy": { type: "string" } } });
+const runPolicy = regressionPolicy(values["run-policy"] ?? process.env.TRADE_REGRESSION_RUN_POLICY);
 if (!values.target) throw new Error("--target is required");
 if (!["sandbox", "mainnet"].includes(values.target)) throw new Error("--target must be sandbox or mainnet");
 if (!["quotes", "sandbox-execution", "fork-execution"].includes(values.mode)) throw new Error("--mode must be quotes, sandbox-execution or fork-execution");
 if (!values["output-dir"]) throw new Error("--output-dir is required");
 const output = resolve(values["output-dir"]);
 await mkdir(output, { recursive: true });
-const report = { schema: "cybergold.trade-regression.v1", runId: randomUUID(), target: values.target, mode: values.mode,
+const report = { schema: "cybergold.trade-regression.v1", runId: randomUUID(), target: values.target, mode: values.mode, runPolicy,
   ...(values.mode === 'sandbox-execution' ? { suite: 'sequential' } : {}),
-  startedAt: new Date().toISOString(), matrix: matrixCounts, runnerOutcome: "pass", runnerDiagnostics: { stage: "origin" }, scenarios: [] };
+  startedAt: new Date().toISOString(), matrix: matrixCounts, progress: { completedScenarioIds: [] },
+  runnerOutcome: "pass", runnerDiagnostics: { stage: "origin" }, scenarios: [] };
 
 let inventory = matrixTemplates();
 let qualityConfiguration;
@@ -40,6 +44,8 @@ async function walletResults() {
       if (native.valuation) report.valuation = native.valuation;
       if (native.observations) report.observations = { ...report.observations, ...native.observations };
       if (native.suite === 'sequential' || native.suite === 'independent') report.suite = native.suite;
+      if (native.progress) report.progress = native.progress;
+      if (native.diagnosticStop) report.diagnosticStop = native.diagnosticStop;
       if (Array.isArray(native.fixtures)) report.fixtures.push(...native.fixtures);
     } catch (error) {
       const code = ui ? "ui-results-unavailable" : "execution-results-unavailable";
@@ -56,7 +62,7 @@ async function walletResults() {
 }
 
 function unobservedRows(code, ui = true) {
-  return inventory.map(scenario => ({ ...resultFor(scenario, "execution"), code,
+  return inventory.map(scenario => ({ ...resultFor(scenario, "execution"), code, executionAttempted: false, transactionDisposition: 'not-submitted',
     ...(ui ? { id: `ui-${scenario.id}`, requestedStrategy: "auto" } : {}) }));
 }
 
@@ -84,7 +90,7 @@ try {
     report.runnerDiagnostics.stage = "fork-qualification";
     const childResult = await command("python3", ["scripts/qualify-fixed-api-wallet.py", "--backend-image", process.env.BACKEND_IMAGE,
       "--contracts-json", process.env.CONTRACTS_JSON, "--funding-json", process.env.FUNDING_JSON, "--output-dir", output],
-      { TRADE_REGRESSION_TARGET: values.target });
+      { TRADE_REGRESSION_TARGET: values.target, TRADE_REGRESSION_RUN_POLICY: runPolicy });
     try {
       const qualification = JSON.parse(await readFile(resolve(output, "qualification.json"), "utf8"));
       const context = {};
@@ -145,13 +151,23 @@ try {
     await writeFile(matrixPath, JSON.stringify({ matrix: matrixCounts, valuation: report.valuation, scenarios: inventory }) + "\n");
     if (values.mode === "quotes") {
       const checkpoint = async scenarios => {
+        const completed = scenarios.filter(row => row.code !== 'not-exercised');
+        report.progress = { completedScenarioIds: completed.map(row => row.id) };
+        if (runPolicy === 'diagnostic') {
+          const stopped = completed.find(unexpectedFailure);
+          if (stopped) report.diagnosticStop = { scenarioId: stopped.id, role: 'winner' };
+        }
         const path = resolve(output, "regression-ui.json");
         await writeFile(path + ".tmp", JSON.stringify({ ...report, scenarios,
           coverage: executionCoverage(scenarios), runnerOutcome: "unavailable", runnerDiagnostics: { stage: "ui-report" } }) + "\n");
         await rename(path + ".tmp", path);
       };
-      try { report.scenarios.push(...(diagnostic ? [(await observeScenario(diagnostic, config, facts, fetcher)).result]
-        : await observeBrowserQuotes(origin, config, facts, inventory, checkpoint, report.valuation))); }
+      try {
+        if (diagnostic) {
+          report.scenarios.push((await observeScenario(diagnostic, config, facts, fetcher)).result);
+          try { await checkpoint(report.scenarios); } catch { /* Optional evidence cannot rewrite an observed result. */ }
+        } else report.scenarios.push(...await observeBrowserQuotes(origin, config, facts, inventory, checkpoint, report.valuation, runPolicy));
+      }
       catch (error) {
         if (error instanceof ScenarioUnavailableError && error.code === "browser-unavailable") {
           report.runnerOutcome = "unavailable"; report.runnerCode = error.code;
@@ -165,7 +181,7 @@ try {
       // transactions are outside the owner's authorization; fork mode above
       // creates its own disposable chain through the established qualifier.
       if (values.target !== "sandbox" || config.chainId === 1) throw new Error("sandbox-execution-target-required");
-      const env = { TRADE_REGRESSION_MATRIX: matrixPath, ...(values["diagnostic-scenario"] ? { TRADE_REGRESSION_DIAGNOSTIC_SCENARIO: values["diagnostic-scenario"] } : {}), PLAYWRIGHT_BASE_URL: origin, PLAYWRIGHT_EXTERNAL_SERVER: "1", NEXT_PUBLIC_CHAIN_ID: String(config.chainId), NEXT_PUBLIC_CHAIN_NAME: "CyberGold Sandbox",
+      const env = { TRADE_REGRESSION_MATRIX: matrixPath, TRADE_REGRESSION_RUN_POLICY: runPolicy, ...(values["diagnostic-scenario"] ? { TRADE_REGRESSION_DIAGNOSTIC_SCENARIO: values["diagnostic-scenario"] } : {}), PLAYWRIGHT_BASE_URL: origin, PLAYWRIGHT_EXTERNAL_SERVER: "1", NEXT_PUBLIC_CHAIN_ID: String(config.chainId), NEXT_PUBLIC_CHAIN_NAME: "CyberGold Sandbox",
         TRADE_REGRESSION_OUTPUT: resolve(output, "regression-execution.json"), TRADE_REGRESSION_UI_OUTPUT: resolve(output, "regression-ui.json"),
         TRADE_REGRESSION_WALLET_SETUP_OUTPUT: resolve(output, "wallet-setup.json"),
         TRADE_REGRESSION_UI_FIXTURE_OUTPUT: resolve(output, "wallet-fixture-ui.json"),
@@ -207,6 +223,11 @@ if (qualityConfiguration) for (const result of [...report.scenarios, ...(report.
   if (result.alternateExecution) enrichResultQuality(result.alternateExecution, report.valuation, qualityConfiguration);
 }
 report.coverage = executionCoverage(report.scenarios);
+if (runPolicy === 'diagnostic' && !report.diagnosticStop) for (const row of report.scenarios) {
+  if (!report.progress.completedScenarioIds.includes(row.id)) continue;
+  if (unexpectedFailure(row)) { report.diagnosticStop = { scenarioId: row.id, role: 'winner' }; break; }
+  if (unexpectedFailure(row.alternateExecution)) { report.diagnosticStop = { scenarioId: row.id, role: 'alternate' }; break; }
+}
 report.finishedAt = new Date().toISOString();
 await writeFile(resolve(output, "report.json.tmp"), JSON.stringify(report, null, 2) + "\n");
 await rename(resolve(output, "report.json.tmp"), resolve(output, "report.json"));

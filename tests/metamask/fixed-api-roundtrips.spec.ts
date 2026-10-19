@@ -29,6 +29,7 @@ import { readWalletUiState } from "../trading/walletUiState";
 import { privateSandboxPhase, privateSandboxScenarios, privateSandboxSelection, sandboxIsolation, scenarioIsolation, type SandboxIsolation } from "../trading/privateSandbox";
 import { cleanupOwnedWalletRequest, closeOwnedWalletContext, isWalletRequestCleanupError, walletRequestContextClosedError } from "../trading/walletRequestLifecycle";
 import { hasUiReceiptOutcome, observeUiReceiptUntilDeadline, recoverUiTransaction, uiWalletRequestSettled } from "../trading/uiTransactionRecovery";
+import { regressionPolicy, unexpectedFailure } from "../trading/runPolicy";
 
 async function approveUntilMined(page: Page, submitted: () => boolean, observe: () => Promise<void> = async () => {},
   nativeProgress?: (event: { selection?: Pick<UiConfirmationDiagnostic, "notificationSelection" | "notificationViewCount">;
@@ -98,6 +99,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   let setupRefs = {};
   let config: ProtocolConfiguration;
   let valuation: Awaited<ReturnType<typeof readValuation>> | undefined;
+  const runPolicy = regressionPolicy(process.env.TRADE_REGRESSION_RUN_POLICY);
+  const progress = { completedScenarioIds: [] as string[] };
+  let diagnosticStop: { scenarioId: string; role: "winner" | "alternate" } | undefined;
   const privatePhase = privateSandboxPhase(process.env.TRADE_REGRESSION_PRIVATE_PHASE);
   const scenarios = privateSandboxScenarios(matrixTemplates() as MatrixScenario[], privatePhase, process.env.TRADE_REGRESSION_PRIVATE_SCENARIO);
   const isolation: SandboxIsolation | undefined = process.env.TRADE_REGRESSION_PRIVATE_ISOLATION
@@ -115,7 +119,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     if (!process.env.TRADE_REGRESSION_UI_OUTPUT) return;
     if (config) for (const row of [...results, ...fixtures]) enrichResultQuality(row, valuation, config);
     const path = process.env.TRADE_REGRESSION_UI_OUTPUT;
-    await writeFile(path + ".tmp", JSON.stringify({ schema: "cybergold.trade-regression.v1", suite: privatePhase ? 'independent' : 'sequential',
+    await writeFile(path + ".tmp", JSON.stringify({ schema: "cybergold.trade-regression.v1", suite: privatePhase ? 'independent' : 'sequential', runPolicy, progress, diagnosticStop,
       ...(isolation ? { isolation } : {}), matrix: matrixCounts, coverage: executionCoverage(results), valuation, scenarios: results, fixtures }, null, 2) + "\n");
     await rename(path + ".tmp", path);
   }
@@ -435,6 +439,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   }
   fixtures[0].durationMs = Math.round(performance.now() - bootstrapStarted); await persist();
   activeFixtureIndex = undefined; activeQuoteDiagnostics = undefined; activeSwapAttempt = undefined;
+  if (runPolicy === "diagnostic" && unexpectedFailure(fixtures[0])) expect(fixtures[0].status).toBe("pass");
   if (privatePhase === 'prepare') {
     // All compared cases use this post-funding/bootstrap state and these same
     // frozen sizing inputs. Only the host that owns the fork takes its snapshot.
@@ -455,6 +460,8 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   }
 
   if (privatePhase === 'alternate') {
+    let alternateRecorded = false;
+    try {
     const scenario = scenarios[0];
     const selectionPath = process.env.TRADE_REGRESSION_PRIVATE_SELECTION;
     const selected: SelectionCapture | undefined = selectionPath ? JSON.parse(await readFile(selectionPath, 'utf8')) : undefined;
@@ -462,6 +469,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       alternate.comparisonState = 'restored-baseline';
       if (isolation) alternate.isolation = scenarioIsolation(isolation, 'alternate');
       results[0] = { ...results[0], status: 'skipped', code: 'independent-alternate-only', alternateExecution: alternate };
+      alternateRecorded = true;
       await persist();
     };
     const alternate = scenario.asset === 'BASKET' ? { ...notAttemptedAlternate(scenario), provider: 'market' as const, reason: 'unsupported' as const }
@@ -469,10 +477,18 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       : notAttemptedAlternate(scenario);
     await retainAlternate(alternate);
     expect(alternate.status).not.toBe('fail');
+    } finally {
+      if (runPolicy === "diagnostic" && results[0].alternateExecution && unexpectedFailure(results[0].alternateExecution))
+        diagnosticStop = { scenarioId: results[0].id, role: "alternate" };
+      if (alternateRecorded) progress.completedScenarioIds.push(results[0].id);
+      await persist();
+    }
     return;
   }
 
-  for (const [index, scenario] of scenarios.entries()) await test.step(`UI ${scenario.id}`, async () => {
+  for (const [index, scenario] of scenarios.entries()) {
+  await test.step(`UI ${scenario.id}`, async () => {
+    try {
     const started = performance.now(); helpersHash = undefined; activeSwapAttempt = undefined; clickedSelection = undefined;
     results[index].alternateExecution = notAttemptedAlternate(scenario);
     if (privatePhase) results[index].alternateExecution.comparisonState = 'restored-baseline';
@@ -528,6 +544,8 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     results[index].transactionDisposition = transactionDisposition(results[index]);
     // Winner latency ends before the separately measured alternate attempt.
     results[index].durationMs = Math.round(performance.now() - started);
+    if (runPolicy === "diagnostic" && unexpectedFailure(results[index]))
+      diagnosticStop = { scenarioId: results[index].id, role: "winner" };
     const selected = clickedSelection as SelectionCapture | undefined;
     let observations: Awaited<ReturnType<typeof quoteObservations>> = [];
     try { observations = await quoteObservations(page); } catch { /* Optional evidence cannot stop the remaining cases. */ }
@@ -542,7 +560,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       const settlement = results[index].actualOperation ? { context: results[index].context, bounds: results[index].bounds } : {};
       const refs = { ...binding.refs, ...results[index].refs };
       Object.assign(results[index], binding, settlement, { refs });
-      if (!privatePhase) results[index].alternateExecution = await executeAlternate(selected, scenario, selected.intent, page, owner, config, fetcher, undefined, results[index].transactionDisposition, 'sequential-state', async alternate => {
+      if (!privatePhase && !diagnosticStop) results[index].alternateExecution = await executeAlternate(selected, scenario, selected.intent, page, owner, config, fetcher, undefined, results[index].transactionDisposition, 'sequential-state', async alternate => {
         results[index].alternateExecution = alternate;
         await persist();
       });
@@ -560,8 +578,20 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       await writeFile(process.env.TRADE_REGRESSION_PRIVATE_SELECTION, JSON.stringify(captured ?? null) + '\n', { mode: 0o600 });
     }
     activeScenarioIndex = undefined; activeQuoteDiagnostics = undefined; activeSwapAttempt = undefined;
-    await persist();
+    } finally {
+      // A checkpoint is publishable only after the current native action and
+      // its owned request cleanup have returned, including a resource unwind.
+      if (runPolicy === "diagnostic" && !diagnosticStop) {
+        if (unexpectedFailure(results[index])) diagnosticStop = { scenarioId: results[index].id, role: "winner" };
+        else if (results[index].alternateExecution && unexpectedFailure(results[index].alternateExecution))
+          diagnosticStop = { scenarioId: results[index].id, role: "alternate" };
+      }
+      progress.completedScenarioIds.push(results[index].id);
+      await persist();
+    }
   });
+  if (diagnosticStop) break;
+  }
   expect(genericRequests).toEqual([]);
   expect(successfulReads.has("/api/account/wallet-balances")).toBe(true);
   console.log(JSON.stringify({ genericAppRpcRequests: genericRequests.length, successfulFixedApiPaths: [...successfulReads].sort() }));
