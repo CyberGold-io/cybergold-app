@@ -16,17 +16,17 @@ test("an expired exact quote can be edited without notifying React during render
   const edited = page.locator("#sell-amount"), quoted = page.locator("#buy-amount");
   await edited.fill("1");
   await expect(quoted).toHaveValue("1");
-  await expect(quoted).toBeEnabled();
+  await expect(quoted).not.toHaveAttribute("aria-busy", "true");
   await edited.fill("2");
   await expect(quoted).toHaveValue("2");
-  await expect(quoted).toBeEnabled();
+  await expect(quoted).not.toHaveAttribute("aria-busy", "true");
   await expect.poll(() => observed.intents.length).toBe(2);
 
   const pausedAt = await page.evaluate(() => Date.now());
   await page.clock.pauseAt(new Date(pausedAt + 1_000));
   await edited.fill("1");
   await expect.poll(async () => { await page.clock.runFor(0); return quoted.inputValue(); }).toBe("1");
-  await expect(quoted).toBeEnabled();
+  await expect(quoted).not.toHaveAttribute("aria-busy", "true");
   expect(observed.intents).toHaveLength(2);
 
   // Expire the current external-store snapshot without running timers or cache
@@ -35,7 +35,7 @@ test("an expired exact quote can be edited without notifying React during render
   await edited.fill("3");
   await page.clock.runFor(150);
   await expect.poll(async () => { await page.clock.runFor(0); return quoted.inputValue(); }).toBe("3");
-  await expect(quoted).toBeEnabled();
+  await expect(quoted).not.toHaveAttribute("aria-busy", "true");
   await expect.poll(() => observed.intents.length).toBe(3);
   expect(observed.intents.at(-1)?.amount).toBe("3000000000000000000");
   expect(renderErrors).toEqual([]);
