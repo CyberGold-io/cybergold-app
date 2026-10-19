@@ -115,6 +115,7 @@
     "cygldSupplyCapDetails": "Aktuelle Obergrenze: {cap} CYGLD. Im Umlauf: {supply} CYGLD. Der verfügbare Kaufbetrag berücksichtigt die Gebühren.",
     "reverseSwapDirection": "Tauschrichtung umkehren",
     "quoteEstimate": "Schätzung — endgültiges Angebot wird vorbereitet",
+    "receiveAmountDescription": "Geschätzter Empfangsbetrag. Ändern Sie den Verkaufsbetrag, um diese Schätzung zu aktualisieren.",
     "title": "Swap",
     "showOnlyWalletTokens": "Nur Token im Wallet",
     "showOnlyWalletTokensShort": "Nur verfügbare Token",

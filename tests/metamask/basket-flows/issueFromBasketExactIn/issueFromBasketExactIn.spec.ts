@@ -176,8 +176,8 @@ async function getWalletBalance(page: Page, tokenId: string) {
 }
 
 async function getBasketInput(page: Page, symbol: string) {
-  const basketForm = page.locator('[id="basket composition form"]');
-  return basketForm.locator('div', { hasText: symbol }).locator('input').first();
+  const basketForm = page.locator("#sell-basket-composition");
+  return basketForm.getByRole("textbox", { name: `Sell amount (${symbol})`, exact: true });
 }
 
 async function getBuyMainInput(page: Page) {
@@ -238,7 +238,7 @@ test.describe("Issue From Basket Exact In", () => {
     await expect(initialPaxgBalance).toBeGreaterThanOrEqual(Number(basketIn.paxg));
     await expect(initialXautBalance).toBeGreaterThanOrEqual(Number(basketIn.xaut));
 
-    const basketForm = page.locator('[id="basket composition form"]');
+    const basketForm = page.locator("#sell-basket-composition");
     await expect(basketForm).toBeVisible();
     await expect(basketForm.getByText("PAXG")).toBeVisible();
     await expect(basketForm.getByText("XAUt")).toBeVisible();

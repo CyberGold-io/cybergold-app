@@ -115,6 +115,7 @@
     "quoteRedemptionCapacityExceeded": "Запрошенные выходные объёмы Core превышают доступную возможность погашения.",
     "reverseSwapDirection": "Изменить направление обмена",
     "quoteEstimate": "Оценка — подготовка окончательной котировки",
+    "receiveAmountDescription": "Ожидаемая сумма получения. Измените сумму продажи, чтобы обновить оценку.",
     "title": "Своп",
     "showOnlyWalletTokens": "Только токены, доступные в кошельке",
     "showOnlyWalletTokensShort": "Только доступные токены",

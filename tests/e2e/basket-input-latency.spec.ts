@@ -3,7 +3,7 @@ import { expect, test } from "./fixtures/app-test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { install } from "./fixtures/basket-quotes";
 
-const modes = ["issue-exact-in", "issue-exact-out", "redeem-exact-in", "redeem-exact-out"];
+const modes = ["issue-exact-in", "redeem-exact-in"];
 const records: unknown[] = [];
 test.afterAll(() => {
   if (!process.env.QUOTE_EVALUATION_DIR) return;
@@ -20,9 +20,8 @@ for (let repeat = 1; repeat <= 3; repeat++) for (const mode of modes) {
     await page.goto("/en");
     await selectBasket(page);
     if (mode.startsWith("redeem")) await page.getByRole("button", { name: "Reverse swap direction" }).click();
-    if (mode === "redeem-exact-out") await page.getByRole("button", { name: /^Basket assets/ }).click();
     const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)');
-    const input = mode.endsWith("exact-in") ? inputs.first() : inputs.last();
+    const input = inputs.first();
     await input.click();
     const measure = async (values: string[]) => {
       const offset = observed.timings.length;
@@ -50,13 +49,13 @@ for (let repeat = 1; repeat <= 3; repeat++) for (const mode of modes) {
   });
 }
 
-for (const mode of ["issue-exact-out", "redeem-exact-in"]) {
+for (const mode of ["issue-exact-in", "redeem-exact-in"]) {
   test(`${mode}: request starts without advancing the input timer`, async ({ page }) => {
     const observed = await install(page);
     await page.goto("/en");
     await selectBasket(page);
     if (mode.startsWith("redeem")) await page.getByRole("button", { name: "Reverse swap direction" }).click();
-    const input = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)')[mode.endsWith("exact-in") ? "first" : "last"]();
+    const input = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first();
     await input.click();
     await page.clock.install();
     await page.clock.pauseAt(new Date(Date.now() + 1_000));

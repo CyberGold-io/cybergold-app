@@ -4,7 +4,7 @@ doc_type: portal
 status: active
 owner: app-maintainer
 created: 2026-07-11
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-19
 canonical_for: App documentation navigation
 ---
 
@@ -23,8 +23,10 @@ canonical_for: App documentation navigation
 | [Dashboard indexer](architecture/dashboard-indexer.md) | active | App maintainer | 2026-09-26 |
 | [Swap flows](architecture/swap-flows.md) | active | App maintainer | 2026-07-11 |
 | [E2E and MetaMask guide](../tests/README.md) | active | App maintainer | 2026-07-23 |
-| [Basket-flow acceptance](acceptance/basket-flows.md) | completed | App maintainer | 2026-07-23 |
-| [Token-flow acceptance](acceptance/token-flows.md) | completed | App maintainer | 2026-09-22 |
+| [Basket-flow acceptance](acceptance/basket-flows.md) | active | App maintainer | 2026-10-19 |
+| [Token-flow acceptance](acceptance/token-flows.md) | active | App maintainer | 2026-10-19 |
+| [Retained prior basket acceptance](acceptance/deferred/basket-flows.md) | archived | App maintainer | 2026-10-19 |
+| [Retained prior token acceptance](acceptance/deferred/token-flows.md) | archived | App maintainer | 2026-10-19 |
 
 The three `.github/agents/*.agent.md` files are executable automation
 configuration. They are owned by the App maintainer, reviewed with test-policy

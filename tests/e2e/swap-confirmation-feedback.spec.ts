@@ -191,7 +191,7 @@ for (const outcome of ["insufficient", "unavailable", "outage", "ready"] as cons
   });
 }
 
-for (const mode of ["exact-in", "exact-out"] as const) {
+for (const mode of ["exact-in"] as const) {
   test(`Swap checks fresh basket spending balances: ${mode}`, async ({ page }) => {
     await install(page);
     await installSigningWallet(page);
