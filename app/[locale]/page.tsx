@@ -1557,7 +1557,6 @@ const computedReceiveQuote = useMemo((): Prefill => {
     changedSide: "sell" | "buy";
   }) => {
     if (params.nextSellTokenId === sellTokenId) return;
-    shouldFocusEditableInputRef.current = true;
     setSellAmount("");
     setSellAmountRawOverride(undefined);
     setDriverToken(undefined);
