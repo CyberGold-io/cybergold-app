@@ -38,7 +38,10 @@ test("configuration failure leaves the shell interactive and reconnect restores 
     calls++; return route.fulfill(available ? { json: protocolConfigurationFixture }
       : { status: 503, json: { error: "Configuration temporarily unavailable" } });
   });
+  const failedBootstrap = page.waitForResponse("**/api/protocol/config");
   await page.goto("/en");
+  expect((await failedBootstrap).status()).toBe(503);
+  await expect(page.getByRole("button", { name: "Select token", exact: true }).first()).not.toHaveAttribute("aria-busy", "true");
   await expect(page.getByText("You Sell", { exact: true })).toBeVisible();
   await expect(page.getByTestId("trade-mechanism")).toHaveCount(0);
   available = true;
