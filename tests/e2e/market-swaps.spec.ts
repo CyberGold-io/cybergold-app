@@ -67,7 +67,7 @@ test("one trading form acquires a fee-aware baseline before any amount or wallet
   await page.screenshot({ path: "out/audit/uniswap-v4-unified-trade.png", fullPage: true });
 });
 
-test("one token screen supports four market modes with fee-net amounts and separate min/max bounds", async ({ page }) => {
+test("one token screen supports input-driven market purchases and sales with protected outputs", async ({ page }) => {
   const observed = await installMarket(page);
   await page.goto("/en"); await selectPaxg(page);
   await page.locator("#sell-amount").fill("1");
@@ -75,17 +75,11 @@ test("one token screen supports four market modes with fee-net amounts and separ
   await expect(page.locator("#buy-amount")).not.toHaveValue("");
   await page.getByRole("button", { name: /Total fee/ }).click();
   await expect(page.getByTestId("swap-minimum-output")).toContainText("CYGLD");
-  await page.locator("#buy-amount").click(); await page.locator("#buy-amount").fill("1");
-  await expect.poll(() => observed.requests.some(request => request.side === "buy" && request.mode === "exact-out")).toBe(true);
-  await expect(page.getByTestId("swap-maximum-input")).toContainText("PAXG");
-  await page.locator("#buy-amount").fill("");
   await page.getByRole("button", { name: "Reverse swap direction" }).click();
   await page.locator("#sell-amount").click(); await page.locator("#sell-amount").fill("1");
   await expect.poll(() => observed.requests.some(request => request.side === "sell" && request.mode === "exact-in")).toBe(true);
   await expect(page.getByTestId("swap-minimum-output")).toContainText("PAXG");
-  await page.locator("#buy-amount").click(); await page.locator("#buy-amount").fill("1");
-  await expect.poll(() => observed.requests.some(request => request.side === "sell" && request.mode === "exact-out")).toBe(true);
-  await expect(page.getByTestId("swap-maximum-input")).toContainText("CYGLD");
+  expect(observed.requests.every(request => request.mode === "exact-in")).toBe(true);
   expect(observed.requests.every(request => !request.native && !("adapter" in request) && !("orderedAssets" in request))).toBe(true);
   expect(observed.coreObservations.intents).toEqual([]);
 });

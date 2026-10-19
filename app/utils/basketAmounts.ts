@@ -57,6 +57,44 @@ export function basketAmountsMapToOrderedBigIntArray(
   );
 }
 
+/** Largest wallet-funded basket using the form's existing raw-unit proportions. */
+export function proportionalBasketWalletMax(
+  basketComponents: readonly BasketComponent[],
+  walletBalanceByTokenId: Readonly<Record<string, bigint | undefined>>
+): {
+  driverToken: Address;
+  driverAmountRawOverride: bigint;
+  amountsByAddress: BasketComponentsMapBigInt;
+  maximumAmountsIn: bigint[];
+} | undefined {
+  let driver: BasketComponent | undefined;
+  let driverBalance = 0n;
+  let driverProportion = 0n;
+
+  for (const component of basketComponents) {
+    if (component.targetWeight === 0n) continue;
+    const balance = walletBalanceByTokenId[component.token.id];
+    if (balance === undefined) return undefined;
+    const proportion = component.targetWeight * pow10(component.token.decimals);
+    if (!driver || balance * driverProportion < driverBalance * proportion) {
+      driver = component;
+      driverBalance = balance;
+      driverProportion = proportion;
+    }
+  }
+  if (!driver) return undefined;
+
+  const amountsByAddress = deriveBasketComponentsAmountsFromSingleInput(
+    basketComponents, driver.token.address, "", driverBalance
+  );
+  return {
+    driverToken: driver.token.address,
+    driverAmountRawOverride: driverBalance,
+    amountsByAddress,
+    maximumAmountsIn: basketAmountsMapToOrderedBigIntArray(basketComponents, amountsByAddress),
+  };
+}
+
 // Returning map: token address => amount as string for displaying in the input fields
 export function basketAmountsMapToStringMap(
   basketComponents: readonly BasketComponent[],

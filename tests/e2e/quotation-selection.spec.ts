@@ -11,7 +11,7 @@ import { assertCapturedTradeInput } from "../trading/planAssertions";
 // provider qualification and mined settlement are separate fork-run evidence.
 for (const winner of ["core", "market"] as const)
   for (const side of ["buy", "sell"] as const)
-    for (const mode of ["exact-in", "exact-out"] as const)
+    for (const mode of ["exact-in"] as const)
       for (const lateEvidence of [false, true])
       test(`${winner} wins ${side} ${mode}, ${lateEvidence ? "late alternate and timeout" : "completed search"}: actual UI click binds the submitted family and economics`, async ({ page }) => {
         const fixture = await installProviderSelection(page, winner, lateEvidence);

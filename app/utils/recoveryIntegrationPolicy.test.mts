@@ -21,7 +21,6 @@ test("swap submission uses bound current-state previews without a global recover
   const tokenFlow = read("../hooks/flows/useTradeFlow.ts");
   const tokenExecution = read("./tradeExecution.ts");
   assert.match(page, /enabled: isActiveTokenFlow && !quoteInputPending/);
-  assert.match(page, /enabled: isRedeemToBasketExactOut && hasDerivedBasketAmounts/);
   assert.doesNotMatch(
     page,
     /coreRecovery|isRecoveryMode|recoveryEpoch|assertFreshRecoveryRoute|recoveryExactOutUnavailable/

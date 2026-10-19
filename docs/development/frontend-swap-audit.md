@@ -10,6 +10,11 @@ canonical_for: October 2026 frontend UX and performance findings
 
 # Frontend and swap experience audit
 
+The dated exact-out UI and cap-aware basket MAX observations below are retained
+historical findings. The current input-only form and wallet-limited proportional
+MAX behavior are specified by the [swap architecture](../architecture/swap-flows.md).
+Their source and installed acceptance remain separate from these older results.
+
 ✅ marks implemented or completed work; each entry states its verification
 scope. Items marked “Deferred” or “Evaluation” remain open. Deployment and live
 wallet verification are recorded separately with the release PRs.

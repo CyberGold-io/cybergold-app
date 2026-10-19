@@ -124,8 +124,8 @@ async function connectMetaMaskIfNeeded(page: Page, metamask: MetaMask) {
 }
 
 async function getBasketInput(page: Page, symbol: string) {
-  const basketForm = page.locator('[id="basket composition form"]');
-  return basketForm.locator('div', { hasText: symbol }).locator('input').first();
+  const basketForm = page.locator("#sell-basket-composition");
+  return basketForm.getByRole("textbox", { name: `Sell amount (${symbol})`, exact: true });
 }
 
 async function getBuyMainInput(page: Page) {
@@ -141,7 +141,7 @@ test.describe("Issue From Basket Exact In", () => {
     await page.goto("/en");
     await connectMetaMaskIfNeeded(page, metamask);
 
-    const basketForm = page.locator('[id="basket composition form"]');
+    const basketForm = page.locator("#sell-basket-composition");
     await expect(basketForm).toBeVisible();
 
     const paxgInput = await getBasketInput(page, "PAXG");

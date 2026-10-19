@@ -105,6 +105,7 @@ const metamaskProject = !isWindows
 
 export default defineConfig({
   testDir: "./tests",
+  testIgnore: ["**/deferred-exact-out/**"],
   timeout: 120 * 1000,
   fullyParallel: browserSmokeParallel,
   forbidOnly: !!process.env.CI,

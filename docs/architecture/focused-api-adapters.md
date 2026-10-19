@@ -190,7 +190,7 @@ not establish installation or physical-wallet qualification.
 
 The home page has one neutral token trading form without a mechanism chooser or
 selected-strategy label. `POST /api/quotes/trade/stream` sends
-side, exact-in/out mode, counter-token/native selection, amount, recipient,
+side, exact-in mode, counter-token/native selection, amount, recipient,
 deadline and tolerance. The Backend assembles and competes Core and market
 candidates, publishes each improving qualified winner, and returns the selected
 complete tagged provider request/quote. The App does not assemble basket targets,
@@ -199,10 +199,11 @@ qualified market winner. Initially only PAXG/CYGLD market trading is qualified;
 native ETH and other configured tokens retain Core routing. Basket operations
 and recovery settlement remain distinct.
 
-Exact-in competition uses fee-net output; exact-out competition uses actual
-fee-inclusive expected input. Min/max protections and gas are separate. Core
-redeem-exact-out still settles a fixed redemption lot: its actual burned
-`executionAmount` is compared, rather than the smaller advisory solver input.
+Exact-in competition uses fee-net output. Min/max protections and gas are
+separate. Backend exact-out modes and their fee-inclusive expected-input
+comparison remain available for explicit diagnostics and deferred feature
+work; the production form creates no output-target requests. Generated HTTP
+contracts and passthrough adapters retain those capabilities.
 Token MAX uses the spending wallet budget, so a Core mint cap cannot restrict a
 qualified market purchase.
 

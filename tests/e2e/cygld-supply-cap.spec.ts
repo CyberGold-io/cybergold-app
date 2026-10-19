@@ -100,8 +100,10 @@ async function installTwoAssetBasket(page: Page, xautWalletBalance: bigint, full
     descriptors: assets.map(token => ({ kind: 0, token, id: "0" })),
   } } : null;
   const requests: BasketPreviewRequest[] = [];
+  let remainingGross = 200n * unit;
+  let head = { ...context };
   const ceiling = (numerator: bigint, denominator: bigint) => (numerator + denominator - 1n) / denominator;
-  await install(page, "", undefined, false, assets);
+  await install(page, "", undefined, false, assets, () => head);
   await installReadOnlyWallet(page);
   await routeWalletBalances(page, route => route.fulfill({ json: { context,
     holder: "0x0000000000000000000000000000000000000011",
@@ -111,11 +113,11 @@ async function installTwoAssetBasket(page: Page, xautWalletBalance: bigint, full
     ],
   } }));
   await page.route("**/api/protocol/facts", route => route.fulfill({ json: {
-    context: { ...context, blockTimestamp: "1790800000" },
+    context: { ...head, blockTimestamp: "1790800000" },
     core: "0x00000000000000000000000000000000000000a1",
     helpers: "0x00000000000000000000000000000000000000b2", basketModel,
     issuanceCapacity: { totalSupply: success(String(50n * unit)),
-      maxTotalSupply: success(String(250n * unit)), effectiveCygldSupplyCap: success(String(250n * unit)) },
+      maxTotalSupply: success(String(50n * unit + remainingGross)), effectiveCygldSupplyCap: success(String(50n * unit + remainingGross)) },
     basket: { assets: success(assets), targetsPpm: success(weights.map(String)),
       goldRefGramsFp18: success([String(40n * unit), String(40n * 10n ** 30n)]),
       cygldPerUnitFp18: success(conversions.map(String)), metadata: [
@@ -134,14 +136,16 @@ async function installTwoAssetBasket(page: Page, xautWalletBalance: bigint, full
       const supported = request.maximumAmountsIn.map((amount, index) =>
         BigInt(amount) * conversions[index] / unit * 1_000_000n / weights[index]);
       gross = supported.reduce((smallest, amount) => amount < smallest ? amount : smallest);
-      if (gross > 200n * unit) gross = 200n * unit;
+      if (gross > remainingGross) return route.fulfill({ status: 422, json: {
+        code: "issuance-cap-exceeded", error: "Core issuance capacity exceeded", context: head,
+      } });
     } else {
       const net = BigInt(request.netCygldOut);
       gross = net > 0n ? net + (net - 1n) * 1000n / 999_000n : 0n;
     }
     const amounts = weights.map((weight, index) =>
       ceiling(ceiling(gross * weight, 1_000_000n) * unit, conversions[index]));
-    return route.fulfill({ json: { mode: request.mode, context,
+    return route.fulfill({ json: { mode: request.mode, context: head,
       helpers: "0x00000000000000000000000000000000000000b2", basketModel,
       result: { orderedCoreAssets: assets, amountsInExact: amounts.map(String),
         fees: { protocolFeeCygld: String(gross / 1000n), helperFeeCygld: "0" },
@@ -149,61 +153,59 @@ async function installTwoAssetBasket(page: Page, xautWalletBalance: bigint, full
       },
     } });
   });
-  return requests;
+  return { requests, setCapacity: (amount: bigint) => {
+    remainingGross = amount;
+    head = { ...head, blockHash: `0x${"c".repeat(64)}` };
+    if (basketModel) {
+      basketModel.context = head;
+      basketModel.state.maxSupply = String(50n * unit + amount);
+      basketModel.state.effectiveCap = String(50n * unit + amount);
+    }
+  } };
 }
 
-for (const scenario of [
-  { constraint: "the limiting second wallet", xautWalletBalance: 2_000_000n,
-    netOutput: "98.9108901", netOutputRaw: "98910890100000000000", paxgInput: "2.97", xautInput: "1.98",
-    maximumInputs: "2.99999997 PAXG + 2 XAUt" },
-  { constraint: "the supply cap", xautWalletBalance: 10_000_000n,
-    netOutput: "199.8", netOutputRaw: "199800000000000000000", paxgInput: "6", xautInput: "4",
-    maximumInputs: "6.06 PAXG + 4.04 XAUt" },
-]) {
-  for (const { side, fullModel } of [false, true].flatMap(fullModel =>
-    (["sell", "buy"] as const).map(side => ({ side, fullModel })))) {
-    test(`${fullModel ? "warm" : "cold"} two-asset basket ${side} MAX fits ${scenario.constraint}`, async ({ page }) => {
-      const requests = await installTwoAssetBasket(page, scenario.xautWalletBalance, fullModel);
-      await page.goto("/en");
-      await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
-      await page.getByRole("switch", { name: "Show only tokens available in wallet", exact: true }).uncheck();
-      await selectBasket(page);
-      await expect(page.getByTestId("cygld-purchase-capacity")).toHaveText("Available: 199.8 CYGLD");
-      const paxg = page.getByRole("textbox", { name: "Sell amount (PAXG)", exact: true });
-      const xaut = page.getByRole("textbox", { name: "Sell amount (XAUt)", exact: true });
-      const buy = page.locator("#buy-amount");
-      await paxg.fill("12");
-      await expect(xaut).toHaveValue("8");
-      await expect.poll(() => requests.at(-1)).toMatchObject({ mode: "issue-exact-in",
-        maximumAmountsIn: ["12000000000000000000", "8000000"] });
-      await expect(buy).toBeEnabled();
-      await expect(buy).toHaveValue("399.6");
-      for (const amount of [paxg, xaut, buy]) {
-        await expect(amount).toHaveAttribute("aria-invalid", "true");
-        await expect(amount).toHaveClass(/text-red-500/);
-      }
-      await expect(page.locator("#purchase-cap-warning")).toBeVisible();
-      await expect(page.getByRole("button", { name: /^Reduce/ })).toBeDisabled();
-
-      await page.getByRole("button", { name: side === "sell" ? "Use maximum sell amount" : "Use maximum purchase amount", exact: true }).click();
-      // MAX fits the smaller of capacity and every wallet's protected budget,
-      // then quotes all required inputs using their different basket weights.
-      await expect(buy).toHaveValue(scenario.netOutput);
-      await expect(page.getByRole("button", { name: "Edit sell amount (PAXG)", exact: true })).toHaveText(scenario.paxgInput);
-      await expect(page.getByRole("button", { name: "Edit sell amount (XAUt)", exact: true })).toHaveText(scenario.xautInput);
-      await expect(buy).not.toHaveAttribute("aria-invalid", "true");
-      for (const symbol of ["PAXG", "XAUt"]) {
-        await expect(page.getByRole("button", { name: `Edit sell amount (${symbol})`, exact: true })).not.toHaveClass(/text-red-500|text-text-amber/);
-      }
-      await expect(page.locator("#purchase-cap-warning")).toHaveCount(0);
-      await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
-      await expect.poll(() => requests.at(-1)).toMatchObject({ mode: "issue-exact-out", netCygldOut: scenario.netOutputRaw });
-      await page.getByRole("button", { name: /Total fee/ }).click();
-      await expect(page.getByTestId("swap-maximum-input")).toContainText(scenario.maximumInputs);
-      await expect(page.getByTestId("swap-minimum-output")).toHaveCount(0);
-    });
+for (const fullModel of [false, true]) for (const scenario of [
+  { xautWalletBalance: 2_000_000n, paxgInput: "3", xautInput: "2", netOutput: "99.9", overCap: false },
+  { xautWalletBalance: 10_000_000n, paxgInput: "15", xautInput: "10", netOutput: "499.5", overCap: true },
+]) test(`${fullModel ? "warm" : "cold"} basket MAX follows wallet proportions independently of Core capacity: ${scenario.xautInput} XAUt`, async ({ page }) => {
+  const { requests, setCapacity } = await installTwoAssetBasket(page, scenario.xautWalletBalance, fullModel);
+  await page.goto("/en");
+  await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
+  await page.getByRole("switch", { name: "Show only tokens available in wallet", exact: true }).uncheck();
+  await selectBasket(page);
+  const paxg = page.getByRole("textbox", { name: "Sell amount (PAXG)", exact: true });
+  const xaut = page.getByRole("textbox", { name: "Sell amount (XAUt)", exact: true });
+  await page.getByRole("button", { name: "Use maximum sell amount", exact: true }).click();
+  await expect(paxg).toHaveValue(scenario.paxgInput);
+  await expect(xaut).toHaveValue(scenario.xautInput);
+  await expect.poll(() => requests.at(-1)).toMatchObject({ mode: "issue-exact-in", maximumAmountsIn: [
+    String(BigInt(scenario.paxgInput) * unit), String(BigInt(scenario.xautInput) * 1_000_000n),
+  ] });
+  await expect(page.getByRole("button", { name: "Use maximum purchase amount", exact: true })).toHaveCount(0);
+  if (scenario.overCap) {
+    await expect(page.locator("#purchase-cap-warning")).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Reduce/ })).toBeDisabled();
+  } else {
+    await expect(page.locator("#buy-amount")).toHaveValue(scenario.netOutput);
+    await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
   }
-}
+  setCapacity(600n * unit);
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
+  await page.getByRole("button", { name: /Total fee/ }).click();
+  await page.locator("#execution-tolerance").fill("0.5");
+  await page.locator("#execution-tolerance").blur();
+  await expect(page.getByRole("slider", { name: "Adjust execution tolerance", exact: true })).toHaveValue("0.5");
+  await page.getByRole("button", { name: "Use maximum sell amount", exact: true }).click();
+  await expect(paxg).toHaveValue(scenario.paxgInput);
+  await expect(xaut).toHaveValue(scenario.xautInput);
+  await expect.poll(() => requests.at(-1)).toMatchObject({ mode: "issue-exact-in", maximumAmountsIn: [
+    String(BigInt(scenario.paxgInput) * unit), String(BigInt(scenario.xautInput) * 1_000_000n),
+  ] });
+  await expect(page.locator("#buy-amount")).toHaveValue(scenario.netOutput);
+  await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
+  expect(requests.every(request => request.mode === "issue-exact-in")).toBe(true);
+});
 
 test("cold optional Core capacity does not restrict trading and connected MAX uses the wallet budget", async ({ page }) => {
   await installCapacity(page, 50n, false); await installReadOnlyWallet(page);
@@ -213,7 +215,7 @@ test("cold optional Core capacity does not restrict trading and connected MAX us
   await choose(page, "WETH");
   await expect(page.getByTestId("cygld-purchase-capacity")).toHaveCount(0);
   expect(requests).toHaveLength(0);
-  await page.getByRole("button", { name: "Use maximum purchase amount", exact: true }).click();
+  await page.getByRole("button", { name: "Use maximum sell amount", exact: true }).click();
   await expect(page.locator("#sell-amount")).toHaveValue("1000");
   await expect(page.locator("#buy-amount")).toHaveValue("199.8");
   await expect.poll(() => requests.at(-1)).toMatchObject({ mode: "issue-exact-in", amount: String(1000n * unit) });
@@ -233,30 +235,6 @@ for (const width of [1280, 390]) {
     await page.screenshot({ path: `out/audit/cygld-supply-cap/${width}-fr.png`, fullPage: true });
   });
 }
-
-test("a Core cap rejection retains the exact-output intent, refreshes facts and uses inline feedback", async ({ page }) => {
-  const fixture = await installCapacity(page);
-  await routeCoreIntent(page, async route => {
-    const request = route.request().postDataJSON() as QuoteIntentRequest;
-    if (request.amount !== String(300n * unit)) return route.fallback();
-    fixture.setSupply(100n);
-    await route.fulfill({ contentType: "application/x-ndjson", body: JSON.stringify({ type: "error",
-      code: "issuance-cap-exceeded", error: "private cap diagnostic", correlationId: "fixture" }) + "\n" });
-  });
-  await page.goto("/en"); await choose(page, "WETH");
-  const initialReads = fixture.reads(), buy = page.locator("#buy-amount");
-  await buy.click(); await buy.fill("300");
-  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveText("Reduce the amount");
-  await expect(page.getByText("private cap diagnostic", { exact: true })).toHaveCount(0);
-  await expect(buy).toHaveValue("300");
-  await expect(buy).not.toHaveAttribute("aria-invalid", "true");
-  await expect(page.locator("#purchase-cap-warning")).toHaveCount(0);
-  await expect(page.locator("[data-sonner-toast]")).toHaveCount(0);
-  await expect.poll(() => fixture.reads()).toBe(initialReads + 1);
-  await buy.fill("1"); await expect(page.locator("#sell-amount")).toHaveValue("1");
-  await expect(page.getByTestId("trade-mechanism")).toHaveCount(0);
-  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveCount(0);
-});
 
 test("an exhausted Core cap leaves CYGLD redemption usable", async ({ page }) => {
   await installCapacity(page, 250n); await installReadOnlyWallet(page);
@@ -365,7 +343,7 @@ for (const width of [1280, 390]) {
   });
 }
 
-for (const side of ["sell", "buy"] as const) {
+for (const side of ["sell"] as ("sell" | "buy")[]) {
   test(`connected ${side} MAX uses the wallet budget while Core refunds the capped remainder`, async ({ page }) => {
     await installCapacity(page); await installReadOnlyWallet(page);
     const requests = await routeCapQuotes(page);
@@ -385,7 +363,7 @@ for (const side of ["sell", "buy"] as const) {
   });
 }
 
-for (const side of ["sell", "buy"] as const) {
+for (const side of ["sell"] as ("sell" | "buy")[]) {
   test(`disconnected ${side} MAX never substitutes Core capacity for an unknown wallet budget`, async ({ page }) => {
     await installCapacity(page);
     const requests: QuoteIntentRequest[] = [];
@@ -395,31 +373,15 @@ for (const side of ["sell", "buy"] as const) {
         code: "quote-no-route", error: "Fixture DEX route unavailable", correlationId: "fixture" }) + "\n" });
     });
     await page.goto("/en"); await choose(page, "WETH");
-    const buy = page.locator("#buy-amount"); await buy.click(); await buy.fill("300");
+    const sell = page.locator("#sell-amount"); await sell.fill("300");
     await expect(page.getByText("No exchange route is available for this amount.", { exact: true })).toBeVisible();
     await expect(page.getByRole("button", { name: side === "sell" ? "Use maximum sell amount" : "Use maximum purchase amount", exact: true })).toHaveCount(0);
-    await expect(buy).toHaveValue("300");
-    await expect(buy).not.toHaveAttribute("aria-invalid", "true");
+    await expect(sell).toHaveValue("300");
+    await expect(sell).not.toHaveAttribute("aria-invalid", "true");
     await expect(page.locator("#purchase-cap-warning")).toHaveCount(0);
-    expect(requests.at(-1)).toMatchObject({ mode: "issue-exact-out", amount: String(300n * unit) });
+    expect(requests.at(-1)).toMatchObject({ mode: "issue-exact-in", amount: String(300n * unit) });
   });
 }
-
-test("purchase MAX switches an editable output intent to the connected input wallet budget", async ({ page }) => {
-  await installCapacity(page); await installReadOnlyWallet(page);
-  const requests = await routeCapQuotes(page);
-  await page.goto("/en"); await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
-  await choose(page, "WETH");
-  const buy = page.locator("#buy-amount"), sell = page.locator("#sell-amount");
-  await buy.click(); await buy.fill("300");
-  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveText("Reduce the amount");
-  await expect(page.getByText("private cap diagnostic", { exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Use maximum purchase amount", exact: true }).click();
-  await expect(buy).toHaveValue("199.8"); await expect(sell).toHaveValue("1000");
-  await expect.poll(() => requests.at(-1)).toMatchObject({ mode: "issue-exact-in", amount: String(1000n * unit) });
-  await expect(buy).not.toHaveAttribute("aria-invalid", "true");
-  await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
-});
 
 test("a late wallet-budget MAX quote cannot overwrite a newer manual input amount", async ({ page }) => {
   await installCapacity(page); await installReadOnlyWallet(page);
@@ -436,9 +398,9 @@ test("a late wallet-budget MAX quote cannot overwrite a newer manual input amoun
   await page.goto("/en"); await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
   await choose(page, "WETH");
   const buy = page.locator("#buy-amount"), sell = page.locator("#sell-amount");
-  await buy.click(); await buy.fill("1"); await expect(sell).toHaveValue("1");
+  await sell.fill("1"); await expect(buy).toHaveValue("1");
   try {
-    await page.getByRole("button", { name: "Use maximum purchase amount", exact: true }).click();
+    await page.getByRole("button", { name: "Use maximum sell amount", exact: true }).click();
     await expect.poll(() => maxStarted).toBe(true);
     await sell.fill("10"); await expect(buy).toHaveValue("10");
     releaseMax();

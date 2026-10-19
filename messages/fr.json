@@ -115,6 +115,7 @@
     "cygldSupplyCapDetails": "Plafond actuel : {cap} CYGLD. En circulation : {supply} CYGLD. Le montant disponible à l’achat tient compte des frais.",
     "reverseSwapDirection": "Inverser le sens de l’échange",
     "quoteEstimate": "Estimation — préparation du devis final",
+    "receiveAmountDescription": "Montant reçu estimé. Modifiez le montant vendu pour actualiser cette estimation.",
     "title": "Swap",
     "showOnlyWalletTokens": "Uniquement les tokens du portefeuille",
     "showOnlyWalletTokensShort": "Tokens disponibles",

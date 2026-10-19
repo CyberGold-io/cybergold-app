@@ -27,7 +27,7 @@ test("a long exact quote completes across head changes, then resumes refresh and
   const pendingStarts = observed.intents.length;
   finish();
   await expect(computed).toHaveValue("1");
-  await expect(computed).toBeEnabled();
+  await expect(computed).not.toHaveAttribute("aria-busy", "true");
   await expect(page.getByTestId("quote-estimate-description")).not.toBeAttached();
   waiting = new Promise<void>(resolve => { finish = resolve; });
   head = { ...head, blockNumber: "104", blockHash: `0x${"5".padStart(64, "0")}` };
@@ -47,7 +47,7 @@ test("a long exact quote completes across head changes, then resumes refresh and
   expect(observed.intents.at(-1)?.amount).toBe("2000000000000000000");
   expect((observed.rawIntents.at(-1) as TradeQuoteRequest).retainedPlan).toBeUndefined();
   finish();
-  await expect(computed).toBeEnabled();
+  await expect(computed).not.toHaveAttribute("aria-busy", "true");
   await test.info().attach("head-completion-measurement", { contentType: "application/json", body: JSON.stringify({
     variant: process.env.QUOTE_HEAD_COMPLETION_BASELINE === "1" ? "baseline" : "completion-preserved",
     headChangesWhilePending: 3, logicalPendingMs: 36_750, pendingIntentStarts: pendingStarts,
@@ -111,7 +111,7 @@ test("unchanged heads cause no quote/fee refresh; same-height replacement refres
   await choose(page, "WETH");
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
   const computed = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
-  await expect(computed).toBeEnabled();
+  await expect(computed).not.toHaveAttribute("aria-busy", "true");
   await expect(computed).not.toHaveValue("");
   await expect(computed).toHaveValue("1"); // Completed execution quote, after its initial display estimate.
   // Wallet-free gas starts at mount; development Strict Mode can cancel and
@@ -130,10 +130,10 @@ test("unchanged heads cause no quote/fee refresh; same-height replacement refres
   await expect.poll(() => observed.quotes.length).toBeGreaterThan(initial.quotes);
   await expect(computed).toHaveValue(value);
   await expect(page.getByRole("status").filter({ hasText: "Estimate — preparing final quote" })).toBeHidden();
-  await expect(computed).toBeEnabled();
+  await expect(computed).not.toHaveAttribute("aria-busy", "true");
   await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
   finish();
-  await expect(computed).toBeEnabled();
+  await expect(computed).not.toHaveAttribute("aria-busy", "true");
   await page.clock.runFor(5_000);
   expect(fees).toBe(initial.fees + 1);
   expect(facts).toBe(initial.facts + 1);
@@ -141,7 +141,7 @@ test("unchanged heads cause no quote/fee refresh; same-height replacement refres
   head = { ...head, blockHash: `0x${"c".repeat(64)}` };
   await page.clock.runFor(12_000);
   await expect.poll(() => fees).toBeGreaterThanOrEqual(initial.fees + 2); // Ordinary failed-read retries remain independent.
-  await expect(computed).toBeEnabled();
+  await expect(computed).not.toHaveAttribute("aria-busy", "true");
   await expect(computed).toHaveValue(value);
   await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
 });
@@ -154,16 +154,16 @@ test("revisiting an amount at one head reuses route observations and exact previ
   const computed = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
   await edited.fill("1");
   await page.waitForTimeout(250);
-  await expect(computed).toBeEnabled();
+  await expect(computed).not.toHaveAttribute("aria-busy", "true");
   await expect(computed).not.toHaveValue("");
   await edited.fill("2");
   await page.waitForTimeout(250);
   await expect.poll(() => observed.quotes.filter(mode => mode === "exact-in").length).toBe(2);
-  await expect(computed).toBeEnabled();
+  await expect(computed).not.toHaveAttribute("aria-busy", "true");
   const before = { quotes: observed.quotes.length, previews: observed.previews.length };
   await edited.fill("1");
   await page.waitForTimeout(250);
-  await expect(computed).toBeEnabled();
+  await expect(computed).not.toHaveAttribute("aria-busy", "true");
   await expect(computed).not.toHaveValue("");
   expect({ quotes: observed.quotes.length, previews: observed.previews.length }).toEqual(before);
 });

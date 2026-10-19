@@ -18,7 +18,14 @@ Current coverage:
 - open the wallet menu
 - verify the balances modal is visible
 - verify funded token rows are present
-- test issue and redeem basket flows, including exact-in, exact-out, validation, toggle, and quoted-value click behavior
+- test input-driven issue and redeem flows, validation, read-only receive amounts and direction changes
+
+The active App accepts spend amounts only. Output-entry journeys and the old
+output-target MAX solver tests remain under
+[deferred-exact-out](./deferred-exact-out/README.md), explicitly excluded from
+ordinary browser, wallet and unit discovery. Shared execution/component tests
+continue covering internal exact-output selectors required by input-budget
+purchases. Existing named direct provider diagnostics remain available.
 
 ## Files
 
@@ -429,16 +436,16 @@ npm run test:e2e:metamask:cache -- --force --debug
 
 ## Basket Flow Tests
 
-The basket flow specs live in `metamask/basket-flows` and cover the four swap modes:
+The active basket specs live in `metamask/basket-flows` and cover spend-driven
+issuance and redemption:
 
 - `Issue From Basket Exact In`
-  The user enters exact PAXG and XAUt basket inputs. The app quotes the CYGLD output, shows fee details, submits through MetaMask, and verifies CYGLD increases while basket-token balances decrease. Validation checks insufficient basket-token balance. Toggle and quoted-CYGLD click tests verify switching to the matching exact-out or redeem mode preserves the quote correctly.
-- `Issue From Basket Exact Out`
-  The user requests an exact CYGLD output. The app calculates the required PAXG and XAUt inputs, keeps calculated basket fields read-only, shows fee details, and submits through MetaMask. Validation checks that an overlarge CYGLD request disables the swap. Toggle and quoted-basket click tests verify conversion to exact-in and redeem flows.
+  The user enters PAXG and XAUt spend budgets. The app quotes CYGLD, shows fee details, submits through MetaMask, and verifies actual CYGLD received and basket inputs spent. Validation checks insufficient basket-token balances.
 - `Redeem To Basket Exact In`
-  The user enters exact CYGLD input. The app quotes PAXG and XAUt outputs, shows fee details, submits through MetaMask, and verifies CYGLD decreases while basket-token balances increase. Validation checks zero or negative CYGLD input. Toggle and quoted-basket click tests verify switching to issue exact-out or redeem exact-out.
-- `Redeem To Basket Exact Out`
-  The user requests exact PAXG and XAUt basket outputs. The app calculates the required CYGLD input, keeps the calculated CYGLD field read-only, shows fee details, and submits through MetaMask. Validation checks impossible basket output requests. Toggle and quoted-CYGLD click tests verify switching to issue exact-in or redeem exact-in.
+  The user enters CYGLD to sell. The app quotes read-only PAXG and XAUt outputs, shows fee details, submits through MetaMask, and verifies the complete settlement vector. Validation checks zero or negative CYGLD input.
+
+Original output-entry, quoted-value mode switching and cross-mode reversal
+journeys remain in the [deferred suites](./deferred-exact-out/README.md).
 
 ## Troubleshooting
 

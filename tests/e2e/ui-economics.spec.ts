@@ -1,8 +1,7 @@
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, type Address, type Hex } from "viem";
 import { expect, test } from "./fixtures/app-test";
 import { install as installTokens } from "./fixtures/token-quotes";
-import { install as installBasket } from "./fixtures/basket-quotes";
-import { ensureBasketInputEditable, getMainInput, getSwapButton, openFeeDetails, selectToken, showAllSellTokens } from "../metamask/token-flows/helpers";
+import { getMainInput, getSwapButton, openFeeDetails, selectToken, showAllSellTokens } from "../metamask/token-flows/helpers";
 import { armUiQuoteCapture, capturedUiQuote, quoteAssets } from "../trading/uiQuoteCapture";
 import { uiReceiptResult } from "../trading/uiReceipt";
 import { confirmedTransactionText } from "../trading/uiDiagnostics";
@@ -71,27 +70,6 @@ test("actual App click captures refreshed displayed amounts and committed tolera
   const wrong = structuredClone(quote); wrong.output[0].amount = "3000000000000000000";
   expect(() => uiReceiptResult(scenario, config, owner, data, receipt(event("Issued", { payer: owner, recipient: owner, inputToken: tokenAddresses.USDC,
     inputUsed: 2000000n, netCygldOut: 2000000000000000000n, protocolFeeCygld: 2000000000000000n, helperFeeCygld: 0n })), 2000000n, [], wrong)).toThrow(/ui-calldata-output-tolerance-missed/);
-});
-
-test("actual basket exact-out capture reads its quoted inactive side without changing input mode", async ({ page }) => {
-  await installBasket(page); await installReadOnlyWallet(page); await page.goto("/en");
-  await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible(); await showAllSellTokens(page);
-  await selectToken(page, "sell", "CYGLD"); await selectToken(page, "buy", "BASKET");
-  await (await ensureBasketInputEditable(page, "buy")).fill("0.002");
-  await expect(getMainInput(page, "sell")).toHaveValue("1");
-  await openFeeDetails(page);
-  await page.locator("#execution-tolerance").fill("0.25");
-  await expect(page.getByTestId("swap-maximum-input")).toContainText("1 CYGLD");
-  const scenario = tradeScenarios.find(row => row.id === "core-redeem-basket-exact-out")!, assets = quoteAssets(scenario, config, [tokenAddresses.PAXG]);
-  const button = await getSwapButton(page); await armUiQuoteCapture(button, assets); await button.click();
-  const quote = await capturedUiQuote(page, assets, "exact-out");
-  expect(quote.output[0].amount).toBe("2000000000000000"); expect(quote.inputMode).toBe("exact-out");
-  const maximum = BigInt(quote.executionBound.amounts[0].amount), output = 2000000000000000n;
-  const data = encodeFunctionData({ abi: HELPERS_EXECUTION_ABI, functionName: "redeemToBasketExactIn", args: [{ grossCygldIn: maximum, recipient: owner,
-    expectedCoreOutputs: [{ kind: 0, token: tokenAddresses.PAXG, id: 0n, minimumAmount: output }] }] });
-  expect(uiReceiptResult(scenario, config, owner, data, receipt(event("RedeemedToBasket", { payer: owner, recipient: owner,
-    grossCygldIn: maximum, kinds: [0], tokens: [tokenAddresses.PAXG], ids: [0n], amounts: [output], protocolFeeCygld: 1000000000000000n,
-    helperFeeCygld: 1000000000000000n })), output, [output], quote).status).toBe("pass");
 });
 
 test("confirmation observer accepts either visible existing Core card/toast despite duplicate hidden text", async ({ page }) => {

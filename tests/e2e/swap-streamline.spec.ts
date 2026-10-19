@@ -25,12 +25,17 @@ test("a fresh disconnected form asks for a sell token and exposes all receive as
   await buy.getByRole("button", { name: "USDC USDC USDC", exact: true }).click();
   await expect(pickers.first()).toHaveText("CYGLD");
   await expect(pickers.last()).toHaveText("USDC");
+  // A changed spend asset needs a fresh amount in that asset's units.
+  await expect(page.locator("#sell-amount")).toHaveValue("");
+  expect(observed.intents.some(intent => intent.mode === "redeem-exact-in")).toBe(false);
+  await page.locator("#sell-amount").fill("1");
   await expect.poll(() => observed.intents.some(intent => intent.mode === "redeem-exact-in")).toBe(true);
   // Choosing CYGLD again restores the valid opposite side, including reload.
   await pickers.last().click();
   await buy.getByRole("button", { name: "CYGLD CyberGold CYGLD", exact: true }).click();
   await expect(pickers.first()).toHaveText("USDC");
   await expect(pickers.last()).toHaveText("CYGLD");
+  await expect(page.locator("#sell-amount")).toHaveValue("");
   await page.reload();
   await expect(pickers.first()).toHaveText("USDC");
   await expect(pickers.last()).toHaveText("CYGLD");

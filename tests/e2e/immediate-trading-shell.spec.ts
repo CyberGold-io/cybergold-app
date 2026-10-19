@@ -155,17 +155,17 @@ test("connected MAX and balance slots render before configuration and remain dis
     const sellMax = page.getByRole("button", { name: "Use maximum sell amount", exact: true });
     const buyMax = page.getByRole("button", { name: "Use maximum purchase amount", exact: true });
     await expect(sellMax).toBeVisible(); await expect(sellMax).toBeDisabled();
-    await expect(buyMax).toBeVisible(); await expect(buyMax).toBeDisabled();
+    await expect(buyMax).toHaveCount(0);
     await expect(page.getByTestId("sell-wallet-balance")).toContainText("...");
     await expect(page.getByTestId("buy-wallet-balance")).toContainText("...");
     const before = await sellMax.boundingBox();
     configuration.release();
     await expect.poll(balances.requests).toBeGreaterThan(0);
     await expect(page.getByTestId("sell-wallet-balance")).toContainText("... PAXG");
-    await expect(sellMax).toBeDisabled(); await expect(buyMax).toBeDisabled();
+    await expect(sellMax).toBeDisabled(); await expect(buyMax).toHaveCount(0);
     balances.release();
     await expect(page.getByTestId("sell-wallet-balance")).toContainText("20 PAXG");
-    await expect(sellMax).toBeEnabled(); await expect(buyMax).toBeEnabled();
+    await expect(sellMax).toBeEnabled(); await expect(buyMax).toHaveCount(0);
     const after = await sellMax.boundingBox();
     expect(after!.width).toBe(before!.width); expect(after!.height).toBe(before!.height);
     expect(await page.evaluate(() => (window as unknown as { __shellWalletMethods: string[] }).__shellWalletMethods)
