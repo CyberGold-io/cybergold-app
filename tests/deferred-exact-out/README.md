@@ -1,7 +1,7 @@
 ---
 title: Retained exact output test journeys
 doc_type: test-guide
-status: future-work
+status: active
 owner: app-maintainer
 created: 2026-10-19
 last_reviewed: 2026-10-19
