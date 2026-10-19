@@ -239,7 +239,7 @@ def main() -> None:
             "testInputSha256": {path: hashlib.sha256((work / path).read_bytes()).hexdigest() for path in test_paths},
             "contractsSha256": hashlib.sha256(args.contracts_json.read_bytes()).hexdigest(),
             "fundingSha256": hashlib.sha256(args.funding_json.read_bytes()).hexdigest(),
-            "scope": "Sixteen UI-selected funded paths with displayed amounts, committed tolerance and integer wallet deltas (gas separate), plus independent 20-case Core/market matrix with amount bounds, actual mined operation, authorization and receipts; rejection and three session/network cases; real Python API/native PG18/production Next.js; no product or receipt interception",
+            "scope": "24 exact-input UI-selected funded paths with displayed amounts, committed tolerance and integer wallet deltas (gas separate), Core/Market provider assessments and qualified retained alternates; existing named producer diagnostics remain separate; rejection and three session/network cases; real Python API/native PG18/production Next.js; no product or receipt interception",
             "wallet": "New disposable seed/profile; no owner wallet or B2B/public-chain write",
         })
         checkpoint("wallet-cache")

@@ -12,15 +12,16 @@ import { basketFacts, configuredToken, ScenarioUnavailableError, tradeScenarios,
 import { failureResult, matchesBasketIntent, requireInvariant, resultFor, tokenRequest, validateBasket, validateTrade, type ScenarioResult } from "./regression.ts";
 import { installQuoteObservation, quoteObservations, type QuoteObservation } from "./quoteObservation.ts";
 import { observedBasketProviderEvidence, providerSummaries, planDigest, type ProviderQuote } from "./providerEvidence.ts";
-import type { MatrixScenario, ValuationSnapshot } from "./matrix.ts";
+import { activeScenarios, type MatrixScenario, type ValuationSnapshot } from "./matrix.ts";
 import { basketQualityTerms, tradeQualityTerms, enrichResultQuality } from "./quoteQuality.ts";
 import { safeRunnerError } from "./runnerDiagnostics.ts";
 import { positiveDisplayedAmount } from "./uiEconomics.ts";
+import { basketAmountControls, displayedUiAmount } from "./uiQuoteCapture.ts";
 import { regressionPolicy, unexpectedFailure, type RegressionRunPolicy } from './runPolicy.ts';
 
 /** Real App interactions: no routes, mocked responses or injected wallet. */
 export async function observeBrowserQuotes(origin: string, config: ProtocolConfiguration, facts: ProtocolFacts,
-  inventory: readonly Scenario[] = tradeScenarios.filter(s => s.requestedStrategy === "core"),
+  inventory: readonly Scenario[] = activeScenarios(tradeScenarios.filter(s => s.requestedStrategy === "core")),
   checkpoint?: (results: readonly ScenarioResult[]) => Promise<void>, valuation?: ValuationSnapshot,
   runPolicy: RegressionRunPolicy = 'full'): Promise<ScenarioResult[]> {
   const results: ScenarioResult[] = [];
@@ -118,12 +119,13 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
         }
         const quotedSide = editedSide === "sell" ? "buy" : "sell";
         if (scenario.asset === "BASKET" && !basketEdited) {
-          await expect.poll(() => page.locator(`#${quotedSide}-basket-composition`).getByRole("button", {
-            name: new RegExp(`^Edit ${quotedSide} amount \\(`),
-          }).allTextContents().then(amounts => amounts.some(amount => positiveDisplayedAmount(amount, 18))), { timeout: 15_000 }).toBe(true);
+          await expect.poll(async () => {
+            const amounts = await Promise.all((await basketAmountControls(page, quotedSide).all()).map(displayedUiAmount));
+            return amounts.some(amount => positiveDisplayedAmount(amount, 18));
+          }, { timeout: 15_000 }).toBe(true);
         } else {
           const decimal = config.tokens.find(token => token.symbol.toUpperCase() === (quotedSide === "buy" ? receive : sell))?.decimals ?? 18;
-          await expect.poll(async () => positiveDisplayedAmount(await getMainInput(page, quotedSide).inputValue(), decimal), { timeout: 15_000 }).toBe(true);
+          await expect.poll(async () => positiveDisplayedAmount(await displayedUiAmount(getMainInput(page, quotedSide)), decimal), { timeout: 15_000 }).toBe(true);
         }
         result.status = "pass"; result.executionStage = "complete"; delete result.code;
       } catch (error) { result = { ...failureResult(result, error), ...safeRunnerError(error), requestedStrategy: "auto" }; }

@@ -25,14 +25,15 @@ test('private phases keep the sequential matrix and select one independent scena
   assert.equal(privateSandboxPhase('prepare'), 'prepare');
   assert.throws(() => privateSandboxPhase('reset-shared-chain'), /private-sandbox-phase-invalid/);
   const frozen = structuredClone(matrix);
-  assert.equal(privateSandboxScenarios(matrix, undefined).length, 48);
-  assert.equal(privateSandboxScenarios(matrix, 'prepare').length, 48);
+  assert.equal(privateSandboxScenarios(matrix, undefined).length, 24);
+  assert.equal(privateSandboxScenarios(matrix, 'prepare').length, 24);
+  assert.ok(matrix.every(scenario => scenario.inputMode === 'exact-in'));
   assert.deepEqual(privateSandboxScenarios(matrix, 'winner', `ui-${matrix[4].id}`), [matrix[4]]);
   assert.deepEqual(privateSandboxScenarios(matrix, 'alternate', matrix[4].id), [matrix[4]]);
   // A collateral-only setup must not remove native cases or resize their
   // captured user inputs when the host selects an independent role.
   const native = matrix.filter(scenario => scenario.asset === 'ETH');
-  assert.equal(native.length, 12);
+  assert.equal(native.length, 6);
   for (const scenario of native) for (const role of ['winner', 'alternate'] as const) {
     const [selected] = privateSandboxScenarios(matrix, role, scenario.id);
     const request = tokenRequest(selected, config, config.contracts.helpers!);

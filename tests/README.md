@@ -4,7 +4,7 @@ doc_type: test-guide
 status: active
 owner: app-maintainer
 created: 2026-07-11
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-19
 canonical_for: App Playwright and Synpress end-to-end test operation
 ---
 
@@ -129,9 +129,9 @@ registry access first, or pass an already-built local Python image. On Linux
 run the command under `xvfb-run -a` if no desktop display is available. The
 extension runs in headed mode; a virtual display supplies its browser windows.
 
-The command runs the session/network scenarios and the shared 48-scenario UI
+The command runs the session/network scenarios and the shared 24-scenario UI
 matrix in [fixed-api-roundtrips.spec.ts](./metamask/fixed-api-roundtrips.spec.ts).
-It enters PAXG, USDC, native ETH and basket buy/sell intents in both amount modes
+It enters PAXG, USDC, native ETH and basket buy/sell exact-input intents
 at three nominal sizes, signs through MetaMask, and checks actual operation,
 integer bounds, fees, refunds, native gas and wallet effects on its owned fork.
 The other qualified provider plan receives a separate retained-plan execution
@@ -156,8 +156,9 @@ restores the shared Sandbox.
 Both UI suites use funded PAXG for the one-time wallet cancellation check before
 the PAXG bootstrap. The check still requires a real MetaMask rejection and an
 unchanged CYGLD balance. It does not require an unrelated ETH route to quote
-before other scenarios can start. All twelve native ETH scenarios remain in the
-matrix, with their original amount, direction and exact-input/output mode.
+before other scenarios can start. All six active native ETH scenarios remain in
+the matrix, with both directions and three nominal sizes. The twelve both-mode
+ETH definitions remain available with the complete retained capability inventory.
 
 Before every winner or alternate attempt, the host restores that prepared owned
 snapshot, recreates the private PostgreSQL database and Backend process, and
@@ -209,12 +210,27 @@ are separate workstreams; this command introduces no required CI job.
 
 ### Deployed regression runner
 
-[matrix.ts](./trading/matrix.ts) builds one inventory: four counterasset choices
-(PAXG, USDC, native ETH, basket), two directions, two amount modes and three
-nominal dollar tiers ($1/$100/$10,000). This means **48 primary UI journeys,
-96 Core/Market assessment slots and up to 96 trade executions**, comprising
-48 UI winners and 48 retained alternates when qualified. Setup, approvals,
+[matrix.ts](./trading/matrix.ts) retains the complete capability definitions: four
+counterasset choices (PAXG, USDC, native ETH, basket), two directions, two amount
+modes and three nominal dollar tiers ($1/$100/$10,000), totaling 48 definitions.
+Its shared active selector chooses exact-input journeys for ordinary quote,
+wallet, private independent and fork matrices. This means **24 primary UI
+journeys, 48 Core/Market assessment slots and up to 48 trade executions**,
+comprising 24 UI winners and 24 retained alternates when qualified. Setup, approvals,
 supplementary tests and diagnostic repetitions have separate counts.
+
+The complete `matrixTemplates()` inventory and legacy `tradeScenarios` keep their
+exact-output definitions and stable IDs. Existing explicitly named provider
+diagnostics remain separate and retain their actual selected amount mode; they
+report one selected scenario and one provider assessment. This change adds no
+bulk provider mode, amount-mode flag or output-editing switch. Diagnostic/full
+run policy remains independent: full runs finish the selected exact-input
+inventory. Component exact-output execution tests remain necessary for
+input-budget purchases.
+
+The low-level browser observer's omitted-inventory compatibility fallback uses
+eight legacy exact-input Core seeds. Operating entry points supply the sized
+24-case matrix explicitly; the fallback is not a second operating profile.
 
 Case IDs retain the existing `core-issue` and `core-redeem` economic-family
 labels for report compatibility. Those labels do not choose the provider:

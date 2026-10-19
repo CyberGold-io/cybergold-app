@@ -4,11 +4,12 @@ import { addLocalNetwork, connectWallet, notification, walletRequestButton, requ
 import { ensureBasketInputEditable, getMainInput, getSwapButton, openFeeDetails, readWalletBalances, selectToken, showAllSellTokens } from "./token-flows/helpers";
 import { readFile, writeFile, rename } from "node:fs/promises";
 import { type Address, type Hex } from "viem";
-import { tradeScenarios, configuredToken, basketFacts, ScenarioUnavailableError } from "../trading/scenarios";
+import { configuredToken, basketFacts, ScenarioUnavailableError } from "../trading/scenarios";
 import { checkpointExecutionStage, failureResult, originFetch, readJson, requireInvariant, resultFor, type ExecutionStage, type ScenarioResult, type UiObservationPhase } from "../trading/regression";
 import { observeUiReceipt } from "../trading/uiReceipt";
 import { assertCapturedTradeInput } from "../trading/planAssertions";
-import { armUiQuoteCapture, capturedUiQuote, quoteAssets } from "../trading/uiQuoteCapture";
+import { armUiQuoteCapture, basketAmountControls, capturedUiQuote, displayedUiAmount, quoteAssets } from "../trading/uiQuoteCapture";
+import { setupPurchase } from "../trading/setupPurchase";
 import { assertWalletEconomics, positiveDisplayedAmount, walletAmounts, walletEvidence } from "../trading/uiEconomics";
 import { expectWalletBalanceDisplay } from "../trading/uiWalletDisplay";
 import { observeUiGas, ownedReceiptGas } from "../trading/uiGas";
@@ -17,7 +18,7 @@ import { fundSandboxWallet } from "../trading/sandboxFunding";
 import { fetchTransactionReceipt } from "../../app/utils/transactionReceipt";
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration";
 import type { ProtocolFacts } from "../../app/utils/protocolFacts";
-import { buildMatrix, readValuation, matrixTemplates, matrixCounts, assertMatrixIntent, type MatrixScenario } from "../trading/matrix";
+import { activeMatrixTemplates, buildMatrix, readValuation, matrixCountsFor, assertMatrixIntent, type MatrixScenario } from "../trading/matrix";
 import { installSelectionCapture, selectionCaptures, captureSelection, captureBasketSelection, executeAlternate, notAttemptedAlternate, providerSummaries, observedProviderEvidence, observedBasketProviderEvidence, executionCoverage, transactionDisposition, type SelectionCapture } from "../trading/providerEvidence";
 import { installQuoteObservation, quoteObservations } from "../trading/quoteObservation";
 import { safeDiagnosticReferences } from "../../app/utils/diagnosticReferences";
@@ -103,7 +104,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   const progress = { completedScenarioIds: [] as string[] };
   let diagnosticStop: { scenarioId: string; role: "winner" | "alternate" } | undefined;
   const privatePhase = privateSandboxPhase(process.env.TRADE_REGRESSION_PRIVATE_PHASE);
-  const scenarios = privateSandboxScenarios(matrixTemplates() as MatrixScenario[], privatePhase, process.env.TRADE_REGRESSION_PRIVATE_SCENARIO);
+  const scenarios = privateSandboxScenarios(activeMatrixTemplates() as MatrixScenario[], privatePhase, process.env.TRADE_REGRESSION_PRIVATE_SCENARIO);
   const isolation: SandboxIsolation | undefined = process.env.TRADE_REGRESSION_PRIVATE_ISOLATION
     ? sandboxIsolation(JSON.parse(await readFile(process.env.TRADE_REGRESSION_PRIVATE_ISOLATION, "utf8"))) : undefined;
   if (privatePhase && privatePhase !== 'prepare' && !isolation) throw new Error('private-sandbox-reset-evidence-unavailable');
@@ -120,7 +121,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     if (config) for (const row of [...results, ...fixtures]) enrichResultQuality(row, valuation, config);
     const path = process.env.TRADE_REGRESSION_UI_OUTPUT;
     await writeFile(path + ".tmp", JSON.stringify({ schema: "cybergold.trade-regression.v1", suite: privatePhase ? 'independent' : 'sequential', runPolicy, progress, diagnosticStop,
-      ...(isolation ? { isolation } : {}), matrix: matrixCounts, coverage: executionCoverage(results), valuation, scenarios: results, fixtures }, null, 2) + "\n");
+      ...(isolation ? { isolation } : {}), matrix: matrixCountsFor(scenarios), coverage: executionCoverage(results), valuation, scenarios: results, fixtures }, null, 2) + "\n");
     await rename(path + ".tmp", path);
   }
   async function checkpoint(stage: ExecutionStage) {
@@ -202,16 +203,16 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     const quotedToken = quotedSide === "buy" ? buy : sell;
     await checkpoint("ui-prepare-quote");
     if (quotedToken === "BASKET") {
-      const amounts = page.locator(`#${quotedSide}-basket-composition`).getByRole("button", { name: new RegExp(`^Edit ${quotedSide} amount \\(`) });
-      // The funded fixture contains PAXG and XAUt. Quoted basket amounts are
-      // buttons, while the editable token side retains its ordinary input.
+      const amounts = basketAmountControls(page, quotedSide);
+      // Both deployed edit buttons and the input-only App's read-only amounts
+      // expose the funded fixture's PAXG and XAUt quote without activating it.
       await expect(amounts).toHaveCount(2);
       for (const amount of await amounts.all()) {
-        await uiPreparationAssertion("ui-quoted-amount-not-ready", () => expect.poll(async () => positiveDisplayedAmount(await amount.innerText(), 18), { timeout: 60000 }).toBe(true));
+        await uiPreparationAssertion("ui-quoted-amount-not-ready", () => expect.poll(async () => positiveDisplayedAmount(await displayedUiAmount(amount), 18), { timeout: 60000 }).toBe(true));
       }
     } else {
       const decimals = configuredToken(config, quotedToken).decimals;
-      await uiPreparationAssertion("ui-quoted-amount-not-ready", () => expect.poll(async () => positiveDisplayedAmount(await getMainInput(page, quotedSide).inputValue(), decimals), { timeout: 60000 }).toBe(true));
+      await uiPreparationAssertion("ui-quoted-amount-not-ready", () => expect.poll(async () => positiveDisplayedAmount(await displayedUiAmount(getMainInput(page, quotedSide)), decimals), { timeout: 60000 }).toBe(true));
     }
     // The existing accordion contains the committed tolerance and exact
     // min/max labels. Expose them without editing the chosen trade intent.
@@ -379,7 +380,8 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   if (!privatePhase || privatePhase === 'prepare') {
   // Exercise wallet cancellation with funded collateral. ETH route readiness
   // belongs to its matrix cases, rather than every scenario's shared setup.
-  await prepare("PAXG", "CYGLD", "0.25", "buy");
+  const rejectionPurchase = setupPurchase(config, valuation!, "0.25", "fixture-wallet-rejection");
+  await prepare("PAXG", "CYGLD", rejectionPurchase.displayAmount);
   const beforeRejected = await readWalletBalances(page, ["cygld"]);
   await checkpoint("setup-rejection-submit");
   await (await getSwapButton(page)).click();
@@ -397,15 +399,14 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
 
   // A real setup trade gives redemption cases inventory even when later issue
   // quotes are unavailable. It is separate evidence, never a matrix pass.
-  const bootstrap = { ...tradeScenarios.find(scenario => scenario.id === "core-issue-paxg-exact-out")!,
-    id: "fixture-cygld-bootstrap", displayAmount: "5" };
+  const bootstrap = setupPurchase(config, valuation!, "5", "fixture-cygld-bootstrap");
   fixtures.push({ ...resultFor(bootstrap, "execution"), requestedStrategy: "auto" });
   activeFixtureIndex = 0; helpersHash = undefined; activeSwapAttempt = undefined;
   try { activeQuoteDiagnostics = createUiQuoteDiagnostics(bootstrap, config); } catch { /* Optional evidence cannot change setup. */ }
   const bootstrapStarted = performance.now(); await persist();
   try {
     observationPhase = "ui-prepare"; await checkpoint(observationPhase);
-    await prepare("PAXG", "CYGLD", bootstrap.displayAmount, "buy");
+    await prepare("PAXG", "CYGLD", bootstrap.displayAmount);
     observationPhase = "ui-balances"; await checkpoint(observationPhase);
     const walletBefore = await fetchWalletBalances(owner, undefined, fetcher, "swap-preflight");
     fixtures[0].code = "execution-not-completed"; await persist();
@@ -423,7 +424,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       && observed.transaction?.from.toLowerCase() === owner.toLowerCase(), "transaction-party-mismatch");
     observationPhase = "ui-receipt-assertions"; await checkpoint(observationPhase);
     const measuredReceipt = observeUiReceipt(bootstrap, config, owner, observed.transaction!.input, receipt,
-      BigInt(uiQuote.output[0].amount), [], uiQuote, fixtures[0]);
+      BigInt(uiQuote.input[0].amount), [], uiQuote, fixtures[0]);
     const validateWallet = await walletPostcheck(walletBefore, fixtures[0]);
     observationPhase = "ui-receipt-assertions"; await checkpoint(observationPhase); measuredReceipt.validate();
     observationPhase = "ui-balance-postchecks"; await checkpoint(observationPhase); await validateWallet();
@@ -445,7 +446,8 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     // frozen sizing inputs. Only the host that owns the fork takes its snapshot.
     requireInvariant(fixtures[0].status === 'pass', 'private-sandbox-bootstrap-failed');
     valuation = await readValuation(config, await readJson<ProtocolFacts>(fetcher, '/api/protocol/facts'), fetcher);
-    const prepared = { matrix: matrixCounts, valuation, scenarios: buildMatrix(config, valuation), walletAddress: owner };
+    const preparedScenarios = buildMatrix(config, valuation);
+    const prepared = { matrix: matrixCountsFor(preparedScenarios), valuation, scenarios: preparedScenarios, walletAddress: owner };
     if (!process.env.TRADE_REGRESSION_MATRIX) throw new Error('private-sandbox-matrix-output-unavailable');
     await writeFile(process.env.TRADE_REGRESSION_MATRIX, JSON.stringify(prepared, null, 2) + '\n', { mode: 0o600 });
     results.splice(0);

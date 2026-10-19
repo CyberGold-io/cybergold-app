@@ -9,7 +9,7 @@ import { build } from "esbuild";
 import { checkpointExecutionStage, executionStages, resultFor } from "../../tests/trading/regression.ts";
 import { tradeScenarios } from "../../tests/trading/scenarios.ts";
 import { protocolConfigurationFixture } from "../../tests/fixtures/protocol-configuration.ts";
-import { matrixTemplates } from "../../tests/trading/matrix.ts";
+import { activeMatrixTemplates } from "../../tests/trading/matrix.ts";
 
 test("execution checkpoints preserve pending outcomes and persist before the original wait", async () => {
   const rows = tradeScenarios.map(scenario => resultFor(scenario, "execution"));
@@ -51,8 +51,10 @@ test("active fixture checkpoints do not rewrite matrix stages or successful econ
 async function heldSuite(suite: "ui" | "independent", stop: "network-add" | "faucet" | "bootstrap-quote") {
   const output = mkdtempSync(join(tmpdir(), "cybergold-body-checkpoint-"));
   const report = join(output, "report.json"), proof = join(output, "proof.json"), script = join(output, "fixture.mjs"), matrix = join(output, "matrix.json");
-  writeFileSync(matrix, JSON.stringify({ valuation: { id: "synthetic-checkpoint-only" },
-    scenarios: suite === "ui" ? matrixTemplates() : [tradeScenarios[0]] }));
+  writeFileSync(matrix, JSON.stringify({ valuation: { id: "synthetic-checkpoint-only",
+    prices: Object.fromEntries(protocolConfigurationFixture.tokens.flatMap(token => token.type === "erc20"
+      ? [[token.address.toLowerCase(), { numerator: "1", denominator: String(10n ** BigInt(token.decimals)) }]] : [])) },
+    scenarios: suite === "ui" ? activeMatrixTemplates() : [tradeScenarios[0]] }));
   const source = fileURLToPath(new URL(`../../tests/metamask/${suite === "ui" ? "fixed-api-roundtrips" : "regression-execution"}.spec.ts`, import.meta.url));
   const stubTest = `
 const state = globalThis.__bodyFixture;
@@ -72,9 +74,10 @@ export const walletRequestButton = () => { throw new Error("native-confirmation-
 `;
   const stubHelpers = `
 const state = globalThis.__bodyFixture;
-const input = { click: async () => {}, fill: async () => state.action("amount"), inputValue: async () => {
+const readAmount = async () => {
   state.action(state.navigations === 3 ? "bootstrap-quote" : "rejection-quote"); return "1";
-} };
+};
+const input = { click: async () => {}, fill: async () => state.action("amount"), inputValue: readAmount, evaluate: readAmount };
 export const getMainInput = () => input;
 export const ensureBasketInputEditable = async () => input;
 export const getSwapButton = async () => ({ click: async () => state.action("rejection-submit") });
@@ -134,7 +137,7 @@ globalThis.fetch = async url => {
 test("both real suite bodies persist setup stages before held original network and funding actions", async () => {
   for (const suite of ["ui", "independent"] as const) for (const stop of ["network-add", "faucet"] as const) {
     const value = await heldSuite(suite, stop);
-    assert.equal(value.report.scenarios.length, suite === "ui" ? 48 : 1);
+    assert.equal(value.report.scenarios.length, suite === "ui" ? 24 : 1);
     assert.ok(value.report.scenarios.every((row: { status: string; code: string; executionStage: string }) =>
       row.status === "unavailable" && row.code === "not-exercised"
       && row.executionStage === (stop === "network-add" ? "setup-network-add" : "setup-funding")));

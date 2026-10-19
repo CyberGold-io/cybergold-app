@@ -5,7 +5,7 @@ import vm from "node:vm";
 import ts from "typescript";
 import { regressionPolicy, unexpectedFailure } from "../../tests/trading/runPolicy.ts";
 import { resultFor, requireInvariant, RegressionAssertionError, type ScenarioResult } from "../../tests/trading/regression.ts";
-import { matrixTemplates, type MatrixScenario } from "../../tests/trading/matrix.ts";
+import { activeMatrixTemplates, matrixCountsFor, type MatrixScenario } from "../../tests/trading/matrix.ts";
 import { notAttemptedAlternate, transactionDisposition, type AlternateExecution } from "../../tests/trading/providerEvidence.ts";
 import { isWalletRequestCleanupError, walletRequestContextClosedError } from "../../tests/trading/walletRequestLifecycle.ts";
 import { uiObservationFailure } from "../../tests/trading/uiDiagnostics.ts";
@@ -41,7 +41,7 @@ const expect = Object.assign(assertion, { poll: (read: () => unknown) => ({
 /** Run the actual suite loop with controlled native-action callbacks. No
  * wallet, network, or clock deadline is replaced in production source. */
 function fixture(policy: "diagnostic" | "full", failure: "winner" | "alternate" | "resource" | "none", privatePhase?: "winner" | "alternate") {
-  const scenarios = matrixTemplates().slice(0, privatePhase ? 1 : 3) as MatrixScenario[];
+  const scenarios = activeMatrixTemplates().slice(0, privatePhase ? 1 : 3) as MatrixScenario[];
   const results: ScenarioResult[] = scenarios.map(scenario => ({ ...resultFor(scenario, "execution"), id: `ui-${scenario.id}`,
     requestedStrategy: "auto", executionAttempted: false, transactionDisposition: "not-submitted" }));
   const completed = { completedScenarioIds: [] as string[] };
@@ -227,12 +227,13 @@ test("actual native persistence writes the completed-ID snapshot and selected po
   const f = fixture("diagnostic", "winner"); f.releaseCleanup.resolve(); await f.run();
   const writes: string[] = [];
   const scope = { ...f.scope, config: undefined, process: { env: { TRADE_REGRESSION_UI_OUTPUT: "native.json" } },
-    matrixCounts: { scenarioCount: 48 }, executionCoverage: () => ({}), valuation: undefined,
+    matrixCountsFor, executionCoverage: () => ({}), valuation: undefined,
     writeFile: async (_path: string, data: string) => { writes.push(data); }, rename: async () => {} };
   const save = vm.runInNewContext(ts.transpile(`${persist!}; persist;`, { target: ts.ScriptTarget.ES2022 }), scope) as () => Promise<void>;
   await save(); const saved = JSON.parse(writes[0]);
   assert.equal(saved.runPolicy, "diagnostic"); assert.equal(saved.suite, "sequential");
   assert.deepEqual(saved.progress.completedScenarioIds, [f.scope.results[0].id]);
   assert.deepEqual(saved.diagnosticStop, { scenarioId: f.scope.results[0].id, role: "winner" });
+  assert.deepEqual(saved.matrix, { scenarioCount: 3, providerAssessmentCount: 6, maximumTradeExecutions: 6 });
   assert.equal(saved.scenarios.length, 3); assert.equal(saved.scenarios[1].code, "not-exercised");
 });
