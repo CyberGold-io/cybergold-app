@@ -23,7 +23,7 @@ async function readOnlyWallet(page: Page) {
 }
 
 for (const symbol of ["WETH", "USDC"] as const) {
-  for (const mode of ["issue-in", "issue-out", "redeem-in", "redeem-out"]) {
+  for (const mode of ["issue-in", "redeem-in"]) {
     test(`${symbol} ${mode}: display survives refresh with changed token name`, async ({ page }) => {
       let head = { ...context }, name = "PAX Gold", finish!: () => void;
       let pending = Promise.resolve();
@@ -34,7 +34,7 @@ for (const symbol of ["WETH", "USDC"] as const) {
       const exactIn = mode.endsWith("-in"), edited = exactIn ? inputs.first() : inputs.last();
       await edited.click(); await edited.fill("1");
       const quoted = exactIn ? inputs.last() : inputs.first();
-      await expect(quoted).toBeEnabled(); await expect(quoted).not.toHaveValue("");
+      await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).not.toHaveValue("");
       const before = await quoted.inputValue(), count = observed.intents.length;
       pending = new Promise<void>(resolve => { finish = resolve; });
       name = "Updated display name";
@@ -48,12 +48,12 @@ for (const symbol of ["WETH", "USDC"] as const) {
       expect(samples.some(s => s.blank)).toBe(baseline);
       if (!baseline) await expect(quoted).toHaveValue(before);
       await test.info().attach("refresh-measurement", { body: JSON.stringify({ baseline, mode, symbol, sampleIntervalMs:20, samples }), contentType:"application/json" });
-      finish(); await expect(quoted).toBeEnabled();
+      finish(); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
       // A changed raw input must not retain the preceding completed amount.
       pending = new Promise<void>(resolve => { finish = resolve; });
       await edited.fill("2");
       await expect(quoted).toHaveValue("");
-      finish(); await expect(quoted).toBeEnabled();
+      finish(); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
     });
   }
 }

@@ -737,7 +737,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Configured Quoter route search for all ordered targets in one wave. Direct and via-WETH candidates retain the existing fee policy, exact-output reversal and deterministic ties. Independent simulations are batched at one canonical block; ordinary member reverts remain partial failures. No pool preparation/persistence, caller-selected path, ABI, provider or target contract. Lossless amounts, no-store, existing deadline/cancellation and stage metrics. */
+        /** @description Route search for all ordered targets through one structured route engine and shared candidate scheduler. Preserves direct/via-WETH V3 fee coverage alongside the selected protocol inventory, using SDK pool math and ordinary native Quoter fallback at one canonical block. Exact-output path reversal is a compatibility projection; internal routes keep forward economic direction. Independent candidate failures remain partial failures. No caller-selected ABI, provider or target contract, wallet signing or submission. Lossless amounts, no-store and existing deadline/cancellation; RPC metrics marked coordinator are not supplier call totals. */
         post: operations["post__api_quotes_routes"];
         delete?: never;
         options?: never;
@@ -754,7 +754,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Newline-delimited progress snapshots as independent candidate reads settle at one shared block. Progress is provisional; only complete follows the existing canonicality check. Full candidate coverage, deterministic ties, deduplication, pool batches, ordinary member errors, deadline and cancellation are unchanged. Transport/reorg failure emits a redacted terminal error with optional observed RPC diagnostics. No caller-selected contract/provider or submission. */
+        /** @description Newline-delimited progress snapshots as candidates settle through the common structured route engine and scheduler. Known inventory overlaps discovery; provisional progress does not prove execution readiness, and only complete follows the existing canonicality check. Original V3 coverage and selected graph routes share SDK pricing, native fallback, candidate errors and owned-task cancellation/drain. Transport/reorg failure emits a redacted terminal error with optional observed RPC diagnostics. No caller-selected contract/provider or submission. */
         post: operations["post__api_quotes_routes_stream"];
         delete?: never;
         options?: never;
@@ -788,7 +788,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Configured QuoterV2 exact-input/output eth_call at a canonical block. Ordered path bytes and amount retain existing App route/tie/slippage semantics; only tuple[0] is consumed as a lossless amount. No caller-selected contract, ABI/provider, wallet signing or transaction submission. No additional hop, token or path policy. */
+        /** @description A caller-selected V3 path is normalized once to a forward structured route and priced by the same SDK quote engine and ordinary native Quoter fallback as route search, at one canonical block. Exact-output packed input retains its established reversed wire order; the result remains one lossless decimal amount. The returned Quoter address identifies the configured native reference, not the source of every successful computation. No caller-selected contract, ABI/provider, wallet signing or transaction submission, and no additional hop, token or path policy. */
         post: operations["post__api_quotes_uniswap"];
         delete?: never;
         options?: never;
@@ -1163,28 +1163,7 @@ export interface components {
                                 branches: {
                                     amountIn: string;
                                     hops: {
-                                        pool: {
-                                            id: string;
-                                            /** @enum {string} */
-                                            protocol: "v2" | "v3" | "v4";
-                                            token0: {
-                                                address: string;
-                                                decimals: number;
-                                                chainId: number;
-                                                decimalsKnown?: boolean;
-                                            };
-                                            token1: {
-                                                address: string;
-                                                decimals: number;
-                                                chainId: number;
-                                                decimalsKnown?: boolean;
-                                            };
-                                            address?: string;
-                                            feePips: number;
-                                            tickSpacing?: number;
-                                            poolManager?: string;
-                                            hooks?: string;
-                                        };
+                                        pool: components["schemas"]["RoutePoolRef"];
                                         zeroForOne: boolean;
                                     }[];
                                 }[];
@@ -1211,28 +1190,7 @@ export interface components {
                                 branches: {
                                     amountIn: string;
                                     hops: {
-                                        pool: {
-                                            id: string;
-                                            /** @enum {string} */
-                                            protocol: "v2" | "v3" | "v4";
-                                            token0: {
-                                                address: string;
-                                                decimals: number;
-                                                chainId: number;
-                                                decimalsKnown?: boolean;
-                                            };
-                                            token1: {
-                                                address: string;
-                                                decimals: number;
-                                                chainId: number;
-                                                decimalsKnown?: boolean;
-                                            };
-                                            address?: string;
-                                            feePips: number;
-                                            tickSpacing?: number;
-                                            poolManager?: string;
-                                            hooks?: string;
-                                        };
+                                        pool: components["schemas"]["RoutePoolRef"];
                                         zeroForOne: boolean;
                                     }[];
                                 }[];
@@ -1279,28 +1237,7 @@ export interface components {
                             branches: {
                                 amountIn: string;
                                 hops: {
-                                    pool: {
-                                        id: string;
-                                        /** @enum {string} */
-                                        protocol: "v2" | "v3" | "v4";
-                                        token0: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        token1: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        address?: string;
-                                        feePips: number;
-                                        tickSpacing?: number;
-                                        poolManager?: string;
-                                        hooks?: string;
-                                    };
+                                    pool: components["schemas"]["RoutePoolRef"];
                                     zeroForOne: boolean;
                                 }[];
                             }[];
@@ -1327,28 +1264,7 @@ export interface components {
                             branches: {
                                 amountIn: string;
                                 hops: {
-                                    pool: {
-                                        id: string;
-                                        /** @enum {string} */
-                                        protocol: "v2" | "v3" | "v4";
-                                        token0: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        token1: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        address?: string;
-                                        feePips: number;
-                                        tickSpacing?: number;
-                                        poolManager?: string;
-                                        hooks?: string;
-                                    };
+                                    pool: components["schemas"]["RoutePoolRef"];
                                     zeroForOne: boolean;
                                 }[];
                             }[];
@@ -1512,9 +1428,17 @@ export interface components {
                         rpcReadsRequested: number;
                         rpcReadsCoalesced: number;
                         rpcReadsReused: number;
+                        /** @constant */
+                        rpcReadsScope?: "coordinator";
                         candidateCalls: number;
                         iterations: number;
                         totalMs: number;
+                    } & {
+                        firstQualifiedMs?: number;
+                        selectionMs?: number;
+                        canonicalCompletedMs?: number;
+                        cleanupCompletedMs?: number;
+                        finalizationMs?: number;
                     };
                 };
             } | {
@@ -1551,28 +1475,7 @@ export interface components {
                             branches: {
                                 amountIn: string;
                                 hops: {
-                                    pool: {
-                                        id: string;
-                                        /** @enum {string} */
-                                        protocol: "v2" | "v3" | "v4";
-                                        token0: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        token1: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        address?: string;
-                                        feePips: number;
-                                        tickSpacing?: number;
-                                        poolManager?: string;
-                                        hooks?: string;
-                                    };
+                                    pool: components["schemas"]["RoutePoolRef"];
                                     zeroForOne: boolean;
                                 }[];
                             }[];
@@ -1664,28 +1567,7 @@ export interface components {
                             branches: {
                                 amountIn: string;
                                 hops: {
-                                    pool: {
-                                        id: string;
-                                        /** @enum {string} */
-                                        protocol: "v2" | "v3" | "v4";
-                                        token0: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        token1: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        address?: string;
-                                        feePips: number;
-                                        tickSpacing?: number;
-                                        poolManager?: string;
-                                        hooks?: string;
-                                    };
+                                    pool: components["schemas"]["RoutePoolRef"];
                                     zeroForOne: boolean;
                                 }[];
                             }[];
@@ -1743,10 +1625,43 @@ export interface components {
                     metrics: {
                         candidateCalls: number;
                         totalMs: number;
+                    } & {
+                        firstQualifiedMs?: number;
+                        selectionMs?: number;
+                        canonicalCompletedMs?: number;
+                        cleanupCompletedMs?: number;
+                        finalizationMs?: number;
                     };
                 };
             };
         };
+        RoutePoolRef: components["schemas"]["Omit<MarketPoolRef,\"token0\"|\"token1\">"] & {
+            /** @description Executable identity can precede optional SDK/display metadata acquisition. */
+            token0: {
+                address: string;
+                decimals?: number;
+                chainId?: number;
+                decimalsKnown?: boolean;
+            };
+            /** @description Executable identity can precede optional SDK/display metadata acquisition. */
+            token1: {
+                address: string;
+                decimals?: number;
+                chainId?: number;
+                decimalsKnown?: boolean;
+            };
+        };
+        "Omit<MarketPoolRef,\"token0\"|\"token1\">": {
+            address?: string;
+            id: string;
+            /** @enum {string} */
+            protocol: "v2" | "v3" | "v4";
+            feePips: number;
+            tickSpacing?: number;
+            poolManager?: string;
+            hooks?: string;
+        };
+        /** @description Additive maps are optional for compatibility with prior served responses. */
         TradeQuote: ({
             /** @enum {string} */
             side: "buy" | "sell";
@@ -1768,6 +1683,12 @@ export interface components {
             metrics: {
                 totalMs: number;
                 targetReads: number;
+            } & {
+                firstQualifiedMs?: number;
+                selectionMs?: number;
+                canonicalCompletedMs?: number;
+                cleanupCompletedMs?: number;
+                finalizationMs?: number;
             };
         } & {
             /** @constant */
@@ -1815,28 +1736,7 @@ export interface components {
                             branches: {
                                 amountIn: string;
                                 hops: {
-                                    pool: {
-                                        id: string;
-                                        /** @enum {string} */
-                                        protocol: "v2" | "v3" | "v4";
-                                        token0: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        token1: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        address?: string;
-                                        feePips: number;
-                                        tickSpacing?: number;
-                                        poolManager?: string;
-                                        hooks?: string;
-                                    };
+                                    pool: components["schemas"]["RoutePoolRef"];
                                     zeroForOne: boolean;
                                 }[];
                             }[];
@@ -1863,28 +1763,7 @@ export interface components {
                             branches: {
                                 amountIn: string;
                                 hops: {
-                                    pool: {
-                                        id: string;
-                                        /** @enum {string} */
-                                        protocol: "v2" | "v3" | "v4";
-                                        token0: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        token1: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        address?: string;
-                                        feePips: number;
-                                        tickSpacing?: number;
-                                        poolManager?: string;
-                                        hooks?: string;
-                                    };
+                                    pool: components["schemas"]["RoutePoolRef"];
                                     zeroForOne: boolean;
                                 }[];
                             }[];
@@ -1931,28 +1810,7 @@ export interface components {
                         branches: {
                             amountIn: string;
                             hops: {
-                                pool: {
-                                    id: string;
-                                    /** @enum {string} */
-                                    protocol: "v2" | "v3" | "v4";
-                                    token0: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    token1: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    address?: string;
-                                    feePips: number;
-                                    tickSpacing?: number;
-                                    poolManager?: string;
-                                    hooks?: string;
-                                };
+                                pool: components["schemas"]["RoutePoolRef"];
                                 zeroForOne: boolean;
                             }[];
                         }[];
@@ -1979,28 +1837,7 @@ export interface components {
                         branches: {
                             amountIn: string;
                             hops: {
-                                pool: {
-                                    id: string;
-                                    /** @enum {string} */
-                                    protocol: "v2" | "v3" | "v4";
-                                    token0: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    token1: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    address?: string;
-                                    feePips: number;
-                                    tickSpacing?: number;
-                                    poolManager?: string;
-                                    hooks?: string;
-                                };
+                                pool: components["schemas"]["RoutePoolRef"];
                                 zeroForOne: boolean;
                             }[];
                         }[];
@@ -2164,10 +2001,25 @@ export interface components {
                     rpcReadsRequested: number;
                     rpcReadsCoalesced: number;
                     rpcReadsReused: number;
+                    /** @constant */
+                    rpcReadsScope?: "coordinator";
                     candidateCalls: number;
                     iterations: number;
                     totalMs: number;
+                } & {
+                    firstQualifiedMs?: number;
+                    selectionMs?: number;
+                    canonicalCompletedMs?: number;
+                    cleanupCompletedMs?: number;
+                    finalizationMs?: number;
                 };
+            };
+        } & {
+            providerAssessments?: components["schemas"]["TradeProviderAssessments"];
+            providerCandidates?: {
+                /** @description One complete provider plan, without recursive provider evidence maps. */
+                core?: components["schemas"]["CoreTradeProviderCandidate"];
+                market?: components["schemas"]["MarketTradeProviderCandidate"];
             };
         }) | ({
             /** @enum {string} */
@@ -2190,6 +2042,12 @@ export interface components {
             metrics: {
                 totalMs: number;
                 targetReads: number;
+            } & {
+                firstQualifiedMs?: number;
+                selectionMs?: number;
+                canonicalCompletedMs?: number;
+                cleanupCompletedMs?: number;
+                finalizationMs?: number;
             };
         } & {
             /** @constant */
@@ -2225,28 +2083,7 @@ export interface components {
                         branches: {
                             amountIn: string;
                             hops: {
-                                pool: {
-                                    id: string;
-                                    /** @enum {string} */
-                                    protocol: "v2" | "v3" | "v4";
-                                    token0: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    token1: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    address?: string;
-                                    feePips: number;
-                                    tickSpacing?: number;
-                                    poolManager?: string;
-                                    hooks?: string;
-                                };
+                                pool: components["schemas"]["RoutePoolRef"];
                                 zeroForOne: boolean;
                             }[];
                         }[];
@@ -2338,28 +2175,7 @@ export interface components {
                         branches: {
                             amountIn: string;
                             hops: {
-                                pool: {
-                                    id: string;
-                                    /** @enum {string} */
-                                    protocol: "v2" | "v3" | "v4";
-                                    token0: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    token1: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    address?: string;
-                                    feePips: number;
-                                    tickSpacing?: number;
-                                    poolManager?: string;
-                                    hooks?: string;
-                                };
+                                pool: components["schemas"]["RoutePoolRef"];
                                 zeroForOne: boolean;
                             }[];
                         }[];
@@ -2417,7 +2233,20 @@ export interface components {
                 metrics: {
                     candidateCalls: number;
                     totalMs: number;
+                } & {
+                    firstQualifiedMs?: number;
+                    selectionMs?: number;
+                    canonicalCompletedMs?: number;
+                    cleanupCompletedMs?: number;
+                    finalizationMs?: number;
                 };
+            };
+        } & {
+            providerAssessments?: components["schemas"]["TradeProviderAssessments"];
+            providerCandidates?: {
+                /** @description One complete provider plan, without recursive provider evidence maps. */
+                core?: components["schemas"]["CoreTradeProviderCandidate"];
+                market?: components["schemas"]["MarketTradeProviderCandidate"];
             };
         });
         TradeEvaluation: {
@@ -2426,7 +2255,704 @@ export interface components {
             /** @enum {string} */
             market: "complete" | "running" | "unavailable" | "unsupported";
         };
-        TradeQuoteEvent: {
+        TradeProviderAssessments: {
+            core: {
+                /** @enum {string} */
+                availability: "not-run" | "pending" | "qualified" | "unavailable" | "unsupported";
+                /** @enum {string} */
+                searchOutcome: "cancelled" | "complete" | "error" | "not-run" | "running" | "timeout";
+                error?: string;
+                /** @enum {string} */
+                code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "redemption-capacity-exceeded" | "redemption-supply-exceeded" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+                /** @description Canonical preview rejection evidence; absent quantities were not provided by the contract. */
+                constraint?: {
+                    /** @enum {string} */
+                    kind?: "issuance-cap" | "redemption-capacity" | "redemption-supply";
+                    /** @enum {string} */
+                    quantity?: "core-output-minima" | "gross-cygld-input" | "gross-cygld-mint";
+                    /** @enum {string} */
+                    limitKind?: "effective-supply-cap" | "maximum-total-supply";
+                    requestedRaw?: string;
+                    availableRaw?: string;
+                    currentSupplyRaw?: string;
+                    limitRaw?: string;
+                };
+                /** @description Optional observed RPC failure context; provider text is sanitized before publication. */
+                diagnostics?: {
+                    rpcMethod?: string;
+                    stage?: string;
+                    elapsedMs?: number;
+                    upstreamErrorCode?: number;
+                    providerMessage?: string;
+                    httpStatus?: number;
+                    /** @enum {string} */
+                    failureType?: "backend-deadline" | "http-error" | "provider-timeout" | "rpc-error" | "transport-error";
+                    errorSelector?: string;
+                    errorName?: string;
+                };
+                /** @description Existing public quote-work projection; aggregate waits are not wall-clock partitions. */
+                quoteDiagnostics?: {
+                    phase?: string;
+                    elapsedMs?: number;
+                    qualified?: boolean;
+                    inversionIteration?: number;
+                    routeWave?: {
+                        elapsedMs?: number;
+                        subphaseElapsedMs?: number;
+                        subphase?: string;
+                        mode?: string;
+                        legacyCandidates?: number;
+                        legacyCompleted?: number;
+                        typedEnumerated?: number;
+                        typedCompleted?: number;
+                        typedPending?: number;
+                        sdkRequests?: number;
+                        sdkWaiting?: number;
+                        sdkLockWaitMs?: number;
+                        sdkExchangeMs?: number;
+                    };
+                };
+            };
+            market: {
+                /** @enum {string} */
+                availability: "not-run" | "pending" | "qualified" | "unavailable" | "unsupported";
+                /** @enum {string} */
+                searchOutcome: "cancelled" | "complete" | "error" | "not-run" | "running" | "timeout";
+                error?: string;
+                /** @enum {string} */
+                code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "redemption-capacity-exceeded" | "redemption-supply-exceeded" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+                /** @description Canonical preview rejection evidence; absent quantities were not provided by the contract. */
+                constraint?: {
+                    /** @enum {string} */
+                    kind?: "issuance-cap" | "redemption-capacity" | "redemption-supply";
+                    /** @enum {string} */
+                    quantity?: "core-output-minima" | "gross-cygld-input" | "gross-cygld-mint";
+                    /** @enum {string} */
+                    limitKind?: "effective-supply-cap" | "maximum-total-supply";
+                    requestedRaw?: string;
+                    availableRaw?: string;
+                    currentSupplyRaw?: string;
+                    limitRaw?: string;
+                };
+                /** @description Optional observed RPC failure context; provider text is sanitized before publication. */
+                diagnostics?: {
+                    rpcMethod?: string;
+                    stage?: string;
+                    elapsedMs?: number;
+                    upstreamErrorCode?: number;
+                    providerMessage?: string;
+                    httpStatus?: number;
+                    /** @enum {string} */
+                    failureType?: "backend-deadline" | "http-error" | "provider-timeout" | "rpc-error" | "transport-error";
+                    errorSelector?: string;
+                    errorName?: string;
+                };
+                /** @description Existing public quote-work projection; aggregate waits are not wall-clock partitions. */
+                quoteDiagnostics?: {
+                    phase?: string;
+                    elapsedMs?: number;
+                    qualified?: boolean;
+                    inversionIteration?: number;
+                    routeWave?: {
+                        elapsedMs?: number;
+                        subphaseElapsedMs?: number;
+                        subphase?: string;
+                        mode?: string;
+                        legacyCandidates?: number;
+                        legacyCompleted?: number;
+                        typedEnumerated?: number;
+                        typedCompleted?: number;
+                        typedPending?: number;
+                        sdkRequests?: number;
+                        sdkWaiting?: number;
+                        sdkLockWaitMs?: number;
+                        sdkExchangeMs?: number;
+                    };
+                };
+            };
+        };
+        /** @description One complete provider plan, without recursive provider evidence maps. */
+        CoreTradeProviderCandidate: {
+            /** @enum {string} */
+            side: "buy" | "sell";
+            /** @enum {string} */
+            mode: "exact-in" | "exact-out";
+            tokenIn: string;
+            tokenOut: string;
+            quotedInput: string;
+            quotedOutput: string;
+            inputMaximum: string;
+            outputMinimum: string;
+            context: {
+                chainId: number;
+                blockNumber: string;
+                blockHash: string;
+                observedAt: string;
+            };
+            evaluation: components["schemas"]["TradeEvaluation"];
+            metrics: {
+                totalMs: number;
+                targetReads: number;
+            } & {
+                firstQualifiedMs?: number;
+                selectionMs?: number;
+                canonicalCompletedMs?: number;
+                cleanupCompletedMs?: number;
+                finalizationMs?: number;
+            };
+        } & {
+            /** @constant */
+            strategy: "core";
+            providerRequest: {
+                /** @enum {string} */
+                mode: "issue-exact-in" | "issue-exact-out" | "redeem-exact-in" | "redeem-exact-out";
+                token: string;
+                quoteToken: string;
+                native: boolean;
+                amount: string;
+                adapter?: string;
+                deadline: string;
+                orderedAssets: string[];
+                targets: {
+                    inputAsset: string;
+                    outputAsset: string;
+                    amount: string;
+                }[];
+                /**
+                 * @description Execution tolerance in basis points; omitted defaults to 100 (1%).
+                 * @default 100
+                 */
+                slippageBps: number;
+                retainedPlan?: {
+                    slippageBps?: number;
+                    expectedInputAmount?: string;
+                    executionAmount: string;
+                    maximumInputAmount: string;
+                    minimumAmountOut: string;
+                    quotes: (({
+                        adapter: string;
+                        amountIn: string;
+                        minimumAmountOut: string;
+                        data: string;
+                        routePlan?: {
+                            /** @constant */
+                            version: 1;
+                            /** @enum {string} */
+                            executionContext: "helpers-core" | "helpers-market";
+                            /** @enum {string} */
+                            mode: "exactIn" | "exactOut";
+                            tokenIn: string;
+                            tokenOut: string;
+                            branches: {
+                                amountIn: string;
+                                hops: {
+                                    pool: components["schemas"]["RoutePoolRef"];
+                                    zeroForOne: boolean;
+                                }[];
+                            }[];
+                            inputAmount: string;
+                            outputAmount: string;
+                            limit: string;
+                            deadline: string;
+                        };
+                    } & {
+                        outputAsset: string;
+                    }) | ({
+                        adapter: string;
+                        minimumAmountOut: string;
+                        data: string;
+                        routePlan?: {
+                            /** @constant */
+                            version: 1;
+                            /** @enum {string} */
+                            executionContext: "helpers-core" | "helpers-market";
+                            /** @enum {string} */
+                            mode: "exactIn" | "exactOut";
+                            tokenIn: string;
+                            tokenOut: string;
+                            branches: {
+                                amountIn: string;
+                                hops: {
+                                    pool: components["schemas"]["RoutePoolRef"];
+                                    zeroForOne: boolean;
+                                }[];
+                            }[];
+                            inputAmount: string;
+                            outputAmount: string;
+                            limit: string;
+                            deadline: string;
+                        };
+                    } & {
+                        inputAsset: string;
+                        inputAmount: string;
+                    }))[];
+                    expectedCoreOutputs: {
+                        kind: number;
+                        token: string;
+                        id: string;
+                        minimumAmount: string;
+                    }[];
+                };
+            };
+            providerQuote: {
+                /** @enum {string} */
+                mode: "issue-exact-in" | "issue-exact-out" | "redeem-exact-in" | "redeem-exact-out";
+                context: {
+                    chainId: number;
+                    blockNumber: string;
+                    blockHash: string;
+                    observedAt: string;
+                };
+                quotes: (({
+                    adapter: string;
+                    amountIn: string;
+                    minimumAmountOut: string;
+                    data: string;
+                    routePlan?: {
+                        /** @constant */
+                        version: 1;
+                        /** @enum {string} */
+                        executionContext: "helpers-core" | "helpers-market";
+                        /** @enum {string} */
+                        mode: "exactIn" | "exactOut";
+                        tokenIn: string;
+                        tokenOut: string;
+                        branches: {
+                            amountIn: string;
+                            hops: {
+                                pool: components["schemas"]["RoutePoolRef"];
+                                zeroForOne: boolean;
+                            }[];
+                        }[];
+                        inputAmount: string;
+                        outputAmount: string;
+                        limit: string;
+                        deadline: string;
+                    };
+                } & {
+                    outputAsset: string;
+                }) | ({
+                    adapter: string;
+                    minimumAmountOut: string;
+                    data: string;
+                    routePlan?: {
+                        /** @constant */
+                        version: 1;
+                        /** @enum {string} */
+                        executionContext: "helpers-core" | "helpers-market";
+                        /** @enum {string} */
+                        mode: "exactIn" | "exactOut";
+                        tokenIn: string;
+                        tokenOut: string;
+                        branches: {
+                            amountIn: string;
+                            hops: {
+                                pool: components["schemas"]["RoutePoolRef"];
+                                zeroForOne: boolean;
+                            }[];
+                        }[];
+                        inputAmount: string;
+                        outputAmount: string;
+                        limit: string;
+                        deadline: string;
+                    };
+                } & {
+                    inputAsset: string;
+                    inputAmount: string;
+                }))[];
+                preview: {
+                    netCygldOut: string;
+                    fees: {
+                        protocolFeeCygld: string;
+                        helperFeeCygld: string;
+                    };
+                    orderedCoreAssets: string[];
+                } | {
+                    fees: {
+                        protocolFeeCygld: string;
+                        helperFeeCygld: string;
+                    };
+                    orderedCoreAssets: string[];
+                } | {
+                    minimumAmountOut: string;
+                    projectedCoreOutputs: {
+                        kind: number;
+                        token: string;
+                        id: string;
+                        amount: string;
+                    }[];
+                    fees: {
+                        protocolFeeCygld: string;
+                        helperFeeCygld: string;
+                    };
+                };
+                initialPreview: {
+                    netCygldOut: string;
+                    fees: {
+                        protocolFeeCygld: string;
+                        helperFeeCygld: string;
+                    };
+                    amountsInExact: string[];
+                    orderedCoreAssets: string[];
+                } | {
+                    fees: {
+                        protocolFeeCygld: string;
+                        helperFeeCygld: string;
+                    };
+                    amountsInExact: string[];
+                    orderedCoreAssets: string[];
+                } | {
+                    projectedCoreOutputs: {
+                        kind: number;
+                        token: string;
+                        id: string;
+                        amount: string;
+                    }[];
+                    fees: {
+                        protocolFeeCygld: string;
+                        helperFeeCygld: string;
+                    };
+                } | {
+                    grossCygldIn: string;
+                    projectedCoreOutputs: {
+                        kind: number;
+                        token: string;
+                        id: string;
+                        amount: string;
+                    }[];
+                    fees: {
+                        protocolFeeCygld: string;
+                        helperFeeCygld: string;
+                    };
+                } | {
+                    netCygldOut: string;
+                    fees: {
+                        protocolFeeCygld: string;
+                        helperFeeCygld: string;
+                    };
+                    orderedCoreAssets: string[];
+                } | {
+                    fees: {
+                        protocolFeeCygld: string;
+                        helperFeeCygld: string;
+                    };
+                    orderedCoreAssets: string[];
+                } | {
+                    minimumAmountOut: string;
+                    projectedCoreOutputs: {
+                        kind: number;
+                        token: string;
+                        id: string;
+                        amount: string;
+                    }[];
+                    fees: {
+                        protocolFeeCygld: string;
+                        helperFeeCygld: string;
+                    };
+                } | null;
+                basketPreview: {
+                    netCygldOut: string;
+                    fees: {
+                        protocolFeeCygld: string;
+                        helperFeeCygld: string;
+                    };
+                    amountsInExact: string[];
+                    orderedCoreAssets: string[];
+                } | {
+                    fees: {
+                        protocolFeeCygld: string;
+                        helperFeeCygld: string;
+                    };
+                    amountsInExact: string[];
+                    orderedCoreAssets: string[];
+                } | {
+                    projectedCoreOutputs: {
+                        kind: number;
+                        token: string;
+                        id: string;
+                        amount: string;
+                    }[];
+                    fees: {
+                        protocolFeeCygld: string;
+                        helperFeeCygld: string;
+                    };
+                } | {
+                    grossCygldIn: string;
+                    projectedCoreOutputs: {
+                        kind: number;
+                        token: string;
+                        id: string;
+                        amount: string;
+                    }[];
+                    fees: {
+                        protocolFeeCygld: string;
+                        helperFeeCygld: string;
+                    };
+                };
+                displayAmount: string;
+                executionAmount: string;
+                maximumInputAmount: string;
+                slippageBps?: number;
+                /** @description Expected input before execution cushions, including direct basket input. */
+                expectedInputAmount?: string;
+                requestedGrossCygldOut?: string;
+                requestedNetCygldOut?: string;
+                remainingGrossCapacity?: string;
+                remainingNetCapacity?: string;
+                expectedOutputAmount?: string;
+                expectedCoreOutputs?: {
+                    kind: number;
+                    token: string;
+                    id: string;
+                    minimumAmount: string;
+                }[];
+                metrics: {
+                    rpcReads: number;
+                    rpcReadsRequested: number;
+                    rpcReadsCoalesced: number;
+                    rpcReadsReused: number;
+                    /** @constant */
+                    rpcReadsScope?: "coordinator";
+                    candidateCalls: number;
+                    iterations: number;
+                    totalMs: number;
+                } & {
+                    firstQualifiedMs?: number;
+                    selectionMs?: number;
+                    canonicalCompletedMs?: number;
+                    cleanupCompletedMs?: number;
+                    finalizationMs?: number;
+                };
+            };
+        };
+        MarketTradeProviderCandidate: {
+            /** @enum {string} */
+            side: "buy" | "sell";
+            /** @enum {string} */
+            mode: "exact-in" | "exact-out";
+            tokenIn: string;
+            tokenOut: string;
+            quotedInput: string;
+            quotedOutput: string;
+            inputMaximum: string;
+            outputMinimum: string;
+            context: {
+                chainId: number;
+                blockNumber: string;
+                blockHash: string;
+                observedAt: string;
+            };
+            evaluation: components["schemas"]["TradeEvaluation"];
+            metrics: {
+                totalMs: number;
+                targetReads: number;
+            } & {
+                firstQualifiedMs?: number;
+                selectionMs?: number;
+                canonicalCompletedMs?: number;
+                cleanupCompletedMs?: number;
+                finalizationMs?: number;
+            };
+        } & {
+            /** @constant */
+            strategy: "market";
+            /** @description Market swaps transfer existing CYGLD; never use Core basket economics. */
+            providerRequest: {
+                /** @enum {string} */
+                side: "buy" | "sell";
+                /** @enum {string} */
+                mode: "exact-in" | "exact-out";
+                counterToken: string;
+                amount: string;
+                adapter?: string;
+                recipient: string;
+                deadline: string;
+                slippageBps?: number;
+                retainedPlan?: {
+                    /** @enum {string} */
+                    side: "buy" | "sell";
+                    /** @enum {string} */
+                    mode: "exact-in" | "exact-out";
+                    amount: string;
+                    slippageBps: number;
+                    route: {
+                        /** @constant */
+                        version: 1;
+                        /** @enum {string} */
+                        executionContext: "helpers-core" | "helpers-market";
+                        /** @enum {string} */
+                        mode: "exactIn" | "exactOut";
+                        tokenIn: string;
+                        tokenOut: string;
+                        branches: {
+                            amountIn: string;
+                            hops: {
+                                pool: components["schemas"]["RoutePoolRef"];
+                                zeroForOne: boolean;
+                            }[];
+                        }[];
+                        inputAmount: string;
+                        outputAmount: string;
+                        limit: string;
+                        deadline: string;
+                    };
+                    params: {
+                        /** @enum {number} */
+                        side: 0 | 1;
+                        counterToken: string;
+                        amount: string;
+                        bound: string;
+                        routedInput: string;
+                        feeCygld: string;
+                        recipient: string;
+                        deadline: string;
+                        adapter: string;
+                        data: string;
+                    };
+                    fee: {
+                        asset: string;
+                        ratePpm: number;
+                        amount: string;
+                        /** @constant */
+                        basis: "quoted";
+                        notional: string;
+                    };
+                };
+            };
+            providerQuote: {
+                /** @constant */
+                operation: "market";
+                /** @enum {string} */
+                side: "buy" | "sell";
+                /** @enum {string} */
+                mode: "exact-in" | "exact-out";
+                tokenIn: string;
+                tokenOut: string;
+                amountIn: string;
+                amountOut: string;
+                totalInput: string;
+                netOutput: string;
+                grossOutput: string;
+                routedAmountIn: string;
+                inputMaximum: string;
+                outputMinimum: string;
+                refundDust: string;
+                outputRefundEstimate?: string;
+                fee: {
+                    asset: string;
+                    ratePpm: number;
+                    amount: string;
+                    /** @constant */
+                    basis: "quoted";
+                    notional: string;
+                };
+                params: {
+                    /** @enum {number} */
+                    side: 0 | 1;
+                    counterToken: string;
+                    amount: string;
+                    bound: string;
+                    routedInput: string;
+                    feeCygld: string;
+                    recipient: string;
+                    deadline: string;
+                    adapter: string;
+                    data: string;
+                };
+                adapterData: string;
+                plan: {
+                    /** @enum {string} */
+                    side: "buy" | "sell";
+                    /** @enum {string} */
+                    mode: "exact-in" | "exact-out";
+                    amount: string;
+                    slippageBps: number;
+                    route: {
+                        /** @constant */
+                        version: 1;
+                        /** @enum {string} */
+                        executionContext: "helpers-core" | "helpers-market";
+                        /** @enum {string} */
+                        mode: "exactIn" | "exactOut";
+                        tokenIn: string;
+                        tokenOut: string;
+                        branches: {
+                            amountIn: string;
+                            hops: {
+                                pool: components["schemas"]["RoutePoolRef"];
+                                zeroForOne: boolean;
+                            }[];
+                        }[];
+                        inputAmount: string;
+                        outputAmount: string;
+                        limit: string;
+                        deadline: string;
+                    };
+                    params: {
+                        /** @enum {number} */
+                        side: 0 | 1;
+                        counterToken: string;
+                        amount: string;
+                        bound: string;
+                        routedInput: string;
+                        feeCygld: string;
+                        recipient: string;
+                        deadline: string;
+                        adapter: string;
+                        data: string;
+                    };
+                    fee: {
+                        asset: string;
+                        ratePpm: number;
+                        amount: string;
+                        /** @constant */
+                        basis: "quoted";
+                        notional: string;
+                    };
+                };
+                context: {
+                    chainId: number;
+                    blockNumber: string;
+                    blockHash: string;
+                    observedAt: string;
+                };
+                feeBeneficiaryDisplay?: {
+                    address: string;
+                    observedAt: string;
+                };
+                /** @description AMM price impact excluding LP/protocol/application fees; absent without a coherent baseline. */
+                priceImpactPpm?: string;
+                /** @enum {string} */
+                qualification: "quoter" | "sdk" | "sdk-and-quoter";
+                executionSimulationRequired?: boolean;
+                quoteVerificationUnavailable?: string;
+                searchCoverage?: {
+                    /** @constant */
+                    scope: "selected-inventory";
+                    maxHops: number;
+                    splitPercentages: number[];
+                    inventoryPools: number;
+                    catalogMonth: null | string;
+                };
+                metrics: {
+                    candidateCalls: number;
+                    totalMs: number;
+                } & {
+                    firstQualifiedMs?: number;
+                    selectionMs?: number;
+                    canonicalCompletedMs?: number;
+                    cleanupCompletedMs?: number;
+                    finalizationMs?: number;
+                };
+            };
+        };
+        TradeProviderCandidate: components["schemas"]["CoreTradeProviderCandidate"] | components["schemas"]["MarketTradeProviderCandidate"];
+        TradeQuoteEvent: ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "model";
             value: {
@@ -2471,28 +2997,7 @@ export interface components {
                                 branches: {
                                     amountIn: string;
                                     hops: {
-                                        pool: {
-                                            id: string;
-                                            /** @enum {string} */
-                                            protocol: "v2" | "v3" | "v4";
-                                            token0: {
-                                                address: string;
-                                                decimals: number;
-                                                chainId: number;
-                                                decimalsKnown?: boolean;
-                                            };
-                                            token1: {
-                                                address: string;
-                                                decimals: number;
-                                                chainId: number;
-                                                decimalsKnown?: boolean;
-                                            };
-                                            address?: string;
-                                            feePips: number;
-                                            tickSpacing?: number;
-                                            poolManager?: string;
-                                            hooks?: string;
-                                        };
+                                        pool: components["schemas"]["RoutePoolRef"];
                                         zeroForOne: boolean;
                                     }[];
                                 }[];
@@ -2608,28 +3113,7 @@ export interface components {
                                 branches: {
                                     amountIn: string;
                                     hops: {
-                                        pool: {
-                                            id: string;
-                                            /** @enum {string} */
-                                            protocol: "v2" | "v3" | "v4";
-                                            token0: {
-                                                address: string;
-                                                decimals: number;
-                                                chainId: number;
-                                                decimalsKnown?: boolean;
-                                            };
-                                            token1: {
-                                                address: string;
-                                                decimals: number;
-                                                chainId: number;
-                                                decimalsKnown?: boolean;
-                                            };
-                                            address?: string;
-                                            feePips: number;
-                                            tickSpacing?: number;
-                                            poolManager?: string;
-                                            hooks?: string;
-                                        };
+                                        pool: components["schemas"]["RoutePoolRef"];
                                         zeroForOne: boolean;
                                     }[];
                                 }[];
@@ -2665,17 +3149,110 @@ export interface components {
                     amount: string;
                 };
             };
-        } | {
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "estimate";
             /** @enum {string} */
             strategy: "core" | "market";
             amount: string;
-        } | {
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @enum {string} */
             type: "complete" | "qualified";
             value: components["schemas"]["TradeQuote"];
-        } | {
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
+            /** @constant */
+            type: "provider-qualified";
+            /** @enum {string} */
+            strategy: "core" | "market";
+            value: components["schemas"]["TradeProviderCandidate"];
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
+            /** @constant */
+            type: "provider-assessment";
+            /** @enum {string} */
+            strategy: "core" | "market";
+            value: {
+                /** @enum {string} */
+                availability: "not-run" | "pending" | "qualified" | "unavailable" | "unsupported";
+                /** @enum {string} */
+                searchOutcome: "cancelled" | "complete" | "error" | "not-run" | "running" | "timeout";
+                error?: string;
+                /** @enum {string} */
+                code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "redemption-capacity-exceeded" | "redemption-supply-exceeded" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+                /** @description Canonical preview rejection evidence; absent quantities were not provided by the contract. */
+                constraint?: {
+                    /** @enum {string} */
+                    kind?: "issuance-cap" | "redemption-capacity" | "redemption-supply";
+                    /** @enum {string} */
+                    quantity?: "core-output-minima" | "gross-cygld-input" | "gross-cygld-mint";
+                    /** @enum {string} */
+                    limitKind?: "effective-supply-cap" | "maximum-total-supply";
+                    requestedRaw?: string;
+                    availableRaw?: string;
+                    currentSupplyRaw?: string;
+                    limitRaw?: string;
+                };
+                /** @description Optional observed RPC failure context; provider text is sanitized before publication. */
+                diagnostics?: {
+                    rpcMethod?: string;
+                    stage?: string;
+                    elapsedMs?: number;
+                    upstreamErrorCode?: number;
+                    providerMessage?: string;
+                    httpStatus?: number;
+                    /** @enum {string} */
+                    failureType?: "backend-deadline" | "http-error" | "provider-timeout" | "rpc-error" | "transport-error";
+                    errorSelector?: string;
+                    errorName?: string;
+                };
+                /** @description Existing public quote-work projection; aggregate waits are not wall-clock partitions. */
+                quoteDiagnostics?: {
+                    phase?: string;
+                    elapsedMs?: number;
+                    qualified?: boolean;
+                    inversionIteration?: number;
+                    routeWave?: {
+                        elapsedMs?: number;
+                        subphaseElapsedMs?: number;
+                        subphase?: string;
+                        mode?: string;
+                        legacyCandidates?: number;
+                        legacyCompleted?: number;
+                        typedEnumerated?: number;
+                        typedCompleted?: number;
+                        typedPending?: number;
+                        sdkRequests?: number;
+                        sdkWaiting?: number;
+                        sdkLockWaitMs?: number;
+                        sdkExchangeMs?: number;
+                    };
+                };
+            };
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "progress";
             /** @enum {string} */
@@ -2687,36 +3264,109 @@ export interface components {
                 completedCandidates?: number;
                 totalCandidates?: number;
             };
-        } | {
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "provider-error";
             /** @enum {string} */
             strategy: "core" | "market";
             error: string;
             /** @enum {string} */
-            code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
-        } | {
+            code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "redemption-capacity-exceeded" | "redemption-supply-exceeded" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+            /** @description Canonical preview rejection evidence; absent quantities were not provided by the contract. */
+            constraint?: {
+                /** @enum {string} */
+                kind?: "issuance-cap" | "redemption-capacity" | "redemption-supply";
+                /** @enum {string} */
+                quantity?: "core-output-minima" | "gross-cygld-input" | "gross-cygld-mint";
+                /** @enum {string} */
+                limitKind?: "effective-supply-cap" | "maximum-total-supply";
+                requestedRaw?: string;
+                availableRaw?: string;
+                currentSupplyRaw?: string;
+                limitRaw?: string;
+            };
+            /** @description Optional observed RPC failure context; provider text is sanitized before publication. */
+            diagnostics?: {
+                rpcMethod?: string;
+                stage?: string;
+                elapsedMs?: number;
+                upstreamErrorCode?: number;
+                providerMessage?: string;
+                httpStatus?: number;
+                /** @enum {string} */
+                failureType?: "backend-deadline" | "http-error" | "provider-timeout" | "rpc-error" | "transport-error";
+                errorSelector?: string;
+                errorName?: string;
+            };
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "invalidated";
             /** @enum {string} */
             strategy: "core" | "market";
-        } | {
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "error";
             error: string;
             /** @enum {string} */
-            code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
-        };
+            code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "redemption-capacity-exceeded" | "redemption-supply-exceeded" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+            /** @description Canonical preview rejection evidence; absent quantities were not provided by the contract. */
+            constraint?: {
+                /** @enum {string} */
+                kind?: "issuance-cap" | "redemption-capacity" | "redemption-supply";
+                /** @enum {string} */
+                quantity?: "core-output-minima" | "gross-cygld-input" | "gross-cygld-mint";
+                /** @enum {string} */
+                limitKind?: "effective-supply-cap" | "maximum-total-supply";
+                requestedRaw?: string;
+                availableRaw?: string;
+                currentSupplyRaw?: string;
+                limitRaw?: string;
+            };
+            /** @description Optional observed RPC failure context; provider text is sanitized before publication. */
+            diagnostics?: {
+                rpcMethod?: string;
+                stage?: string;
+                elapsedMs?: number;
+                upstreamErrorCode?: number;
+                providerMessage?: string;
+                httpStatus?: number;
+                /** @enum {string} */
+                failureType?: "backend-deadline" | "http-error" | "provider-timeout" | "rpc-error" | "transport-error";
+                errorSelector?: string;
+                errorName?: string;
+            };
+            providerAssessments?: components["schemas"]["TradeProviderAssessments"];
+            providerCandidates?: {
+                /** @description One complete provider plan, without recursive provider evidence maps. */
+                core?: components["schemas"]["CoreTradeProviderCandidate"];
+                market?: components["schemas"]["MarketTradeProviderCandidate"];
+            };
+        });
         "Omit<QuoteIntentRequest,\"deadline\"|\"retainedPlan\">": {
             /** @enum {string} */
             mode: "issue-exact-in" | "issue-exact-out" | "redeem-exact-in" | "redeem-exact-out";
-            token: string;
             amount: string;
             targets: {
                 inputAsset: string;
                 outputAsset: string;
                 amount: string;
             }[];
+            token: string;
             native: boolean;
             adapter?: string;
             /**
@@ -2748,7 +3398,12 @@ export interface components {
             /** @constant */
             type: "native";
         });
-        MarketQuoteEvent: {
+        MarketQuoteEvent: ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "model";
             value: {
@@ -2784,28 +3439,7 @@ export interface components {
                         branches: {
                             amountIn: string;
                             hops: {
-                                pool: {
-                                    id: string;
-                                    /** @enum {string} */
-                                    protocol: "v2" | "v3" | "v4";
-                                    token0: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    token1: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    address?: string;
-                                    feePips: number;
-                                    tickSpacing?: number;
-                                    poolManager?: string;
-                                    hooks?: string;
-                                };
+                                pool: components["schemas"]["RoutePoolRef"];
                                 zeroForOne: boolean;
                             }[];
                         }[];
@@ -2834,11 +3468,21 @@ export interface components {
                     };
                 }[];
             };
-        } | {
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "estimate";
             amount: string;
-        } | {
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @enum {string} */
             type: "complete" | "qualified";
             value: {
@@ -2901,28 +3545,7 @@ export interface components {
                         branches: {
                             amountIn: string;
                             hops: {
-                                pool: {
-                                    id: string;
-                                    /** @enum {string} */
-                                    protocol: "v2" | "v3" | "v4";
-                                    token0: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    token1: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    address?: string;
-                                    feePips: number;
-                                    tickSpacing?: number;
-                                    poolManager?: string;
-                                    hooks?: string;
-                                };
+                                pool: components["schemas"]["RoutePoolRef"];
                                 zeroForOne: boolean;
                             }[];
                         }[];
@@ -2980,22 +3603,56 @@ export interface components {
                 metrics: {
                     candidateCalls: number;
                     totalMs: number;
+                } & {
+                    firstQualifiedMs?: number;
+                    selectionMs?: number;
+                    canonicalCompletedMs?: number;
+                    cleanupCompletedMs?: number;
+                    finalizationMs?: number;
                 };
             };
-        } | {
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "progress";
             completedCandidates: number;
             totalCandidates?: number;
-        } | {
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "invalidated";
-        } | {
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "error";
             error: string;
             code?: string;
-        };
+            /** @description Optional observed RPC failure context; provider text is sanitized before publication. */
+            diagnostics?: {
+                rpcMethod?: string;
+                stage?: string;
+                elapsedMs?: number;
+                upstreamErrorCode?: number;
+                providerMessage?: string;
+                httpStatus?: number;
+                /** @enum {string} */
+                failureType?: "backend-deadline" | "http-error" | "provider-timeout" | "rpc-error" | "transport-error";
+                errorSelector?: string;
+                errorName?: string;
+            };
+        });
         MarketModelRequest: {
             /** @enum {string} */
             mode: "exact-in" | "exact-out";
@@ -3321,9 +3978,9 @@ export interface components {
             chainId: number;
             observedAt: string;
         } & {
-            transaction: components["schemas"]["{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId?:`0x${string}`|undefined;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x0\";hash:`0x${string}`;yParity?:undefined;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`|null;accessList?:undefined;authorizationList?:undefined;blobVersionedHashes?:undefined;gasPrice:`0x${string}`;maxFeePerBlobGas?:undefined;maxFeePerGas?:undefined;maxPriorityFeePerGas?:undefined;}"] | components["schemas"]["{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId:`0x${string}`;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x1\";hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`|null;accessList:AccessList;authorizationList?:undefined;blobVersionedHashes?:undefined;gasPrice:`0x${string}`;maxFeePerBlobGas?:undefined;maxFeePerGas?:undefined;maxPriorityFeePerGas?:undefined;yParity?:`0x${string}`|undefined;}"] | components["schemas"]["{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId:`0x${string}`;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x2\";hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`|null;accessList:AccessList;authorizationList?:undefined;blobVersionedHashes?:undefined;gasPrice?:undefined;maxFeePerBlobGas?:undefined;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;yParity?:`0x${string}`|undefined;}"] | components["schemas"]["{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId:`0x${string}`;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x3\";hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`|null;accessList:AccessList;authorizationList?:undefined;blobVersionedHashes:readonly`0x${string}`[];gasPrice?:undefined;maxFeePerBlobGas:`0x${string}`;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;yParity?:`0x${string}`|undefined;}"] | components["schemas"]["{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId:`0x${string}`;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x4\";hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`|null;accessList:AccessList;authorizationList?:RpcAuthorizationList|undefined;blobVersionedHashes?:undefined;gasPrice?:undefined;maxFeePerBlobGas?:undefined;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;yParity?:`0x${string}`|undefined;}"] | null;
+            transaction: components["schemas"]["{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId?:`0x${string}`|undefined;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x0\";gas:`0x${string}`;blobVersionedHashes?:undefined;gasPrice:`0x${string}`;maxFeePerBlobGas?:undefined;maxFeePerGas?:undefined;maxPriorityFeePerGas?:undefined;accessList?:undefined;authorizationList?:undefined;hash:`0x${string}`;yParity?:undefined;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`|null;}"] | components["schemas"]["{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId:`0x${string}`;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x1\";gas:`0x${string}`;blobVersionedHashes?:undefined;gasPrice:`0x${string}`;maxFeePerBlobGas?:undefined;maxFeePerGas?:undefined;maxPriorityFeePerGas?:undefined;accessList:AccessList;authorizationList?:undefined;hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`|null;yParity?:`0x${string}`|undefined;}"] | components["schemas"]["{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId:`0x${string}`;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x2\";gas:`0x${string}`;blobVersionedHashes?:undefined;gasPrice?:undefined;maxFeePerBlobGas?:undefined;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;accessList:AccessList;authorizationList?:undefined;hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`|null;yParity?:`0x${string}`|undefined;}"] | components["schemas"]["{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId:`0x${string}`;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x3\";gas:`0x${string}`;blobVersionedHashes:readonly`0x${string}`[];gasPrice?:undefined;maxFeePerBlobGas:`0x${string}`;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;accessList:AccessList;authorizationList?:undefined;hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`|null;yParity?:`0x${string}`|undefined;}"] | components["schemas"]["{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId:`0x${string}`;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x4\";gas:`0x${string}`;blobVersionedHashes?:undefined;gasPrice?:undefined;maxFeePerBlobGas?:undefined;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;accessList:AccessList;authorizationList?:RpcAuthorizationList|undefined;hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`|null;yParity?:`0x${string}`|undefined;}"] | null;
         };
-        "{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId?:`0x${string}`|undefined;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x0\";hash:`0x${string}`;yParity?:undefined;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`|null;accessList?:undefined;authorizationList?:undefined;blobVersionedHashes?:undefined;gasPrice:`0x${string}`;maxFeePerBlobGas?:undefined;maxFeePerGas?:undefined;maxPriorityFeePerGas?:undefined;}": {
+        "{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId?:`0x${string}`|undefined;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x0\";gas:`0x${string}`;blobVersionedHashes?:undefined;gasPrice:`0x${string}`;maxFeePerBlobGas?:undefined;maxFeePerGas?:undefined;maxPriorityFeePerGas?:undefined;accessList?:undefined;authorizationList?:undefined;hash:`0x${string}`;yParity?:undefined;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`|null;}": {
             /** @description Number of block containing this transaction or `null` if pending */
             blockNumber: string | null;
             /** @description Hash of block containing this transaction or `null` if pending */
@@ -3332,34 +3989,34 @@ export interface components {
             value: string;
             /** @description Chain ID that this transaction is valid on. */
             chainId?: string;
-            /** @description Transaction sender */
-            from: string;
             /** @description ECDSA signature s */
             s: string;
+            /** @description Transaction sender */
+            from: string;
             /** @description Transaction recipient or `null` if deploying a contract */
             to: string | null;
+            /** @description Unique number identifying this transaction */
+            nonce: string;
             /** @description ECDSA recovery ID */
             v: string;
             /** @description ECDSA signature r */
             r: string;
             /** @constant */
             type: "0x0";
+            /** @description Gas provided for transaction execution */
+            gas: string;
+            /** @description Base fee per gas. */
+            gasPrice: string;
             /** @description Hash of this transaction */
             hash: string;
             /** @description Unix timestamp of when this block was included */
             blockTimestamp?: string;
-            /** @description Gas provided for transaction execution */
-            gas: string;
             /** @description Contract code or a hashed method call */
             input: string;
-            /** @description Unique number identifying this transaction */
-            nonce: string;
             /** @description Index of this transaction in the block or `null` if pending */
             transactionIndex: string | null;
-            /** @description Base fee per gas. */
-            gasPrice: string;
         };
-        "{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId:`0x${string}`;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x1\";hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`|null;accessList:AccessList;authorizationList?:undefined;blobVersionedHashes?:undefined;gasPrice:`0x${string}`;maxFeePerBlobGas?:undefined;maxFeePerGas?:undefined;maxPriorityFeePerGas?:undefined;yParity?:`0x${string}`|undefined;}": {
+        "{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId:`0x${string}`;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x1\";gas:`0x${string}`;blobVersionedHashes?:undefined;gasPrice:`0x${string}`;maxFeePerBlobGas?:undefined;maxFeePerGas?:undefined;maxPriorityFeePerGas?:undefined;accessList:AccessList;authorizationList?:undefined;hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`|null;yParity?:`0x${string}`|undefined;}": {
             /** @description Number of block containing this transaction or `null` if pending */
             blockNumber: string | null;
             /** @description Hash of block containing this transaction or `null` if pending */
@@ -3368,41 +4025,41 @@ export interface components {
             value: string;
             /** @description Chain ID that this transaction is valid on. */
             chainId: string;
-            /** @description Transaction sender */
-            from: string;
             /** @description ECDSA signature s */
             s: string;
+            /** @description Transaction sender */
+            from: string;
             /** @description Transaction recipient or `null` if deploying a contract */
             to: string | null;
+            /** @description Unique number identifying this transaction */
+            nonce: string;
             /** @description ECDSA recovery ID */
             v: string;
             /** @description ECDSA signature r */
             r: string;
             /** @constant */
             type: "0x1";
-            /** @description Hash of this transaction */
-            hash: string;
-            /** @description Unix timestamp of when this block was included */
-            blockTimestamp?: string;
             /** @description Gas provided for transaction execution */
             gas: string;
-            /** @description Contract code or a hashed method call */
-            input: string;
-            /** @description Unique number identifying this transaction */
-            nonce: string;
-            /** @description Index of this transaction in the block or `null` if pending */
-            transactionIndex: string | null;
+            /** @description Base fee per gas. */
+            gasPrice: string;
             /** @description EIP-2930 Access List. */
             accessList: {
                 address: string;
                 storageKeys: string[];
             }[];
-            /** @description Base fee per gas. */
-            gasPrice: string;
+            /** @description Hash of this transaction */
+            hash: string;
+            /** @description Unix timestamp of when this block was included */
+            blockTimestamp?: string;
+            /** @description Contract code or a hashed method call */
+            input: string;
+            /** @description Index of this transaction in the block or `null` if pending */
+            transactionIndex: string | null;
             /** @description The parity of the y-value of the secp256k1 signature. */
             yParity?: string;
         };
-        "{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId:`0x${string}`;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x2\";hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`|null;accessList:AccessList;authorizationList?:undefined;blobVersionedHashes?:undefined;gasPrice?:undefined;maxFeePerBlobGas?:undefined;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;yParity?:`0x${string}`|undefined;}": {
+        "{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId:`0x${string}`;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x2\";gas:`0x${string}`;blobVersionedHashes?:undefined;gasPrice?:undefined;maxFeePerBlobGas?:undefined;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;accessList:AccessList;authorizationList?:undefined;hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`|null;yParity?:`0x${string}`|undefined;}": {
             /** @description Number of block containing this transaction or `null` if pending */
             blockNumber: string | null;
             /** @description Hash of block containing this transaction or `null` if pending */
@@ -3411,43 +4068,43 @@ export interface components {
             value: string;
             /** @description Chain ID that this transaction is valid on. */
             chainId: string;
-            /** @description Transaction sender */
-            from: string;
             /** @description ECDSA signature s */
             s: string;
+            /** @description Transaction sender */
+            from: string;
             /** @description Transaction recipient or `null` if deploying a contract */
             to: string | null;
+            /** @description Unique number identifying this transaction */
+            nonce: string;
             /** @description ECDSA recovery ID */
             v: string;
             /** @description ECDSA signature r */
             r: string;
             /** @constant */
             type: "0x2";
-            /** @description Hash of this transaction */
-            hash: string;
-            /** @description Unix timestamp of when this block was included */
-            blockTimestamp?: string;
             /** @description Gas provided for transaction execution */
             gas: string;
-            /** @description Contract code or a hashed method call */
-            input: string;
-            /** @description Unique number identifying this transaction */
-            nonce: string;
-            /** @description Index of this transaction in the block or `null` if pending */
-            transactionIndex: string | null;
+            /** @description Total fee per gas in wei (gasPrice/baseFeePerGas + maxPriorityFeePerGas). */
+            maxFeePerGas: string;
+            /** @description Max priority fee per gas (in wei). */
+            maxPriorityFeePerGas: string;
             /** @description EIP-2930 Access List. */
             accessList: {
                 address: string;
                 storageKeys: string[];
             }[];
-            /** @description Total fee per gas in wei (gasPrice/baseFeePerGas + maxPriorityFeePerGas). */
-            maxFeePerGas: string;
-            /** @description Max priority fee per gas (in wei). */
-            maxPriorityFeePerGas: string;
+            /** @description Hash of this transaction */
+            hash: string;
+            /** @description Unix timestamp of when this block was included */
+            blockTimestamp?: string;
+            /** @description Contract code or a hashed method call */
+            input: string;
+            /** @description Index of this transaction in the block or `null` if pending */
+            transactionIndex: string | null;
             /** @description The parity of the y-value of the secp256k1 signature. */
             yParity?: string;
         };
-        "{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId:`0x${string}`;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x3\";hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`|null;accessList:AccessList;authorizationList?:undefined;blobVersionedHashes:readonly`0x${string}`[];gasPrice?:undefined;maxFeePerBlobGas:`0x${string}`;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;yParity?:`0x${string}`|undefined;}": {
+        "{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId:`0x${string}`;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x3\";gas:`0x${string}`;blobVersionedHashes:readonly`0x${string}`[];gasPrice?:undefined;maxFeePerBlobGas:`0x${string}`;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;accessList:AccessList;authorizationList?:undefined;hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`|null;yParity?:`0x${string}`|undefined;}": {
             /** @description Number of block containing this transaction or `null` if pending */
             blockNumber: string | null;
             /** @description Hash of block containing this transaction or `null` if pending */
@@ -3456,35 +4113,22 @@ export interface components {
             value: string;
             /** @description Chain ID that this transaction is valid on. */
             chainId: string;
-            /** @description Transaction sender */
-            from: string;
             /** @description ECDSA signature s */
             s: string;
+            /** @description Transaction sender */
+            from: string;
             /** @description Transaction recipient or `null` if deploying a contract */
             to: string | null;
+            /** @description Unique number identifying this transaction */
+            nonce: string;
             /** @description ECDSA recovery ID */
             v: string;
             /** @description ECDSA signature r */
             r: string;
             /** @constant */
             type: "0x3";
-            /** @description Hash of this transaction */
-            hash: string;
-            /** @description Unix timestamp of when this block was included */
-            blockTimestamp?: string;
             /** @description Gas provided for transaction execution */
             gas: string;
-            /** @description Contract code or a hashed method call */
-            input: string;
-            /** @description Unique number identifying this transaction */
-            nonce: string;
-            /** @description Index of this transaction in the block or `null` if pending */
-            transactionIndex: string | null;
-            /** @description EIP-2930 Access List. */
-            accessList: {
-                address: string;
-                storageKeys: string[];
-            }[];
             /** @description List of versioned blob hashes associated with the transaction's blobs. */
             blobVersionedHashes: string[];
             /** @description Maximum total fee per gas sender is willing to pay for blob gas (in wei). */
@@ -3493,10 +4137,23 @@ export interface components {
             maxFeePerGas: string;
             /** @description Max priority fee per gas (in wei). */
             maxPriorityFeePerGas: string;
+            /** @description EIP-2930 Access List. */
+            accessList: {
+                address: string;
+                storageKeys: string[];
+            }[];
+            /** @description Hash of this transaction */
+            hash: string;
+            /** @description Unix timestamp of when this block was included */
+            blockTimestamp?: string;
+            /** @description Contract code or a hashed method call */
+            input: string;
+            /** @description Index of this transaction in the block or `null` if pending */
+            transactionIndex: string | null;
             /** @description The parity of the y-value of the secp256k1 signature. */
             yParity?: string;
         };
-        "{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId:`0x${string}`;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x4\";hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`|null;accessList:AccessList;authorizationList?:RpcAuthorizationList|undefined;blobVersionedHashes?:undefined;gasPrice?:undefined;maxFeePerBlobGas?:undefined;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;yParity?:`0x${string}`|undefined;}": {
+        "{blockNumber:`0x${string}`|null;blockHash:`0x${string}`|null;value:`0x${string}`;chainId:`0x${string}`;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x4\";gas:`0x${string}`;blobVersionedHashes?:undefined;gasPrice?:undefined;maxFeePerBlobGas?:undefined;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;accessList:AccessList;authorizationList?:RpcAuthorizationList|undefined;hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`|null;yParity?:`0x${string}`|undefined;}": {
             /** @description Number of block containing this transaction or `null` if pending */
             blockNumber: string | null;
             /** @description Hash of block containing this transaction or `null` if pending */
@@ -3505,30 +4162,26 @@ export interface components {
             value: string;
             /** @description Chain ID that this transaction is valid on. */
             chainId: string;
-            /** @description Transaction sender */
-            from: string;
             /** @description ECDSA signature s */
             s: string;
+            /** @description Transaction sender */
+            from: string;
             /** @description Transaction recipient or `null` if deploying a contract */
             to: string | null;
+            /** @description Unique number identifying this transaction */
+            nonce: string;
             /** @description ECDSA recovery ID */
             v: string;
             /** @description ECDSA signature r */
             r: string;
             /** @constant */
             type: "0x4";
-            /** @description Hash of this transaction */
-            hash: string;
-            /** @description Unix timestamp of when this block was included */
-            blockTimestamp?: string;
             /** @description Gas provided for transaction execution */
             gas: string;
-            /** @description Contract code or a hashed method call */
-            input: string;
-            /** @description Unique number identifying this transaction */
-            nonce: string;
-            /** @description Index of this transaction in the block or `null` if pending */
-            transactionIndex: string | null;
+            /** @description Total fee per gas in wei (gasPrice/baseFeePerGas + maxPriorityFeePerGas). */
+            maxFeePerGas: string;
+            /** @description Max priority fee per gas (in wei). */
+            maxPriorityFeePerGas: string;
             /** @description EIP-2930 Access List. */
             accessList: {
                 address: string;
@@ -3548,10 +4201,14 @@ export interface components {
                 /** @description y parity. */
                 yParity: string;
             }[];
-            /** @description Total fee per gas in wei (gasPrice/baseFeePerGas + maxPriorityFeePerGas). */
-            maxFeePerGas: string;
-            /** @description Max priority fee per gas (in wei). */
-            maxPriorityFeePerGas: string;
+            /** @description Hash of this transaction */
+            hash: string;
+            /** @description Unix timestamp of when this block was included */
+            blockTimestamp?: string;
+            /** @description Contract code or a hashed method call */
+            input: string;
+            /** @description Index of this transaction in the block or `null` if pending */
+            transactionIndex: string | null;
             /** @description The parity of the y-value of the secp256k1 signature. */
             yParity?: string;
         };
@@ -3690,8 +4347,8 @@ export interface components {
                 withdrawalsRoot?: string;
             } | null;
         };
-        "RpcTransaction<false>": components["schemas"]["{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId?:`0x${string}`|undefined;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x0\";hash:`0x${string}`;yParity?:undefined;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`;accessList?:undefined;authorizationList?:undefined;blobVersionedHashes?:undefined;gasPrice:`0x${string}`;maxFeePerBlobGas?:undefined;maxFeePerGas?:undefined;maxPriorityFeePerGas?:undefined;}"] | components["schemas"]["{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId:`0x${string}`;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x1\";hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`;accessList:AccessList;authorizationList?:undefined;blobVersionedHashes?:undefined;gasPrice:`0x${string}`;maxFeePerBlobGas?:undefined;maxFeePerGas?:undefined;maxPriorityFeePerGas?:undefined;yParity?:`0x${string}`|undefined;}"] | components["schemas"]["{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId:`0x${string}`;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x2\";hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`;accessList:AccessList;authorizationList?:undefined;blobVersionedHashes?:undefined;gasPrice?:undefined;maxFeePerBlobGas?:undefined;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;yParity?:`0x${string}`|undefined;}"] | components["schemas"]["{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId:`0x${string}`;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x3\";hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`;accessList:AccessList;authorizationList?:undefined;blobVersionedHashes:readonly`0x${string}`[];gasPrice?:undefined;maxFeePerBlobGas:`0x${string}`;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;yParity?:`0x${string}`|undefined;}"] | components["schemas"]["{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId:`0x${string}`;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x4\";hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`;accessList:AccessList;authorizationList?:RpcAuthorizationList|undefined;blobVersionedHashes?:undefined;gasPrice?:undefined;maxFeePerBlobGas?:undefined;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;yParity?:`0x${string}`|undefined;}"];
-        "{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId?:`0x${string}`|undefined;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x0\";hash:`0x${string}`;yParity?:undefined;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`;accessList?:undefined;authorizationList?:undefined;blobVersionedHashes?:undefined;gasPrice:`0x${string}`;maxFeePerBlobGas?:undefined;maxFeePerGas?:undefined;maxPriorityFeePerGas?:undefined;}": {
+        "RpcTransaction<false>": components["schemas"]["{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId?:`0x${string}`|undefined;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x0\";gas:`0x${string}`;blobVersionedHashes?:undefined;gasPrice:`0x${string}`;maxFeePerBlobGas?:undefined;maxFeePerGas?:undefined;maxPriorityFeePerGas?:undefined;accessList?:undefined;authorizationList?:undefined;hash:`0x${string}`;yParity?:undefined;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`;}"] | components["schemas"]["{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId:`0x${string}`;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x1\";gas:`0x${string}`;blobVersionedHashes?:undefined;gasPrice:`0x${string}`;maxFeePerBlobGas?:undefined;maxFeePerGas?:undefined;maxPriorityFeePerGas?:undefined;accessList:AccessList;authorizationList?:undefined;hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`;yParity?:`0x${string}`|undefined;}"] | components["schemas"]["{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId:`0x${string}`;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x2\";gas:`0x${string}`;blobVersionedHashes?:undefined;gasPrice?:undefined;maxFeePerBlobGas?:undefined;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;accessList:AccessList;authorizationList?:undefined;hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`;yParity?:`0x${string}`|undefined;}"] | components["schemas"]["{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId:`0x${string}`;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x3\";gas:`0x${string}`;blobVersionedHashes:readonly`0x${string}`[];gasPrice?:undefined;maxFeePerBlobGas:`0x${string}`;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;accessList:AccessList;authorizationList?:undefined;hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`;yParity?:`0x${string}`|undefined;}"] | components["schemas"]["{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId:`0x${string}`;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x4\";gas:`0x${string}`;blobVersionedHashes?:undefined;gasPrice?:undefined;maxFeePerBlobGas?:undefined;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;accessList:AccessList;authorizationList?:RpcAuthorizationList|undefined;hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`;yParity?:`0x${string}`|undefined;}"];
+        "{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId?:`0x${string}`|undefined;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x0\";gas:`0x${string}`;blobVersionedHashes?:undefined;gasPrice:`0x${string}`;maxFeePerBlobGas?:undefined;maxFeePerGas?:undefined;maxPriorityFeePerGas?:undefined;accessList?:undefined;authorizationList?:undefined;hash:`0x${string}`;yParity?:undefined;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`;}": {
             /** @description Number of block containing this transaction or `null` if pending */
             blockNumber: string;
             /** @description Hash of block containing this transaction or `null` if pending */
@@ -3700,34 +4357,34 @@ export interface components {
             value: string;
             /** @description Chain ID that this transaction is valid on. */
             chainId?: string;
-            /** @description Transaction sender */
-            from: string;
             /** @description ECDSA signature s */
             s: string;
+            /** @description Transaction sender */
+            from: string;
             /** @description Transaction recipient or `null` if deploying a contract */
             to: string | null;
+            /** @description Unique number identifying this transaction */
+            nonce: string;
             /** @description ECDSA recovery ID */
             v: string;
             /** @description ECDSA signature r */
             r: string;
             /** @constant */
             type: "0x0";
+            /** @description Gas provided for transaction execution */
+            gas: string;
+            /** @description Base fee per gas. */
+            gasPrice: string;
             /** @description Hash of this transaction */
             hash: string;
             /** @description Unix timestamp of when this block was included */
             blockTimestamp?: string;
-            /** @description Gas provided for transaction execution */
-            gas: string;
             /** @description Contract code or a hashed method call */
             input: string;
-            /** @description Unique number identifying this transaction */
-            nonce: string;
             /** @description Index of this transaction in the block or `null` if pending */
             transactionIndex: string;
-            /** @description Base fee per gas. */
-            gasPrice: string;
         };
-        "{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId:`0x${string}`;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x1\";hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`;accessList:AccessList;authorizationList?:undefined;blobVersionedHashes?:undefined;gasPrice:`0x${string}`;maxFeePerBlobGas?:undefined;maxFeePerGas?:undefined;maxPriorityFeePerGas?:undefined;yParity?:`0x${string}`|undefined;}": {
+        "{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId:`0x${string}`;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x1\";gas:`0x${string}`;blobVersionedHashes?:undefined;gasPrice:`0x${string}`;maxFeePerBlobGas?:undefined;maxFeePerGas?:undefined;maxPriorityFeePerGas?:undefined;accessList:AccessList;authorizationList?:undefined;hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`;yParity?:`0x${string}`|undefined;}": {
             /** @description Number of block containing this transaction or `null` if pending */
             blockNumber: string;
             /** @description Hash of block containing this transaction or `null` if pending */
@@ -3736,41 +4393,41 @@ export interface components {
             value: string;
             /** @description Chain ID that this transaction is valid on. */
             chainId: string;
-            /** @description Transaction sender */
-            from: string;
             /** @description ECDSA signature s */
             s: string;
+            /** @description Transaction sender */
+            from: string;
             /** @description Transaction recipient or `null` if deploying a contract */
             to: string | null;
+            /** @description Unique number identifying this transaction */
+            nonce: string;
             /** @description ECDSA recovery ID */
             v: string;
             /** @description ECDSA signature r */
             r: string;
             /** @constant */
             type: "0x1";
-            /** @description Hash of this transaction */
-            hash: string;
-            /** @description Unix timestamp of when this block was included */
-            blockTimestamp?: string;
             /** @description Gas provided for transaction execution */
             gas: string;
-            /** @description Contract code or a hashed method call */
-            input: string;
-            /** @description Unique number identifying this transaction */
-            nonce: string;
-            /** @description Index of this transaction in the block or `null` if pending */
-            transactionIndex: string;
+            /** @description Base fee per gas. */
+            gasPrice: string;
             /** @description EIP-2930 Access List. */
             accessList: {
                 address: string;
                 storageKeys: string[];
             }[];
-            /** @description Base fee per gas. */
-            gasPrice: string;
+            /** @description Hash of this transaction */
+            hash: string;
+            /** @description Unix timestamp of when this block was included */
+            blockTimestamp?: string;
+            /** @description Contract code or a hashed method call */
+            input: string;
+            /** @description Index of this transaction in the block or `null` if pending */
+            transactionIndex: string;
             /** @description The parity of the y-value of the secp256k1 signature. */
             yParity?: string;
         };
-        "{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId:`0x${string}`;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x2\";hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`;accessList:AccessList;authorizationList?:undefined;blobVersionedHashes?:undefined;gasPrice?:undefined;maxFeePerBlobGas?:undefined;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;yParity?:`0x${string}`|undefined;}": {
+        "{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId:`0x${string}`;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x2\";gas:`0x${string}`;blobVersionedHashes?:undefined;gasPrice?:undefined;maxFeePerBlobGas?:undefined;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;accessList:AccessList;authorizationList?:undefined;hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`;yParity?:`0x${string}`|undefined;}": {
             /** @description Number of block containing this transaction or `null` if pending */
             blockNumber: string;
             /** @description Hash of block containing this transaction or `null` if pending */
@@ -3779,43 +4436,43 @@ export interface components {
             value: string;
             /** @description Chain ID that this transaction is valid on. */
             chainId: string;
-            /** @description Transaction sender */
-            from: string;
             /** @description ECDSA signature s */
             s: string;
+            /** @description Transaction sender */
+            from: string;
             /** @description Transaction recipient or `null` if deploying a contract */
             to: string | null;
+            /** @description Unique number identifying this transaction */
+            nonce: string;
             /** @description ECDSA recovery ID */
             v: string;
             /** @description ECDSA signature r */
             r: string;
             /** @constant */
             type: "0x2";
-            /** @description Hash of this transaction */
-            hash: string;
-            /** @description Unix timestamp of when this block was included */
-            blockTimestamp?: string;
             /** @description Gas provided for transaction execution */
             gas: string;
-            /** @description Contract code or a hashed method call */
-            input: string;
-            /** @description Unique number identifying this transaction */
-            nonce: string;
-            /** @description Index of this transaction in the block or `null` if pending */
-            transactionIndex: string;
+            /** @description Total fee per gas in wei (gasPrice/baseFeePerGas + maxPriorityFeePerGas). */
+            maxFeePerGas: string;
+            /** @description Max priority fee per gas (in wei). */
+            maxPriorityFeePerGas: string;
             /** @description EIP-2930 Access List. */
             accessList: {
                 address: string;
                 storageKeys: string[];
             }[];
-            /** @description Total fee per gas in wei (gasPrice/baseFeePerGas + maxPriorityFeePerGas). */
-            maxFeePerGas: string;
-            /** @description Max priority fee per gas (in wei). */
-            maxPriorityFeePerGas: string;
+            /** @description Hash of this transaction */
+            hash: string;
+            /** @description Unix timestamp of when this block was included */
+            blockTimestamp?: string;
+            /** @description Contract code or a hashed method call */
+            input: string;
+            /** @description Index of this transaction in the block or `null` if pending */
+            transactionIndex: string;
             /** @description The parity of the y-value of the secp256k1 signature. */
             yParity?: string;
         };
-        "{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId:`0x${string}`;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x3\";hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`;accessList:AccessList;authorizationList?:undefined;blobVersionedHashes:readonly`0x${string}`[];gasPrice?:undefined;maxFeePerBlobGas:`0x${string}`;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;yParity?:`0x${string}`|undefined;}": {
+        "{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId:`0x${string}`;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x3\";gas:`0x${string}`;blobVersionedHashes:readonly`0x${string}`[];gasPrice?:undefined;maxFeePerBlobGas:`0x${string}`;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;accessList:AccessList;authorizationList?:undefined;hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`;yParity?:`0x${string}`|undefined;}": {
             /** @description Number of block containing this transaction or `null` if pending */
             blockNumber: string;
             /** @description Hash of block containing this transaction or `null` if pending */
@@ -3824,35 +4481,22 @@ export interface components {
             value: string;
             /** @description Chain ID that this transaction is valid on. */
             chainId: string;
-            /** @description Transaction sender */
-            from: string;
             /** @description ECDSA signature s */
             s: string;
+            /** @description Transaction sender */
+            from: string;
             /** @description Transaction recipient or `null` if deploying a contract */
             to: string | null;
+            /** @description Unique number identifying this transaction */
+            nonce: string;
             /** @description ECDSA recovery ID */
             v: string;
             /** @description ECDSA signature r */
             r: string;
             /** @constant */
             type: "0x3";
-            /** @description Hash of this transaction */
-            hash: string;
-            /** @description Unix timestamp of when this block was included */
-            blockTimestamp?: string;
             /** @description Gas provided for transaction execution */
             gas: string;
-            /** @description Contract code or a hashed method call */
-            input: string;
-            /** @description Unique number identifying this transaction */
-            nonce: string;
-            /** @description Index of this transaction in the block or `null` if pending */
-            transactionIndex: string;
-            /** @description EIP-2930 Access List. */
-            accessList: {
-                address: string;
-                storageKeys: string[];
-            }[];
             /** @description List of versioned blob hashes associated with the transaction's blobs. */
             blobVersionedHashes: string[];
             /** @description Maximum total fee per gas sender is willing to pay for blob gas (in wei). */
@@ -3861,10 +4505,23 @@ export interface components {
             maxFeePerGas: string;
             /** @description Max priority fee per gas (in wei). */
             maxPriorityFeePerGas: string;
+            /** @description EIP-2930 Access List. */
+            accessList: {
+                address: string;
+                storageKeys: string[];
+            }[];
+            /** @description Hash of this transaction */
+            hash: string;
+            /** @description Unix timestamp of when this block was included */
+            blockTimestamp?: string;
+            /** @description Contract code or a hashed method call */
+            input: string;
+            /** @description Index of this transaction in the block or `null` if pending */
+            transactionIndex: string;
             /** @description The parity of the y-value of the secp256k1 signature. */
             yParity?: string;
         };
-        "{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId:`0x${string}`;from:`0x${string}`;s:`0x${string}`;to:`0x${string}`|null;v:`0x${string}`;r:`0x${string}`;type:\"0x4\";hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;gas:`0x${string}`;input:`0x${string}`;nonce:`0x${string}`;transactionIndex:`0x${string}`;accessList:AccessList;authorizationList?:RpcAuthorizationList|undefined;blobVersionedHashes?:undefined;gasPrice?:undefined;maxFeePerBlobGas?:undefined;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;yParity?:`0x${string}`|undefined;}": {
+        "{blockNumber:`0x${string}`;blockHash:`0x${string}`;value:`0x${string}`;chainId:`0x${string}`;s:`0x${string}`;from:`0x${string}`;to:`0x${string}`|null;nonce:`0x${string}`;v:`0x${string}`;r:`0x${string}`;type:\"0x4\";gas:`0x${string}`;blobVersionedHashes?:undefined;gasPrice?:undefined;maxFeePerBlobGas?:undefined;maxFeePerGas:`0x${string}`;maxPriorityFeePerGas:`0x${string}`;accessList:AccessList;authorizationList?:RpcAuthorizationList|undefined;hash:`0x${string}`;blockTimestamp?:`0x${string}`|undefined;input:`0x${string}`;transactionIndex:`0x${string}`;yParity?:`0x${string}`|undefined;}": {
             /** @description Number of block containing this transaction or `null` if pending */
             blockNumber: string;
             /** @description Hash of block containing this transaction or `null` if pending */
@@ -3873,30 +4530,26 @@ export interface components {
             value: string;
             /** @description Chain ID that this transaction is valid on. */
             chainId: string;
-            /** @description Transaction sender */
-            from: string;
             /** @description ECDSA signature s */
             s: string;
+            /** @description Transaction sender */
+            from: string;
             /** @description Transaction recipient or `null` if deploying a contract */
             to: string | null;
+            /** @description Unique number identifying this transaction */
+            nonce: string;
             /** @description ECDSA recovery ID */
             v: string;
             /** @description ECDSA signature r */
             r: string;
             /** @constant */
             type: "0x4";
-            /** @description Hash of this transaction */
-            hash: string;
-            /** @description Unix timestamp of when this block was included */
-            blockTimestamp?: string;
             /** @description Gas provided for transaction execution */
             gas: string;
-            /** @description Contract code or a hashed method call */
-            input: string;
-            /** @description Unique number identifying this transaction */
-            nonce: string;
-            /** @description Index of this transaction in the block or `null` if pending */
-            transactionIndex: string;
+            /** @description Total fee per gas in wei (gasPrice/baseFeePerGas + maxPriorityFeePerGas). */
+            maxFeePerGas: string;
+            /** @description Max priority fee per gas (in wei). */
+            maxPriorityFeePerGas: string;
             /** @description EIP-2930 Access List. */
             accessList: {
                 address: string;
@@ -3916,10 +4569,14 @@ export interface components {
                 /** @description y parity. */
                 yParity: string;
             }[];
-            /** @description Total fee per gas in wei (gasPrice/baseFeePerGas + maxPriorityFeePerGas). */
-            maxFeePerGas: string;
-            /** @description Max priority fee per gas (in wei). */
-            maxPriorityFeePerGas: string;
+            /** @description Hash of this transaction */
+            hash: string;
+            /** @description Unix timestamp of when this block was included */
+            blockTimestamp?: string;
+            /** @description Contract code or a hashed method call */
+            input: string;
+            /** @description Index of this transaction in the block or `null` if pending */
+            transactionIndex: string;
             /** @description The parity of the y-value of the secp256k1 signature. */
             yParity?: string;
         };
@@ -4246,28 +4903,7 @@ export interface components {
                     branches: {
                         amountIn: string;
                         hops: {
-                            pool: {
-                                id: string;
-                                /** @enum {string} */
-                                protocol: "v2" | "v3" | "v4";
-                                token0: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                token1: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                address?: string;
-                                feePips: number;
-                                tickSpacing?: number;
-                                poolManager?: string;
-                                hooks?: string;
-                            };
+                            pool: components["schemas"]["RoutePoolRef"];
                             zeroForOne: boolean;
                         }[];
                     }[];
@@ -4298,28 +4934,7 @@ export interface components {
                     branches: {
                         amountIn: string;
                         hops: {
-                            pool: {
-                                id: string;
-                                /** @enum {string} */
-                                protocol: "v2" | "v3" | "v4";
-                                token0: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                token1: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                address?: string;
-                                feePips: number;
-                                tickSpacing?: number;
-                                poolManager?: string;
-                                hooks?: string;
-                            };
+                            pool: components["schemas"]["RoutePoolRef"];
                             zeroForOne: boolean;
                         }[];
                     }[];
@@ -4352,28 +4967,7 @@ export interface components {
                     branches: {
                         amountIn: string;
                         hops: {
-                            pool: {
-                                id: string;
-                                /** @enum {string} */
-                                protocol: "v2" | "v3" | "v4";
-                                token0: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                token1: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                address?: string;
-                                feePips: number;
-                                tickSpacing?: number;
-                                poolManager?: string;
-                                hooks?: string;
-                            };
+                            pool: components["schemas"]["RoutePoolRef"];
                             zeroForOne: boolean;
                         }[];
                     }[];
@@ -4405,28 +4999,7 @@ export interface components {
                     branches: {
                         amountIn: string;
                         hops: {
-                            pool: {
-                                id: string;
-                                /** @enum {string} */
-                                protocol: "v2" | "v3" | "v4";
-                                token0: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                token1: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                address?: string;
-                                feePips: number;
-                                tickSpacing?: number;
-                                poolManager?: string;
-                                hooks?: string;
-                            };
+                            pool: components["schemas"]["RoutePoolRef"];
                             zeroForOne: boolean;
                         }[];
                     }[];
@@ -4457,28 +5030,7 @@ export interface components {
                     branches: {
                         amountIn: string;
                         hops: {
-                            pool: {
-                                id: string;
-                                /** @enum {string} */
-                                protocol: "v2" | "v3" | "v4";
-                                token0: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                token1: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                address?: string;
-                                feePips: number;
-                                tickSpacing?: number;
-                                poolManager?: string;
-                                hooks?: string;
-                            };
+                            pool: components["schemas"]["RoutePoolRef"];
                             zeroForOne: boolean;
                         }[];
                     }[];
@@ -4508,28 +5060,7 @@ export interface components {
                     branches: {
                         amountIn: string;
                         hops: {
-                            pool: {
-                                id: string;
-                                /** @enum {string} */
-                                protocol: "v2" | "v3" | "v4";
-                                token0: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                token1: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                address?: string;
-                                feePips: number;
-                                tickSpacing?: number;
-                                poolManager?: string;
-                                hooks?: string;
-                            };
+                            pool: components["schemas"]["RoutePoolRef"];
                             zeroForOne: boolean;
                         }[];
                     }[];
@@ -4615,7 +5146,7 @@ export interface components {
                     path: string;
                     quote: string;
                     /** @enum {string} */
-                    route: "direct" | "mixed" | "viaWeth";
+                    route: "direct" | "identity" | "mixed" | "viaWeth";
                     feeInfo: string;
                     routePlan?: {
                         /** @constant */
@@ -4629,28 +5160,7 @@ export interface components {
                         branches: {
                             amountIn: string;
                             hops: {
-                                pool: {
-                                    id: string;
-                                    /** @enum {string} */
-                                    protocol: "v2" | "v3" | "v4";
-                                    token0: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    token1: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    address?: string;
-                                    feePips: number;
-                                    tickSpacing?: number;
-                                    poolManager?: string;
-                                    hooks?: string;
-                                };
+                                pool: components["schemas"]["RoutePoolRef"];
                                 zeroForOne: boolean;
                             }[];
                         }[];
@@ -4666,7 +5176,20 @@ export interface components {
                     path: string;
                     rpcCode: number;
                     /** @enum {string} */
-                    code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+                    code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "redemption-capacity-exceeded" | "redemption-supply-exceeded" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+                    /** @description Canonical preview rejection evidence; absent quantities were not provided by the contract. */
+                    constraint?: {
+                        /** @enum {string} */
+                        kind?: "issuance-cap" | "redemption-capacity" | "redemption-supply";
+                        /** @enum {string} */
+                        quantity?: "core-output-minima" | "gross-cygld-input" | "gross-cygld-mint";
+                        /** @enum {string} */
+                        limitKind?: "effective-supply-cap" | "maximum-total-supply";
+                        requestedRaw?: string;
+                        availableRaw?: string;
+                        currentSupplyRaw?: string;
+                        limitRaw?: string;
+                    };
                     /** @description Optional observed RPC failure context; provider text is sanitized before publication. */
                     diagnostics?: {
                         rpcMethod?: string;
@@ -4677,6 +5200,8 @@ export interface components {
                         httpStatus?: number;
                         /** @enum {string} */
                         failureType?: "backend-deadline" | "http-error" | "provider-timeout" | "rpc-error" | "transport-error";
+                        errorSelector?: string;
+                        errorName?: string;
                     };
                 }[];
             } & {
@@ -4705,7 +5230,7 @@ export interface components {
                         path: string;
                         quote: string;
                         /** @enum {string} */
-                        route: "direct" | "mixed" | "viaWeth";
+                        route: "direct" | "identity" | "mixed" | "viaWeth";
                         feeInfo: string;
                         routePlan?: {
                             /** @constant */
@@ -4719,28 +5244,7 @@ export interface components {
                             branches: {
                                 amountIn: string;
                                 hops: {
-                                    pool: {
-                                        id: string;
-                                        /** @enum {string} */
-                                        protocol: "v2" | "v3" | "v4";
-                                        token0: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        token1: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        address?: string;
-                                        feePips: number;
-                                        tickSpacing?: number;
-                                        poolManager?: string;
-                                        hooks?: string;
-                                    };
+                                    pool: components["schemas"]["RoutePoolRef"];
                                     zeroForOne: boolean;
                                 }[];
                             }[];
@@ -4756,7 +5260,20 @@ export interface components {
                         path: string;
                         rpcCode: number;
                         /** @enum {string} */
-                        code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+                        code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "redemption-capacity-exceeded" | "redemption-supply-exceeded" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+                        /** @description Canonical preview rejection evidence; absent quantities were not provided by the contract. */
+                        constraint?: {
+                            /** @enum {string} */
+                            kind?: "issuance-cap" | "redemption-capacity" | "redemption-supply";
+                            /** @enum {string} */
+                            quantity?: "core-output-minima" | "gross-cygld-input" | "gross-cygld-mint";
+                            /** @enum {string} */
+                            limitKind?: "effective-supply-cap" | "maximum-total-supply";
+                            requestedRaw?: string;
+                            availableRaw?: string;
+                            currentSupplyRaw?: string;
+                            limitRaw?: string;
+                        };
                         /** @description Optional observed RPC failure context; provider text is sanitized before publication. */
                         diagnostics?: {
                             rpcMethod?: string;
@@ -4767,6 +5284,8 @@ export interface components {
                             httpStatus?: number;
                             /** @enum {string} */
                             failureType?: "backend-deadline" | "http-error" | "provider-timeout" | "rpc-error" | "transport-error";
+                            errorSelector?: string;
+                            errorName?: string;
                         };
                     }[];
                 }[];
@@ -4774,6 +5293,8 @@ export interface components {
                     candidateCalls: number;
                     rpcReads: number;
                     rpcReadsRequested: number;
+                    /** @constant */
+                    rpcReadsScope?: "coordinator";
                     rpcReadsCoalesced: number;
                     rpcReadsReused: number;
                     contextMs: number;
@@ -4788,7 +5309,20 @@ export interface components {
             error: string;
             correlationId: string;
             /** @enum {string} */
-            code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+            code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "redemption-capacity-exceeded" | "redemption-supply-exceeded" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+            /** @description Canonical preview rejection evidence; absent quantities were not provided by the contract. */
+            constraint?: {
+                /** @enum {string} */
+                kind?: "issuance-cap" | "redemption-capacity" | "redemption-supply";
+                /** @enum {string} */
+                quantity?: "core-output-minima" | "gross-cygld-input" | "gross-cygld-mint";
+                /** @enum {string} */
+                limitKind?: "effective-supply-cap" | "maximum-total-supply";
+                requestedRaw?: string;
+                availableRaw?: string;
+                currentSupplyRaw?: string;
+                limitRaw?: string;
+            };
             /** @description Optional observed RPC failure context; provider text is sanitized before publication. */
             diagnostics?: {
                 rpcMethod?: string;
@@ -4799,9 +5333,16 @@ export interface components {
                 httpStatus?: number;
                 /** @enum {string} */
                 failureType?: "backend-deadline" | "http-error" | "provider-timeout" | "rpc-error" | "transport-error";
+                errorSelector?: string;
+                errorName?: string;
             };
         };
-        QuoteIntentEvent: {
+        QuoteIntentEvent: ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "model";
             /** @description Display-only source data. No transaction tuples or execution readiness. */
@@ -4829,28 +5370,7 @@ export interface components {
                         branches: {
                             amountIn: string;
                             hops: {
-                                pool: {
-                                    id: string;
-                                    /** @enum {string} */
-                                    protocol: "v2" | "v3" | "v4";
-                                    token0: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    token1: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    address?: string;
-                                    feePips: number;
-                                    tickSpacing?: number;
-                                    poolManager?: string;
-                                    hooks?: string;
-                                };
+                                pool: components["schemas"]["RoutePoolRef"];
                                 zeroForOne: boolean;
                             }[];
                         }[];
@@ -4930,13 +5450,23 @@ export interface components {
                     };
                 } | null;
             };
-        } | {
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "progress";
             stage: string;
             completed: number;
             total: number;
-        } | {
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "estimate";
             amount: string;
@@ -4946,7 +5476,12 @@ export interface components {
                 blockHash: string;
                 observedAt: string;
             };
-        } | {
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "qualified";
             value: {
@@ -4975,28 +5510,7 @@ export interface components {
                         branches: {
                             amountIn: string;
                             hops: {
-                                pool: {
-                                    id: string;
-                                    /** @enum {string} */
-                                    protocol: "v2" | "v3" | "v4";
-                                    token0: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    token1: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    address?: string;
-                                    feePips: number;
-                                    tickSpacing?: number;
-                                    poolManager?: string;
-                                    hooks?: string;
-                                };
+                                pool: components["schemas"]["RoutePoolRef"];
                                 zeroForOne: boolean;
                             }[];
                         }[];
@@ -5023,28 +5537,7 @@ export interface components {
                         branches: {
                             amountIn: string;
                             hops: {
-                                pool: {
-                                    id: string;
-                                    /** @enum {string} */
-                                    protocol: "v2" | "v3" | "v4";
-                                    token0: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    token1: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    address?: string;
-                                    feePips: number;
-                                    tickSpacing?: number;
-                                    poolManager?: string;
-                                    hooks?: string;
-                                };
+                                pool: components["schemas"]["RoutePoolRef"];
                                 zeroForOne: boolean;
                             }[];
                         }[];
@@ -5208,12 +5701,25 @@ export interface components {
                     rpcReadsRequested: number;
                     rpcReadsCoalesced: number;
                     rpcReadsReused: number;
+                    /** @constant */
+                    rpcReadsScope?: "coordinator";
                     candidateCalls: number;
                     iterations: number;
                     totalMs: number;
+                } & {
+                    firstQualifiedMs?: number;
+                    selectionMs?: number;
+                    canonicalCompletedMs?: number;
+                    cleanupCompletedMs?: number;
+                    finalizationMs?: number;
                 };
             };
-        } | {
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "invalidated";
             context: {
@@ -5224,7 +5730,12 @@ export interface components {
             };
             /** @constant */
             reason?: "snapshot-changed";
-        } | {
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "complete";
             value: {
@@ -5253,28 +5764,7 @@ export interface components {
                         branches: {
                             amountIn: string;
                             hops: {
-                                pool: {
-                                    id: string;
-                                    /** @enum {string} */
-                                    protocol: "v2" | "v3" | "v4";
-                                    token0: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    token1: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    address?: string;
-                                    feePips: number;
-                                    tickSpacing?: number;
-                                    poolManager?: string;
-                                    hooks?: string;
-                                };
+                                pool: components["schemas"]["RoutePoolRef"];
                                 zeroForOne: boolean;
                             }[];
                         }[];
@@ -5301,28 +5791,7 @@ export interface components {
                         branches: {
                             amountIn: string;
                             hops: {
-                                pool: {
-                                    id: string;
-                                    /** @enum {string} */
-                                    protocol: "v2" | "v3" | "v4";
-                                    token0: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    token1: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    address?: string;
-                                    feePips: number;
-                                    tickSpacing?: number;
-                                    poolManager?: string;
-                                    hooks?: string;
-                                };
+                                pool: components["schemas"]["RoutePoolRef"];
                                 zeroForOne: boolean;
                             }[];
                         }[];
@@ -5486,18 +5955,44 @@ export interface components {
                     rpcReadsRequested: number;
                     rpcReadsCoalesced: number;
                     rpcReadsReused: number;
+                    /** @constant */
+                    rpcReadsScope?: "coordinator";
                     candidateCalls: number;
                     iterations: number;
                     totalMs: number;
+                } & {
+                    firstQualifiedMs?: number;
+                    selectionMs?: number;
+                    canonicalCompletedMs?: number;
+                    cleanupCompletedMs?: number;
+                    finalizationMs?: number;
                 };
             };
-        } | {
+        }) | ({
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        } & {
             /** @constant */
             type: "error";
             error: string;
             correlationId: string;
             /** @enum {string} */
-            code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+            code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "redemption-capacity-exceeded" | "redemption-supply-exceeded" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+            /** @description Canonical preview rejection evidence; absent quantities were not provided by the contract. */
+            constraint?: {
+                /** @enum {string} */
+                kind?: "issuance-cap" | "redemption-capacity" | "redemption-supply";
+                /** @enum {string} */
+                quantity?: "core-output-minima" | "gross-cygld-input" | "gross-cygld-mint";
+                /** @enum {string} */
+                limitKind?: "effective-supply-cap" | "maximum-total-supply";
+                requestedRaw?: string;
+                availableRaw?: string;
+                currentSupplyRaw?: string;
+                limitRaw?: string;
+            };
             /** @description Optional observed RPC failure context; provider text is sanitized before publication. */
             diagnostics?: {
                 rpcMethod?: string;
@@ -5508,8 +6003,10 @@ export interface components {
                 httpStatus?: number;
                 /** @enum {string} */
                 failureType?: "backend-deadline" | "http-error" | "provider-timeout" | "rpc-error" | "transport-error";
+                errorSelector?: string;
+                errorName?: string;
             };
-        };
+        });
         "Record<string,unknown>": Record<string, never>;
         HelpersActivity: {
             /** @constant */
@@ -5872,6 +6369,13 @@ export interface components {
                 forkBlockHash: string;
             };
         });
+        /** @description Optional subscriber references; workId belongs to shared producer work. */
+        DiagnosticReferences: {
+            requestId?: string;
+            attemptId?: string;
+            correlationId?: string;
+            workId?: string;
+        };
         /** @description One user trade; Backend chooses a complete Core or market execution. */
         TradeModelRequest: {
             /** @enum {string} */
@@ -5882,6 +6386,68 @@ export interface components {
             native: boolean;
             amount: string;
             slippageBps?: number;
+        };
+        TradeProviderAssessment: {
+            /** @enum {string} */
+            availability: "not-run" | "pending" | "qualified" | "unavailable" | "unsupported";
+            /** @enum {string} */
+            searchOutcome: "cancelled" | "complete" | "error" | "not-run" | "running" | "timeout";
+            error?: string;
+            /** @enum {string} */
+            code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "redemption-capacity-exceeded" | "redemption-supply-exceeded" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+            /** @description Canonical preview rejection evidence; absent quantities were not provided by the contract. */
+            constraint?: {
+                /** @enum {string} */
+                kind?: "issuance-cap" | "redemption-capacity" | "redemption-supply";
+                /** @enum {string} */
+                quantity?: "core-output-minima" | "gross-cygld-input" | "gross-cygld-mint";
+                /** @enum {string} */
+                limitKind?: "effective-supply-cap" | "maximum-total-supply";
+                requestedRaw?: string;
+                availableRaw?: string;
+                currentSupplyRaw?: string;
+                limitRaw?: string;
+            };
+            /** @description Optional observed RPC failure context; provider text is sanitized before publication. */
+            diagnostics?: {
+                rpcMethod?: string;
+                stage?: string;
+                elapsedMs?: number;
+                upstreamErrorCode?: number;
+                providerMessage?: string;
+                httpStatus?: number;
+                /** @enum {string} */
+                failureType?: "backend-deadline" | "http-error" | "provider-timeout" | "rpc-error" | "transport-error";
+                errorSelector?: string;
+                errorName?: string;
+            };
+            /** @description Existing public quote-work projection; aggregate waits are not wall-clock partitions. */
+            quoteDiagnostics?: {
+                phase?: string;
+                elapsedMs?: number;
+                qualified?: boolean;
+                inversionIteration?: number;
+                routeWave?: {
+                    elapsedMs?: number;
+                    subphaseElapsedMs?: number;
+                    subphase?: string;
+                    mode?: string;
+                    legacyCandidates?: number;
+                    legacyCompleted?: number;
+                    typedEnumerated?: number;
+                    typedCompleted?: number;
+                    typedPending?: number;
+                    sdkRequests?: number;
+                    sdkWaiting?: number;
+                    sdkLockWaitMs?: number;
+                    sdkExchangeMs?: number;
+                };
+            };
+        };
+        TradeProviderCandidates: {
+            /** @description One complete provider plan, without recursive provider evidence maps. */
+            core?: components["schemas"]["CoreTradeProviderCandidate"];
+            market?: components["schemas"]["MarketTradeProviderCandidate"];
         };
         TradeQuoteModelPacket: {
             /** @constant */
@@ -5925,28 +6491,7 @@ export interface components {
                             branches: {
                                 amountIn: string;
                                 hops: {
-                                    pool: {
-                                        id: string;
-                                        /** @enum {string} */
-                                        protocol: "v2" | "v3" | "v4";
-                                        token0: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        token1: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        address?: string;
-                                        feePips: number;
-                                        tickSpacing?: number;
-                                        poolManager?: string;
-                                        hooks?: string;
-                                    };
+                                    pool: components["schemas"]["RoutePoolRef"];
                                     zeroForOne: boolean;
                                 }[];
                             }[];
@@ -6062,28 +6607,7 @@ export interface components {
                             branches: {
                                 amountIn: string;
                                 hops: {
-                                    pool: {
-                                        id: string;
-                                        /** @enum {string} */
-                                        protocol: "v2" | "v3" | "v4";
-                                        token0: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        token1: {
-                                            address: string;
-                                            decimals: number;
-                                            chainId: number;
-                                            decimalsKnown?: boolean;
-                                        };
-                                        address?: string;
-                                        feePips: number;
-                                        tickSpacing?: number;
-                                        poolManager?: string;
-                                        hooks?: string;
-                                    };
+                                    pool: components["schemas"]["RoutePoolRef"];
                                     zeroForOne: boolean;
                                 }[];
                             }[];
@@ -6173,28 +6697,7 @@ export interface components {
                     branches: {
                         amountIn: string;
                         hops: {
-                            pool: {
-                                id: string;
-                                /** @enum {string} */
-                                protocol: "v2" | "v3" | "v4";
-                                token0: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                token1: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                address?: string;
-                                feePips: number;
-                                tickSpacing?: number;
-                                poolManager?: string;
-                                hooks?: string;
-                            };
+                            pool: components["schemas"]["RoutePoolRef"];
                             zeroForOne: boolean;
                         }[];
                     }[];
@@ -6286,28 +6789,7 @@ export interface components {
                     branches: {
                         amountIn: string;
                         hops: {
-                            pool: {
-                                id: string;
-                                /** @enum {string} */
-                                protocol: "v2" | "v3" | "v4";
-                                token0: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                token1: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                address?: string;
-                                feePips: number;
-                                tickSpacing?: number;
-                                poolManager?: string;
-                                hooks?: string;
-                            };
+                            pool: components["schemas"]["RoutePoolRef"];
                             zeroForOne: boolean;
                         }[];
                     }[];
@@ -6365,6 +6847,12 @@ export interface components {
             metrics: {
                 candidateCalls: number;
                 totalMs: number;
+            } & {
+                firstQualifiedMs?: number;
+                selectionMs?: number;
+                canonicalCompletedMs?: number;
+                cleanupCompletedMs?: number;
+                finalizationMs?: number;
             };
         };
         MarketQuoteModelPacket: {
@@ -6400,28 +6888,7 @@ export interface components {
                     branches: {
                         amountIn: string;
                         hops: {
-                            pool: {
-                                id: string;
-                                /** @enum {string} */
-                                protocol: "v2" | "v3" | "v4";
-                                token0: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                token1: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                address?: string;
-                                feePips: number;
-                                tickSpacing?: number;
-                                poolManager?: string;
-                                hooks?: string;
-                            };
+                            pool: components["schemas"]["RoutePoolRef"];
                             zeroForOne: boolean;
                         }[];
                     }[];
@@ -6462,28 +6929,7 @@ export interface components {
             branches: {
                 amountIn: string;
                 hops: {
-                    pool: {
-                        id: string;
-                        /** @enum {string} */
-                        protocol: "v2" | "v3" | "v4";
-                        token0: {
-                            address: string;
-                            decimals: number;
-                            chainId: number;
-                            decimalsKnown?: boolean;
-                        };
-                        token1: {
-                            address: string;
-                            decimals: number;
-                            chainId: number;
-                            decimalsKnown?: boolean;
-                        };
-                        address?: string;
-                        feePips: number;
-                        tickSpacing?: number;
-                        poolManager?: string;
-                        hooks?: string;
-                    };
+                    pool: components["schemas"]["RoutePoolRef"];
                     zeroForOne: boolean;
                 }[];
             }[];
@@ -7157,7 +7603,7 @@ export interface components {
                     path: string;
                     quote: string;
                     /** @enum {string} */
-                    route: "direct" | "mixed" | "viaWeth";
+                    route: "direct" | "identity" | "mixed" | "viaWeth";
                     feeInfo: string;
                     routePlan?: {
                         /** @constant */
@@ -7171,28 +7617,7 @@ export interface components {
                         branches: {
                             amountIn: string;
                             hops: {
-                                pool: {
-                                    id: string;
-                                    /** @enum {string} */
-                                    protocol: "v2" | "v3" | "v4";
-                                    token0: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    token1: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    address?: string;
-                                    feePips: number;
-                                    tickSpacing?: number;
-                                    poolManager?: string;
-                                    hooks?: string;
-                                };
+                                pool: components["schemas"]["RoutePoolRef"];
                                 zeroForOne: boolean;
                             }[];
                         }[];
@@ -7208,7 +7633,20 @@ export interface components {
                     path: string;
                     rpcCode: number;
                     /** @enum {string} */
-                    code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+                    code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "redemption-capacity-exceeded" | "redemption-supply-exceeded" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+                    /** @description Canonical preview rejection evidence; absent quantities were not provided by the contract. */
+                    constraint?: {
+                        /** @enum {string} */
+                        kind?: "issuance-cap" | "redemption-capacity" | "redemption-supply";
+                        /** @enum {string} */
+                        quantity?: "core-output-minima" | "gross-cygld-input" | "gross-cygld-mint";
+                        /** @enum {string} */
+                        limitKind?: "effective-supply-cap" | "maximum-total-supply";
+                        requestedRaw?: string;
+                        availableRaw?: string;
+                        currentSupplyRaw?: string;
+                        limitRaw?: string;
+                    };
                     /** @description Optional observed RPC failure context; provider text is sanitized before publication. */
                     diagnostics?: {
                         rpcMethod?: string;
@@ -7219,6 +7657,8 @@ export interface components {
                         httpStatus?: number;
                         /** @enum {string} */
                         failureType?: "backend-deadline" | "http-error" | "provider-timeout" | "rpc-error" | "transport-error";
+                        errorSelector?: string;
+                        errorName?: string;
                     };
                 }[];
             }[];
@@ -7226,6 +7666,8 @@ export interface components {
                 candidateCalls: number;
                 rpcReads: number;
                 rpcReadsRequested: number;
+                /** @constant */
+                rpcReadsScope?: "coordinator";
                 rpcReadsCoalesced: number;
                 rpcReadsReused: number;
                 contextMs: number;
@@ -7277,28 +7719,7 @@ export interface components {
                         branches: {
                             amountIn: string;
                             hops: {
-                                pool: {
-                                    id: string;
-                                    /** @enum {string} */
-                                    protocol: "v2" | "v3" | "v4";
-                                    token0: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    token1: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    address?: string;
-                                    feePips: number;
-                                    tickSpacing?: number;
-                                    poolManager?: string;
-                                    hooks?: string;
-                                };
+                                pool: components["schemas"]["RoutePoolRef"];
                                 zeroForOne: boolean;
                             }[];
                         }[];
@@ -7325,28 +7746,7 @@ export interface components {
                         branches: {
                             amountIn: string;
                             hops: {
-                                pool: {
-                                    id: string;
-                                    /** @enum {string} */
-                                    protocol: "v2" | "v3" | "v4";
-                                    token0: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    token1: {
-                                        address: string;
-                                        decimals: number;
-                                        chainId: number;
-                                        decimalsKnown?: boolean;
-                                    };
-                                    address?: string;
-                                    feePips: number;
-                                    tickSpacing?: number;
-                                    poolManager?: string;
-                                    hooks?: string;
-                                };
+                                pool: components["schemas"]["RoutePoolRef"];
                                 zeroForOne: boolean;
                             }[];
                         }[];
@@ -7393,28 +7793,7 @@ export interface components {
                     branches: {
                         amountIn: string;
                         hops: {
-                            pool: {
-                                id: string;
-                                /** @enum {string} */
-                                protocol: "v2" | "v3" | "v4";
-                                token0: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                token1: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                address?: string;
-                                feePips: number;
-                                tickSpacing?: number;
-                                poolManager?: string;
-                                hooks?: string;
-                            };
+                            pool: components["schemas"]["RoutePoolRef"];
                             zeroForOne: boolean;
                         }[];
                     }[];
@@ -7441,28 +7820,7 @@ export interface components {
                     branches: {
                         amountIn: string;
                         hops: {
-                            pool: {
-                                id: string;
-                                /** @enum {string} */
-                                protocol: "v2" | "v3" | "v4";
-                                token0: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                token1: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                address?: string;
-                                feePips: number;
-                                tickSpacing?: number;
-                                poolManager?: string;
-                                hooks?: string;
-                            };
+                            pool: components["schemas"]["RoutePoolRef"];
                             zeroForOne: boolean;
                         }[];
                     }[];
@@ -7626,9 +7984,17 @@ export interface components {
                 rpcReadsRequested: number;
                 rpcReadsCoalesced: number;
                 rpcReadsReused: number;
+                /** @constant */
+                rpcReadsScope?: "coordinator";
                 candidateCalls: number;
                 iterations: number;
                 totalMs: number;
+            } & {
+                firstQualifiedMs?: number;
+                selectionMs?: number;
+                canonicalCompletedMs?: number;
+                cleanupCompletedMs?: number;
+                finalizationMs?: number;
             };
         };
         /** @description Display-only source data. No transaction tuples or execution readiness. */
@@ -7656,28 +8022,7 @@ export interface components {
                     branches: {
                         amountIn: string;
                         hops: {
-                            pool: {
-                                id: string;
-                                /** @enum {string} */
-                                protocol: "v2" | "v3" | "v4";
-                                token0: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                token1: {
-                                    address: string;
-                                    decimals: number;
-                                    chainId: number;
-                                    decimalsKnown?: boolean;
-                                };
-                                address?: string;
-                                feePips: number;
-                                tickSpacing?: number;
-                                poolManager?: string;
-                                hooks?: string;
-                            };
+                            pool: components["schemas"]["RoutePoolRef"];
                             zeroForOne: boolean;
                         }[];
                     }[];
@@ -7767,6 +8112,8 @@ export interface components {
             httpStatus?: number;
             /** @enum {string} */
             failureType?: "backend-deadline" | "http-error" | "provider-timeout" | "rpc-error" | "transport-error";
+            errorSelector?: string;
+            errorName?: string;
         };
         ClientDiagnostic: {
             /** @enum {string} */
@@ -7789,6 +8136,37 @@ export interface components {
             walletStep?: "approval" | "signature" | "transaction";
             attemptId?: string;
             quoteId?: string;
+            requestId?: string;
+            correlationId?: string;
+            workId?: string;
+            /** @enum {string} */
+            side?: "buy" | "sell";
+            /** @enum {string} */
+            strategy?: "core" | "market";
+            /** @enum {string} */
+            stage?: "authorization" | "balance" | "confirmation" | "network" | "preparation" | "quote" | "simulation" | "submission";
+            /** @description Canonical preview rejection evidence; absent quantities were not provided by the contract. */
+            constraint?: {
+                /** @enum {string} */
+                kind?: "issuance-cap" | "redemption-capacity" | "redemption-supply";
+                /** @enum {string} */
+                quantity?: "core-output-minima" | "gross-cygld-input" | "gross-cygld-mint";
+                /** @enum {string} */
+                limitKind?: "effective-supply-cap" | "maximum-total-supply";
+                requestedRaw?: string;
+                availableRaw?: string;
+                currentSupplyRaw?: string;
+                limitRaw?: string;
+            };
+            /** @enum {string} */
+            errorClassification?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-invalid-input" | "quote-no-route" | "quote-request-limit" | "quote-service-unavailable" | "quote-stream-interrupted" | "quote-timeout" | "quote-unavailable" | "redemption-capacity-exceeded" | "redemption-supply-exceeded" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+            tokenIn?: string;
+            tokenOut?: string;
+            amount?: string;
+            inputMaximum?: string;
+            outputMinimum?: string;
+            blockNumber?: string;
+            blockHash?: string;
             transactionHash?: string;
             durationMs?: number;
             chainId?: number;
@@ -8137,10 +8515,27 @@ export interface components {
             sandboxForkGeneration?: null | string;
         });
         PublicError: {
-            error: string;
+            requestId?: string;
+            attemptId?: string;
             correlationId?: string;
+            workId?: string;
+        } & {
+            error: string;
             /** @enum {string} */
-            code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+            code?: "insufficient-protocol-supply" | "issuance-cap-exceeded" | "quote-contract-reverted" | "quote-no-route" | "quote-timeout" | "quote-unavailable" | "redemption-capacity-exceeded" | "redemption-supply-exceeded" | "rpc-access-denied" | "rpc-rate-limit" | "rpc-timeout" | "rpc-unavailable";
+            /** @description Canonical preview rejection evidence; absent quantities were not provided by the contract. */
+            constraint?: {
+                /** @enum {string} */
+                kind?: "issuance-cap" | "redemption-capacity" | "redemption-supply";
+                /** @enum {string} */
+                quantity?: "core-output-minima" | "gross-cygld-input" | "gross-cygld-mint";
+                /** @enum {string} */
+                limitKind?: "effective-supply-cap" | "maximum-total-supply";
+                requestedRaw?: string;
+                availableRaw?: string;
+                currentSupplyRaw?: string;
+                limitRaw?: string;
+            };
             /** @description Optional observed RPC failure context; provider text is sanitized before publication. */
             diagnostics?: {
                 rpcMethod?: string;
@@ -8151,6 +8546,8 @@ export interface components {
                 httpStatus?: number;
                 /** @enum {string} */
                 failureType?: "backend-deadline" | "http-error" | "provider-timeout" | "rpc-error" | "transport-error";
+                errorSelector?: string;
+                errorName?: string;
             };
         };
         AliasesRequest: components["schemas"]["OwnerAliasesRequest"];
@@ -8358,7 +8755,10 @@ export interface operations {
     get__api_protocol_facts: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8367,6 +8767,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8376,6 +8780,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8385,6 +8793,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8396,7 +8808,10 @@ export interface operations {
     get__api_protocol_config: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8405,6 +8820,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8414,6 +8833,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8423,6 +8846,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8434,7 +8861,10 @@ export interface operations {
     get__api_gold: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8443,6 +8873,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8452,6 +8886,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8461,6 +8899,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8472,7 +8914,10 @@ export interface operations {
     post__api_quotes_market: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8485,6 +8930,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8494,6 +8943,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8503,6 +8956,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8514,7 +8971,10 @@ export interface operations {
     post__api_quotes_market_stream: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8527,6 +8987,10 @@ export interface operations {
             /** @description Market model/estimate/progress/qualified, then complete or error; amount integers are decimal strings. */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8536,6 +9000,10 @@ export interface operations {
             /** @description Existing response envelope */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8547,7 +9015,10 @@ export interface operations {
     post__api_quotes_market_model: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8560,6 +9031,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8569,6 +9044,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8578,6 +9057,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8589,7 +9072,10 @@ export interface operations {
     post__api_quotes_trade_stream: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8602,6 +9088,10 @@ export interface operations {
             /** @description Cached models, estimates and tagged provider progress; qualified best incumbents, then complete or error. Integers are decimal strings. */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8611,6 +9101,10 @@ export interface operations {
             /** @description Existing response envelope */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8622,7 +9116,10 @@ export interface operations {
     post__api_quotes_trade_model: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8635,6 +9132,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8644,6 +9145,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8653,6 +9158,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8666,7 +9175,10 @@ export interface operations {
             query: {
                 hash: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8675,6 +9187,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8684,6 +9200,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8693,6 +9213,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8706,7 +9230,10 @@ export interface operations {
             query: {
                 holder: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8715,6 +9242,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8724,6 +9255,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8733,6 +9268,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8746,7 +9285,10 @@ export interface operations {
             query: {
                 name: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8755,6 +9297,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8764,6 +9310,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8773,6 +9323,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8788,7 +9342,10 @@ export interface operations {
                 /** @description display opts ordinary loading out of the repeated chain check and final canonical block reread; omitted or other values retain both existing checks. */
                 purpose?: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8797,6 +9354,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8806,6 +9367,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8815,6 +9380,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8830,7 +9399,10 @@ export interface operations {
                 /** @description display opts ordinary loading out of the repeated chain check and final canonical block reread; omitted, swap-preflight or other values retain both existing checks. */
                 purpose?: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8839,6 +9411,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8848,6 +9424,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8857,6 +9437,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8871,7 +9455,10 @@ export interface operations {
                 holder: string;
                 tokenId: "eth" | "cygld" | "xaut" | "paxg" | "usdt" | "usdc" | "weth";
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8880,6 +9467,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8889,6 +9480,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8898,6 +9493,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8911,7 +9510,10 @@ export interface operations {
             query: {
                 holder: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8920,6 +9522,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8929,6 +9535,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8938,6 +9548,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8951,7 +9565,10 @@ export interface operations {
             query: {
                 surface: "core" | "staking" | "governance-diamond";
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -8960,6 +9577,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8969,6 +9590,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8978,6 +9603,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -8992,7 +9621,10 @@ export interface operations {
                 surface: "core" | "staking" | "governance-diamond";
                 account?: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9001,6 +9633,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9010,6 +9646,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9019,6 +9659,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9030,7 +9674,10 @@ export interface operations {
     post__api_transaction_recovery_redemption: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9043,6 +9690,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9052,6 +9703,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9061,6 +9716,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9072,7 +9731,10 @@ export interface operations {
     post__api_transaction_permit2_approval_gas: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9085,6 +9747,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9094,6 +9760,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9103,6 +9773,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9116,7 +9790,10 @@ export interface operations {
             query: {
                 address: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9125,6 +9802,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9134,6 +9815,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9143,6 +9828,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9154,7 +9843,10 @@ export interface operations {
     post__api_governance_safe_transaction_hash: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9167,6 +9859,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9176,6 +9872,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9185,6 +9885,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9196,7 +9900,10 @@ export interface operations {
     post__api_governance_safe_execution: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9209,6 +9916,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9218,6 +9929,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9227,6 +9942,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9238,7 +9957,10 @@ export interface operations {
     post__api_transaction_helpers_execution: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9251,6 +9973,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9260,6 +9986,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9269,6 +9999,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9282,7 +10016,10 @@ export interface operations {
             query: {
                 hash: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9291,6 +10028,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9300,6 +10041,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9309,6 +10054,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9320,7 +10069,10 @@ export interface operations {
     get__api_transaction_wait_head: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9329,6 +10081,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9338,6 +10094,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9347,6 +10107,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9360,7 +10124,10 @@ export interface operations {
             query: {
                 hash: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9369,6 +10136,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9378,6 +10149,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9387,6 +10162,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9400,7 +10179,10 @@ export interface operations {
             query: {
                 hash: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9409,6 +10191,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9418,6 +10204,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9427,6 +10217,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9440,7 +10234,10 @@ export interface operations {
             query: {
                 blockNumber: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9449,6 +10246,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9458,6 +10259,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9467,6 +10272,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9480,7 +10289,10 @@ export interface operations {
             query: {
                 owner: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9489,6 +10301,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9498,6 +10314,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9507,6 +10327,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9518,7 +10342,10 @@ export interface operations {
     get__api_transaction_fees: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9527,6 +10354,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9536,6 +10367,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9545,6 +10380,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9558,7 +10397,10 @@ export interface operations {
             query: {
                 asset: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9567,6 +10409,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9576,6 +10422,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9585,6 +10435,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9596,7 +10450,10 @@ export interface operations {
     get__api_protocol_recovery_assets: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9605,6 +10462,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9614,6 +10475,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9623,6 +10488,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9634,7 +10503,10 @@ export interface operations {
     post__api_account_permit2: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9647,6 +10519,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9656,6 +10532,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9665,6 +10545,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9681,7 +10565,10 @@ export interface operations {
                 /** @description balance reads only selected holder balance/context; metadata fields and authorization are explicitly not-requested. Default and other values retain optional discovery. */
                 purpose?: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9690,6 +10577,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9699,6 +10590,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9708,6 +10603,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9722,7 +10621,10 @@ export interface operations {
                 token: string;
                 owner: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9731,6 +10633,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9740,6 +10646,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9749,6 +10659,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9760,7 +10674,10 @@ export interface operations {
     post__api_transaction_token_approval_gas: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9773,6 +10690,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9782,6 +10703,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9791,6 +10716,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9804,7 +10733,10 @@ export interface operations {
             query: {
                 owner: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9813,6 +10745,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9822,6 +10758,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9831,6 +10771,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9842,7 +10786,10 @@ export interface operations {
     get__api_governance_core_facts: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9851,6 +10798,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9860,6 +10811,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9869,6 +10824,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9885,7 +10844,10 @@ export interface operations {
                 basketPermitIssuance?: "true";
                 marketSwap?: "true";
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9894,6 +10856,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9903,6 +10869,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9912,6 +10882,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9925,7 +10899,10 @@ export interface operations {
             query: {
                 address: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9934,6 +10911,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9943,6 +10924,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9952,6 +10937,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9965,7 +10954,10 @@ export interface operations {
             query: {
                 address: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -9974,6 +10966,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9983,6 +10979,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -9992,6 +10992,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10003,7 +11007,10 @@ export interface operations {
     post__api_quotes_basket_preview: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10016,6 +11023,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10025,6 +11036,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10034,6 +11049,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10045,7 +11064,10 @@ export interface operations {
     post__api_quotes_token_preview: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10058,6 +11080,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10067,6 +11093,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10076,6 +11106,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10087,7 +11121,10 @@ export interface operations {
     post__api_quotes_routes: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10100,6 +11137,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10109,6 +11150,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10118,6 +11163,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10129,7 +11178,10 @@ export interface operations {
     post__api_quotes_routes_stream: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10142,6 +11194,10 @@ export interface operations {
             /** @description One RouteSearchEvent JSON object per line; progress, then complete or error. */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10151,6 +11207,10 @@ export interface operations {
             /** @description Existing response envelope */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10162,7 +11222,10 @@ export interface operations {
     post__api_quotes_intent_stream: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10175,6 +11238,10 @@ export interface operations {
             /** @description One QuoteIntentEvent per line; optional model/estimate/progress/qualified, then complete or error. */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10184,6 +11251,10 @@ export interface operations {
             /** @description Existing response envelope */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10195,7 +11266,10 @@ export interface operations {
     post__api_quotes_uniswap: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10208,6 +11282,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10217,6 +11295,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10226,6 +11308,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10237,7 +11323,10 @@ export interface operations {
     get__api_fx: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10246,6 +11335,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10255,6 +11348,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10264,6 +11361,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10275,7 +11376,10 @@ export interface operations {
     get__api_activity_core: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10284,6 +11388,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10293,6 +11401,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10302,6 +11414,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10313,7 +11429,10 @@ export interface operations {
     get__api_activity_helpers: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10322,6 +11441,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10331,6 +11454,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10340,6 +11467,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10356,7 +11487,10 @@ export interface operations {
                 poolAddress?: string;
                 poolManager?: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10365,6 +11499,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10374,6 +11512,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10383,6 +11525,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10394,7 +11540,10 @@ export interface operations {
     get__api_activity_safe: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10403,6 +11552,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10412,6 +11565,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10421,6 +11578,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10432,7 +11593,10 @@ export interface operations {
     post__api_diagnostics: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10445,6 +11609,10 @@ export interface operations {
             /** @description Existing response envelope */
             202: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10457,6 +11625,10 @@ export interface operations {
             /** @description Existing response envelope */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10468,7 +11640,10 @@ export interface operations {
     get__api_dashboard_onchain_summary: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10477,6 +11652,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10486,6 +11665,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10495,6 +11678,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10510,7 +11697,10 @@ export interface operations {
                 offset?: string;
                 blockHash?: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10519,6 +11709,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10528,6 +11722,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10537,6 +11735,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10548,7 +11750,10 @@ export interface operations {
     post__api_rpc: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10561,6 +11766,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10570,6 +11779,10 @@ export interface operations {
             /** @description Remote entry bearer rejected before JSON-RPC parsing */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10579,6 +11792,10 @@ export interface operations {
             /** @description Existing single/batch JSON-RPC error with preserved IDs */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10590,7 +11807,10 @@ export interface operations {
     post__api_governance_owner_aliases: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10603,6 +11823,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10612,6 +11836,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10621,6 +11849,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10632,7 +11864,10 @@ export interface operations {
     post__api_quote_pool_cache: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10645,6 +11880,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10654,6 +11893,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10663,6 +11906,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10674,7 +11921,10 @@ export interface operations {
     post__api_pools_snapshot: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10687,6 +11937,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10696,6 +11950,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10705,6 +11963,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10719,7 +11981,10 @@ export interface operations {
                 tokenA?: string;
                 tokenB?: string;
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10728,6 +11993,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10737,6 +12006,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10746,6 +12019,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10757,7 +12034,10 @@ export interface operations {
     post__api_safe: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10770,6 +12050,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10779,6 +12063,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10788,6 +12076,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10799,7 +12091,10 @@ export interface operations {
     post__api_safe_events: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10812,6 +12107,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10821,6 +12120,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10830,6 +12133,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10841,7 +12148,10 @@ export interface operations {
     post__api_faucet: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10854,6 +12164,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10863,6 +12177,10 @@ export interface operations {
             /** @description Remote API entry requires its environment's backend bearer */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10872,6 +12190,10 @@ export interface operations {
             /** @description Safe faucet failure with stable code and backend log reference */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10883,7 +12205,10 @@ export interface operations {
     get__api_internal_onchain_indexer_reconcile: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10892,6 +12217,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10901,6 +12230,10 @@ export interface operations {
             /** @description Private worker bearer rejected */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10910,6 +12243,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10924,7 +12261,10 @@ export interface operations {
                 force?: "1";
                 diagnostic?: "1";
             };
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10938,6 +12278,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10947,6 +12291,10 @@ export interface operations {
             /** @description Existing response envelope */
             202: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10956,6 +12304,10 @@ export interface operations {
             /** @description Existing response envelope */
             409: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10965,6 +12317,10 @@ export interface operations {
             /** @description Existing response envelope */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10976,7 +12332,10 @@ export interface operations {
     get__api_internal_onchain_indexer_fork_generation: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -10985,6 +12344,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -10994,6 +12357,10 @@ export interface operations {
             /** @description Private worker bearer rejected */
             401: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -11003,6 +12370,10 @@ export interface operations {
             /** @description Existing route-specific errors; see compatibility fixtures */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -11014,7 +12385,10 @@ export interface operations {
     post__api_internal_onchain_indexer_fork_generation: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Optional UUID for one browser trade attempt. Invalid values are ignored. */
+                "X-CyberGold-Attempt-Id"?: string;
+            };
             path?: never;
             cookie?: never;
         };
@@ -11027,6 +12401,10 @@ export interface operations {
             /** @description Existing response envelope */
             200: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -11036,6 +12414,10 @@ export interface operations {
             /** @description Existing response envelope */
             409: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -11045,6 +12427,10 @@ export interface operations {
             /** @description Existing response envelope */
             default: {
                 headers: {
+                    /** @description Backend request reference, separate for each subscriber to shared quote work. */
+                    "X-CyberGold-Request-Id"?: string;
+                    /** @description Optional observed Backend build commit from this responding process; absent for unversioned local builds. */
+                    "X-CyberGold-Backend-Revision"?: string;
                     [name: string]: unknown;
                 };
                 content: {

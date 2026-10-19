@@ -5,19 +5,19 @@ import { intentFixture } from "./fixtures/quote-intent";
 import type { TradeModelRequest } from "../../app/utils/tradeQuote";
 
 for (const symbol of ["WETH", "USDC"] as const) {
-  for (const mode of ["issue-in", "issue-out", "redeem-in", "redeem-out"] as const) {
+  for (const mode of ["issue-in", "redeem-in"] as const) {
     test(`${symbol} ${mode}: an exact fresh revisit bypasses typing debounce without another request`, async ({ page }) => {
       const observed = await install(page);
       await page.goto("/en"); await choose(page, symbol);
       if (mode.startsWith("redeem")) await page.getByRole("button", { name: "Reverse swap direction" }).click();
       const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)'), exactIn = mode.endsWith("-in");
       const edited = exactIn ? inputs.first() : inputs.last(), quoted = exactIn ? inputs.last() : inputs.first();
-      await edited.click(); await edited.fill("1"); await expect(quoted).not.toHaveValue(""); await expect(quoted).toBeEnabled();
+      await edited.click(); await edited.fill("1"); await expect(quoted).not.toHaveValue(""); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
       const expected = await quoted.inputValue();
       await edited.fill("2");
       // Empty/enabled is a transient edit state, not a completed second quote.
       await expect(quoted).toHaveValue(String(Number(expected) * 2));
-      await expect(quoted).toBeEnabled();
+      await expect(quoted).not.toHaveAttribute("aria-busy", "true");
       await expect.poll(() => observed.intents.length).toBe(2);
       const before = observed.intents.length;
       await edited.evaluate((input, expectedValue) => {
@@ -26,13 +26,13 @@ for (const symbol of ["WETH", "USDC"] as const) {
         input.addEventListener("input", () => {
           const started = performance.now();
           const check = () => {
-            if (!output.disabled && output.value === expectedValue) Object.assign(window, { __revisitMs: performance.now() - started });
+            if (output.getAttribute("aria-busy") !== "true" && output.value === expectedValue) Object.assign(window, { __revisitMs: performance.now() - started });
             else requestAnimationFrame(check);
           };
           requestAnimationFrame(check);
         }, { once: true });
       }, expected);
-      await edited.fill("1"); await expect(quoted).toHaveValue(expected); await expect(quoted).toBeEnabled();
+      await edited.fill("1"); await expect(quoted).toHaveValue(expected); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
       expect(observed.intents.length).toBe(before);
       await expect.poll(() => page.evaluate(() => typeof (window as unknown as { __revisitMs?: number }).__revisitMs)).toBe("number");
       const elapsed = await page.evaluate(() => (window as unknown as { __revisitMs: number }).__revisitMs);
@@ -45,7 +45,7 @@ for (const symbol of ["WETH", "USDC"] as const) {
 }
 
 for (const symbol of ["WETH", "USDC"] as const) {
-  for (const mode of ["issue-in", "issue-out", "redeem-in", "redeem-out"]) {
+  for (const mode of ["issue-in", "redeem-in"]) {
     test(`${symbol} ${mode}: organic browser preview precedes debounce, stays approximate and clears invalid input`, async ({ page }) => {
       let pending = Promise.resolve(), finish!: () => void;
       const observed = await install(page, "", () => pending, false, undefined, undefined, undefined, true);
@@ -69,7 +69,7 @@ for (const symbol of ["WETH", "USDC"] as const) {
       const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)'), exactIn = mode.endsWith("-in");
       const edited = exactIn ? inputs.first() : inputs.last(), quoted = exactIn ? inputs.last() : inputs.first();
       await edited.click(); await edited.fill("1");
-      await expect(quoted).toBeEnabled(); await expect(quoted).not.toHaveValue("");
+      await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).not.toHaveValue("");
       pending = new Promise<void>(resolve => { finish = resolve; });
       const clockStart = new Date();
       await page.clock.install({ time: clockStart });
@@ -103,7 +103,7 @@ for (const symbol of ["WETH", "USDC"] as const) {
       expect(observed.intents.length).toBe(before);
       await page.clock.runFor(150);
       await expect.poll(() => observed.intents.length).toBe(before + 1);
-      await expect(quoted).toBeDisabled();
+      await expect(quoted).toHaveAttribute("aria-busy", "true");
       await edited.fill("");
       await expect(quoted).toHaveValue("");
       finish();

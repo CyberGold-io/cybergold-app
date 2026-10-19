@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { submitTradeQuote } from "./tradeExecution.ts";
-import { captureTradeQuote, fetchTradeQuote, retainedTradePlan, tradeQuoteResult } from "./tradeQuote.ts";
+import { captureTradeQuote, fetchTradeQuote, retainedTradePlan, tradeQuoteResult, withTradeProviderEvent } from "./tradeQuote.ts";
 import { coreTrade, marketTrade, tradeCore, tradeCounter, tradeHelpers, tradeOwner } from "../../tests/fixtures/trade-quote.mts";
 
 function executors() {
@@ -15,6 +15,25 @@ function executors() {
 }
 const deployment = { core: tradeCore, helpers: tradeHelpers };
 const params = { owner: tradeOwner, recipient: tradeOwner };
+
+test("losing-provider updates refresh evidence without replacing the selected economic tuple", () => {
+  const winner = coreTrade(), alternate = marketTrade();
+  const observed = withTradeProviderEvent(winner, { type: "provider-qualified", strategy: "market", value: alternate });
+  assert.equal(observed.strategy, "core");
+  assert.equal(observed.providerQuote, winner.providerQuote);
+  assert.equal(observed.providerRequest, winner.providerRequest);
+  assert.equal(observed.quotedOutput, winner.quotedOutput);
+  alternate.quotedInput = "999";
+  assert.notEqual(observed.providerCandidates?.market?.quotedInput, "999");
+  const terminal = withTradeProviderEvent(observed, { type: "provider-assessment", strategy: "market", value: { availability: "qualified", searchOutcome: "timeout" } });
+  assert.equal(terminal.providerAssessments?.market.availability, "qualified");
+  assert.equal(terminal.providerAssessments?.market.searchOutcome, "timeout");
+  assert.ok(terminal.providerCandidates?.market);
+  const invalidated = withTradeProviderEvent(terminal, { type: "provider-assessment", strategy: "market", value: { availability: "unavailable", searchOutcome: "error" } });
+  assert.equal(invalidated.providerCandidates?.market, undefined);
+  assert.equal(invalidated.providerQuote, winner.providerQuote);
+  assert.ok(terminal.providerCandidates?.market);
+});
 
 for (const side of ["buy", "sell"] as const) for (const mode of ["exact-in", "exact-out"] as const) {
   test(`${side}/${mode}: dispatch prepares only the selected market executor`, async () => {

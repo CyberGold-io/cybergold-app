@@ -3,7 +3,7 @@ import type { FlowState } from "../types";
 export type ResolveFlowStateParams = {
   sellTokenId?: string;
   buyTokenId?: string;
-  isSellInputEnabled: boolean;
+  isSellInputEnabled?: boolean;
   hasBasketComponents: boolean;
   cygldTokenId?: string;
   basketTokenId?: string;
@@ -12,7 +12,7 @@ export type ResolveFlowStateParams = {
 export function resolveFlowState({
   sellTokenId,
   buyTokenId,
-  isSellInputEnabled,
+  isSellInputEnabled = true,
   hasBasketComponents,
   cygldTokenId = "cygld",
   basketTokenId = "goldbasket",

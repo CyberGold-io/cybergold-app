@@ -33,7 +33,7 @@ export async function install(page: Page, unavailable = "", waitForFinalPreview?
   if (waitForFinalPreview) {
     const server = createServer(async (request, response) => {
       response.setHeader("Access-Control-Allow-Origin", "*");
-      response.setHeader("Access-Control-Allow-Headers", "content-type");
+      response.setHeader("Access-Control-Allow-Headers", "content-type,x-cybergold-attempt-id");
       if (request.method === "OPTIONS") { response.end(); return; }
       let body = ""; for await (const chunk of request) body += chunk;
       const value = JSON.parse(body), current = headSource();

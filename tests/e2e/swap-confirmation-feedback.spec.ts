@@ -3,6 +3,7 @@ import { routeWalletBalances } from "./fixtures/wallet-balances";
 import { selectBasket } from "./fixtures/swap-selection";
 import { expect, test, type Page } from "./fixtures/app-test";
 import { install } from "./fixtures/basket-quotes";
+import { installUiSwapObservation, uiSwapObservation } from "../trading/uiSwapObservation";
 
 const owner = "0x0000000000000000000000000000000000000011";
 const hash = `0x${"ab".repeat(32)}`;
@@ -60,6 +61,7 @@ for (const nextStatus of ["success", "reverted"] as const) {
   test(`a submitted swap keeps its hash after a receipt outage and rechecks ${nextStatus} without resubmission`, async ({ page }) => {
     await install(page);
     await installSigningWallet(page);
+    await page.addInitScript(installUiSwapObservation as () => void);
     let receiptAvailable = false;
     let receiptReads = 0;
     await page.route("**/api/account/core-permit*", route => route.fulfill({ json: {
@@ -103,12 +105,20 @@ for (const nextStatus of ["success", "reverted"] as const) {
     const notice = page.getByRole("status").filter({ hasText: hash });
     await expect(notice).toContainText("Transaction submitted; confirmation unavailable", { timeout: 15_000 });
     await expect(notice).toContainText(hash);
+    const pending = await uiSwapObservation(page);
+    expect(pending).toMatchObject({ outcome: "unconfirmed", transactionHash: hash });
+    expect(pending?.attemptId).toBeTruthy();
     await expect(amount).toHaveValue("");
     if (nextStatus === "success") await page.screenshot({ path: "out/audit/followups-submitted-transaction.png", fullPage: true });
     const readsBefore = receiptReads;
     receiptAvailable = true;
     await notice.getByRole("button", { name: "Check confirmation", exact: true }).click();
     await expect(notice).toContainText(nextStatus === "success" ? "Transaction confirmed" : "Transaction reverted");
+    if (nextStatus === "success") {
+      await expect.poll(() => uiSwapObservation(page, pending!.attemptId)).toMatchObject({
+        attemptId: pending!.attemptId, outcome: "succeeded", transactionHash: pending!.transactionHash,
+      });
+    }
     expect(receiptReads).toBeGreaterThan(readsBefore);
     const writes = await page.evaluate(() => (window as unknown as { __swapConfirmationWalletRequests: string[] }).__swapConfirmationWalletRequests);
     expect(writes.filter(method => method === "eth_sendTransaction")).toHaveLength(1);
@@ -181,7 +191,7 @@ for (const outcome of ["insufficient", "unavailable", "outage", "ready"] as cons
   });
 }
 
-for (const mode of ["exact-in", "exact-out"] as const) {
+for (const mode of ["exact-in"] as const) {
   test(`Swap checks fresh basket spending balances: ${mode}`, async ({ page }) => {
     await install(page);
     await installSigningWallet(page);

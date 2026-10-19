@@ -45,46 +45,9 @@ test("resolveFlowState resolves all supported exact-in flows", () => {
   );
 });
 
-test("resolveFlowState resolves all supported exact-out flows", () => {
-  assert.deepEqual(
-    resolveFlowState({
-      sellTokenId: "goldbasket",
-      buyTokenId: "cygld",
-      isSellInputEnabled: false,
-      hasBasketComponents: true,
-    }),
-    { direction: "issue", route: "basket", inputMode: "exact-out" }
-  );
-
-  assert.deepEqual(
-    resolveFlowState({
-      sellTokenId: "cygld",
-      buyTokenId: "goldbasket",
-      isSellInputEnabled: false,
-      hasBasketComponents: true,
-    }),
-    { direction: "redeem", route: "basket", inputMode: "exact-out" }
-  );
-
-  assert.deepEqual(
-    resolveFlowState({
-      sellTokenId: "usdc",
-      buyTokenId: "cygld",
-      isSellInputEnabled: false,
-      hasBasketComponents: true,
-    }),
-    { direction: "issue", route: "token", inputMode: "exact-out" }
-  );
-
-  assert.deepEqual(
-    resolveFlowState({
-      sellTokenId: "cygld",
-      buyTokenId: "usdc",
-      isSellInputEnabled: false,
-      hasBasketComponents: true,
-    }),
-    { direction: "redeem", route: "token", inputMode: "exact-out" }
-  );
+test("resolveFlowState defaults an active form to its spend intent", () => {
+  assert.deepEqual(resolveFlowState({ sellTokenId: "usdc", buyTokenId: "cygld", hasBasketComponents: true }),
+    { direction: "issue", route: "token", inputMode: "exact-in" });
 });
 
 test("resolveFlowState rejects unavailable or unsupported flows", () => {

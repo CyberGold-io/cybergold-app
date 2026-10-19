@@ -12,7 +12,7 @@ let phase: "partial" | "first" | "better" | "complete" | "error" | "preview-pend
 let streamUrl: string;
 const server = createServer(async (request, response) => {
   response.setHeader("Access-Control-Allow-Origin", "*");
-  response.setHeader("Access-Control-Allow-Headers", "content-type");
+  response.setHeader("Access-Control-Allow-Headers", "content-type,x-cybergold-attempt-id");
   if (request.method === "OPTIONS") { response.end(); return; }
   let body = ""; for await (const chunk of request) body += chunk;
   const intent = JSON.parse(body) as QuoteIntentRequest;
@@ -32,7 +32,7 @@ function send(response: ServerResponse, request: QuoteIntentRequest) {
 }
 
 for (const symbol of ["WETH", "USDC"] as const) {
-  for (const operation of ["issue-in", "issue-out", "redeem-in", "redeem-minimum"] as const) {
+  for (const operation of ["issue-in", "redeem-in"] as const) {
     test(`${symbol} ${operation}: a qualified tuple remains usable during quiet improvement and background failure`, async ({ page }) => {
       const observed = await install(page, "", undefined, streamUrl);
       await page.goto("/en"); await choose(page, symbol);
@@ -42,7 +42,7 @@ for (const symbol of ["WETH", "USDC"] as const) {
       await edited.click(); await edited.fill("1");
       await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
       const start = performance.now();
-      advance("qualified"); await expect(quoted).toBeEnabled();
+      advance("qualified"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
       const qualifiedVisibleMs = performance.now() - start;
       await expect(page.getByTestId("quote-estimate-description")).not.toBeAttached();
       const first = Number(await quoted.inputValue());
@@ -52,11 +52,11 @@ for (const symbol of ["WETH", "USDC"] as const) {
       await expect.poll(async () => Number(await quoted.inputValue())).toEqual(exactIn ? first * 2 : first / 2);
       const improved = await quoted.inputValue();
       advance("first"); await expect(quoted).toHaveValue(improved); // A weaker advisory estimate cannot replace the selected Backend plan.
-      advance("error"); await expect(quoted).toBeEnabled(); await expect(quoted).toHaveValue(improved);
+      advance("error"); await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).toHaveValue(improved);
       await expect(page.getByText("The quote service could not process this request. Retry.", { exact: true })).toHaveCount(0);
       expect(observed.intents).toHaveLength(1);
       phase = "partial"; await edited.fill("3");
-      await expect(quoted).toHaveValue(""); await expect(quoted).toBeDisabled();
+      await expect(quoted).toHaveValue(""); await expect(quoted).toHaveAttribute("aria-busy", "true");
       await test.info().attach("qualified-readiness", { contentType: "application/json", body: JSON.stringify({
         symbol, operation, qualifiedVisibleMs,
         scope: "Controlled streaming fixture; no remote latency or RPC reduction is inferred.",
@@ -66,7 +66,7 @@ for (const symbol of ["WETH", "USDC"] as const) {
 }
 function advance(next: typeof phase) { phase = next; for (const [response, request] of active) send(response, request); }
 
-test("wallet preparation freezes displayed terms while a better quote arrives", async ({ page }) => {
+test("wallet preparation pauses quote search, freezes terms and resumes after failure", async ({ page }) => {
   await page.addInitScript(({ chain }) => {
     const state = { hold: false, waiting: false, release: () => {}, rejected: [] as string[] };
     Object.assign(window, { quotePreparationFixture: state });
@@ -107,11 +107,16 @@ test("wallet preparation freezes displayed terms while a better quote arrives", 
   const quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
   const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
   await expect(swap).toBeEnabled(); const displayed = await quoted.inputValue();
+  const searching = [...active.keys()];
+  expect(searching).toHaveLength(1);
   await page.evaluate(() => { (window as unknown as { quotePreparationFixture: { hold: boolean } }).quotePreparationFixture.hold = true; });
   await swap.click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { quotePreparationFixture: { waiting: boolean } }).quotePreparationFixture.waiting)).toBe(true);
+  await expect.poll(() => searching.every(response => !active.has(response))).toBe(true);
+  expect(active.size).toBe(0);
   advance("qualified-better"); await page.waitForTimeout(100);
   await expect(quoted).toHaveValue(displayed);
+  expect(active.size).toBe(0);
   await page.evaluate(() => { (window as unknown as { quotePreparationFixture: { release: () => void } }).quotePreparationFixture.release(); });
   await expect(page.getByText(/^Wrong network — switch to /)).toBeVisible();
   await expect(quoted).not.toHaveValue(displayed);
@@ -123,10 +128,10 @@ test("a proven invalidation keeps the amount indicative until a new checked tupl
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
   const quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
   await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
-  advance("qualified"); await expect(quoted).toBeEnabled();
+  advance("qualified"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
   const previous = await quoted.inputValue();
-  advance("invalidated"); await expect(quoted).toBeDisabled(); await expect(quoted).toHaveValue(previous);
-  advance("qualified-better"); await expect(quoted).toBeEnabled(); await expect(quoted).not.toHaveValue(previous);
+  advance("invalidated"); await expect(quoted).toHaveAttribute("aria-busy", "true"); await expect(quoted).toHaveValue(previous);
+  advance("qualified-better"); await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).not.toHaveValue(previous);
 });
 
 test("an expired qualified tuple is replaced under the ordinary deadline policy", async ({ page }) => {
@@ -134,12 +139,12 @@ test("an expired qualified tuple is replaced under the ordinary deadline policy"
   await page.clock.install();
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
   await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
-  advance("qualified"); const quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last(); await expect(quoted).toBeEnabled();
+  advance("qualified"); const quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last(); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
   const count = observed.intents.length;
   phase = "partial"; await page.clock.fastForward(601_000);
   await expect.poll(() => observed.intents.length).toBe(count+1);
-  await expect(quoted).toBeDisabled();
-  advance("qualified"); await expect(quoted).toBeEnabled();
+  await expect(quoted).toHaveAttribute("aria-busy", "true");
+  advance("qualified"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
 });
 
 test("a new intent gets a fresh deadline after renewal, clearing and an idle period", async ({ page }) => {
@@ -155,12 +160,12 @@ test("a new intent gets a fresh deadline after renewal, clearing and an idle per
   await edited.fill("1");
   await page.clock.runFor(250);
   await expect.poll(() => requests.length).toBe(1);
-  advance("qualified"); await expect(quoted).toBeEnabled();
+  advance("qualified"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
 
   phase = "partial";
   await page.clock.fastForward(601_000);
   await expect.poll(() => requests.length).toBe(2);
-  advance("qualified"); await expect(quoted).toBeEnabled();
+  advance("qualified"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
   await edited.fill("");
   await page.clock.runFor(250);
   await expect(quoted).toHaveValue("");
@@ -173,7 +178,7 @@ test("a new intent gets a fresh deadline after renewal, clearing and an idle per
   const nowSeconds = await page.evaluate(() => Date.now() / 1000);
   expect(Number(requests[2].deadline)).toBeGreaterThan(nowSeconds);
   expect(BigInt(requests[2].deadline) - BigInt(Math.floor(nowSeconds))).toBeLessThanOrEqual(600n);
-  advance("complete"); await expect(quoted).toBeEnabled();
+  advance("complete"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
 });
 
 test("intents after renewal still reuse an exact fresh browser quote before debounce", async ({ page }) => {
@@ -184,25 +189,25 @@ test("intents after renewal still reuse an exact fresh browser quote before debo
   const quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
   await edited.fill("1");
   await expect.poll(async () => { await page.clock.runFor(250); return observed.intents.length; }).toBe(1);
-  advance("qualified"); await expect(quoted).toBeEnabled();
+  advance("qualified"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
   phase = "partial"; await page.clock.fastForward(601_000);
   await expect.poll(() => observed.intents.length).toBe(2);
-  advance("complete"); await expect(quoted).toBeEnabled();
+  advance("complete"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
 
   // Move beyond the old reuse window before constructing another input's quote.
   await page.clock.fastForward(11_000);
   await edited.fill("2"); await page.clock.runFor(250);
   await expect.poll(() => observed.intents.length).toBe(3);
-  await expect(quoted).toBeEnabled();
+  await expect(quoted).not.toHaveAttribute("aria-busy", "true");
   const cachedValue = await quoted.inputValue();
   await edited.fill("3"); await page.clock.runFor(250);
   await expect.poll(() => observed.intents.length).toBe(4);
-  await expect(quoted).toBeEnabled();
+  await expect(quoted).not.toHaveAttribute("aria-busy", "true");
   const pausedAt = await page.evaluate(() => Date.now());
   await page.clock.pauseAt(new Date(pausedAt + 1000));
   await edited.fill("2");
   await expect(quoted).toHaveValue(cachedValue);
-  await expect(quoted).toBeEnabled();
+  await expect(quoted).not.toHaveAttribute("aria-busy", "true");
   expect(observed.intents.length).toBe(4);
 });
 
@@ -214,7 +219,7 @@ test.beforeEach(() => { for (const response of active.keys()) response.destroy()
 test.afterAll(async () => { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); });
 
 for (const symbol of ["WETH", "ETH", "USDC"] as const) {
-  for (const operation of ["issue-in", "issue-out", "redeem-in", "redeem-minimum"] as const) {
+  for (const operation of ["issue-in", "redeem-in"] as const) {
     test(`${symbol} ${operation} improves its estimate before the final quote completes`, async ({ page }) => {
       const observed = await install(page, "", undefined, streamUrl);
       await page.goto("/en"); await choose(page, symbol);
@@ -224,13 +229,13 @@ for (const symbol of ["WETH", "ETH", "USDC"] as const) {
       await edited.click(); await edited.fill("1");
       const quoted = exactIn ? inputs.last() : inputs.first();
       const label = page.getByTestId("quote-estimate-description");
-      await expect(label).toBeAttached(); await expect(quoted).toHaveAttribute("aria-describedby", /quote-(sell|buy)-estimate/); await expect(quoted).not.toHaveValue(""); await expect(quoted).toBeDisabled();
+      await expect(label).toBeAttached(); await expect(quoted).toHaveAttribute("aria-describedby", /quote-(sell|buy)-estimate/); await expect(quoted).not.toHaveValue(""); await expect(quoted).toHaveAttribute("aria-busy", "true");
       const first = Number((await quoted.inputValue()).replace(/\s/g, "")); expect(first).toBeGreaterThan(0);
       advance("better");
       await expect.poll(async () => { const value = Number((await quoted.inputValue()).replace(/\s/g, "")); return exactIn ? value > first : value < first; }).toBe(true);
-      await expect(label).toBeAttached(); await expect(quoted).toBeDisabled(); expect(active.size).toBe(1);
+      await expect(label).toBeAttached(); await expect(quoted).toHaveAttribute("aria-busy", "true"); expect(active.size).toBe(1);
       expect(observed.intents).toHaveLength(1);
-      advance("complete"); await expect(label).not.toBeAttached(); await expect(quoted).toBeEnabled(); await expect(quoted).not.toHaveValue("");
+      advance("complete"); await expect(label).not.toBeAttached(); await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).not.toHaveValue("");
     });
   }
 }
@@ -290,7 +295,7 @@ test("a hidden tab cancels its stream and renews an expired quote only when visi
   const edited = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first(), quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
   await edited.fill("1");
   await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
-  advance("qualified"); await expect(quoted).toBeEnabled();
+  advance("qualified"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
   const previous = [...active.keys()], before = observed.intents.length;
   let heads = 0;
   page.on("request", request => { if (new URL(request.url()).pathname === "/api/transaction/wait/head") heads++; });
@@ -304,12 +309,12 @@ test("a hidden tab cancels its stream and renews an expired quote only when visi
   await visible(page, true);
   await expect.poll(() => observed.intents.length).toBe(before + 1);
   await expect.poll(() => heads).toBeGreaterThan(hiddenHeads);
-  await expect(quoted).toBeDisabled();
+  await expect(quoted).toHaveAttribute("aria-busy", "true");
   const now = await page.evaluate(() => Math.floor(Date.now() / 1000));
   const deadline = Number(observed.intents.at(-1)!.deadline);
   expect(deadline).toBeGreaterThan(now);
   expect(deadline - now).toBeLessThanOrEqual(600);
-  advance("complete"); await expect(quoted).toBeEnabled();
+  advance("complete"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
 });
 
 test("returning promptly to a completed fresh quote does not restart it", async ({ page }) => {
@@ -317,7 +322,7 @@ test("returning promptly to a completed fresh quote does not restart it", async 
   const observed = await install(page, "", undefined, streamUrl); await page.goto("/en"); await choose(page, "WETH");
   await page.clock.install();
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
-  await expect(page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last()).toBeEnabled();
+  await expect(page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last()).not.toHaveAttribute("aria-busy", "true");
   await expect(page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last()).toHaveValue("2");
   const before = observed.intents.length;
   await visible(page, false); await page.clock.runFor(1_000); await visible(page, true);
@@ -340,7 +345,7 @@ test("an initially hidden page defers its first quote until it becomes visible",
   await expect.poll(() => observed.intents.length).toBe(1);
 });
 
-test("token changes and reversal cancel intents from the previous direction", async ({ page }) => {
+test("token changes and reversal cancel old intents and wait for a new spend amount", async ({ page }) => {
   await install(page, "", undefined, streamUrl); await page.goto("/en"); await choose(page, "WETH");
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
   await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
@@ -348,19 +353,27 @@ test("token changes and reversal cancel intents from the previous direction", as
   await page.getByPlaceholder("Search currency...").fill("USDC");
   await page.locator("#dropdown-from").getByRole("button").filter({ has: page.getByText("USDC", { exact: true }) }).click();
   await expect.poll(() => old.every(response => !active.has(response))).toBe(true);
+  await expect(page.locator("#sell-amount")).toHaveValue("");
+  await expect.poll(() => active.size).toBe(0);
+  await page.locator("#sell-amount").fill("1");
   await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
   const before = [...active.keys()]; await page.getByRole("button", { name: "Reverse swap direction" }).click();
   await expect.poll(() => before.every(response => !active.has(response))).toBe(true);
-  await expect.poll(() => [...active.values()].every(request => request.mode.startsWith("redeem") && request.quoteToken.toLowerCase() === "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48")).toBe(true);
+  await expect(page.locator("#sell-amount")).toHaveValue("");
+  await expect(page.locator("#buy-amount")).toHaveValue("");
+  await expect.poll(() => active.size).toBe(0);
+  await page.locator("#sell-amount").fill("3");
+  await expect.poll(() => [...active.values()].map(request => ({ mode: request.mode, token: request.quoteToken.toLowerCase(), amount: request.amount })))
+    .toEqual([{ mode: "redeem-exact-in", token: "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48", amount: "3000000000000000000" }]);
 });
 
 test("a previous estimate stays visible while an improved preview is pending", async ({ page }) => {
   await install(page, "", undefined, streamUrl); await page.goto("/en"); await choose(page, "WETH");
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
   const quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last(); await expect(quoted).toHaveValue("1");
-  advance("preview-pending"); await expect(quoted).toHaveValue("1"); await expect(quoted).toBeDisabled();
+  advance("preview-pending"); await expect(quoted).toHaveValue("1"); await expect(quoted).toHaveAttribute("aria-busy", "true");
   advance("better"); await expect(quoted).toHaveValue("2");
-  advance("complete"); await expect(quoted).toHaveValue("2"); await expect(quoted).toBeEnabled();
+  advance("complete"); await expect(quoted).toHaveValue("2"); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
 });
 
 test("partial route progress produces no basket estimate", async ({ page }) => {

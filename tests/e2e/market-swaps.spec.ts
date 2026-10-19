@@ -67,7 +67,7 @@ test("one trading form acquires a fee-aware baseline before any amount or wallet
   await page.screenshot({ path: "out/audit/uniswap-v4-unified-trade.png", fullPage: true });
 });
 
-test("one token screen supports four market modes with fee-net amounts and separate min/max bounds", async ({ page }) => {
+test("one token screen supports input-driven market purchases and sales with protected outputs", async ({ page }) => {
   const observed = await installMarket(page);
   await page.goto("/en"); await selectPaxg(page);
   await page.locator("#sell-amount").fill("1");
@@ -75,17 +75,11 @@ test("one token screen supports four market modes with fee-net amounts and separ
   await expect(page.locator("#buy-amount")).not.toHaveValue("");
   await page.getByRole("button", { name: /Total fee/ }).click();
   await expect(page.getByTestId("swap-minimum-output")).toContainText("CYGLD");
-  await page.locator("#buy-amount").click(); await page.locator("#buy-amount").fill("1");
-  await expect.poll(() => observed.requests.some(request => request.side === "buy" && request.mode === "exact-out")).toBe(true);
-  await expect(page.getByTestId("swap-maximum-input")).toContainText("PAXG");
-  await page.locator("#buy-amount").fill("");
   await page.getByRole("button", { name: "Reverse swap direction" }).click();
   await page.locator("#sell-amount").click(); await page.locator("#sell-amount").fill("1");
   await expect.poll(() => observed.requests.some(request => request.side === "sell" && request.mode === "exact-in")).toBe(true);
   await expect(page.getByTestId("swap-minimum-output")).toContainText("PAXG");
-  await page.locator("#buy-amount").click(); await page.locator("#buy-amount").fill("1");
-  await expect.poll(() => observed.requests.some(request => request.side === "sell" && request.mode === "exact-out")).toBe(true);
-  await expect(page.getByTestId("swap-maximum-input")).toContainText("CYGLD");
+  expect(observed.requests.every(request => request.mode === "exact-in")).toBe(true);
   expect(observed.requests.every(request => !request.native && !("adapter" in request) && !("orderedAssets" in request))).toBe(true);
   expect(observed.coreObservations.intents).toEqual([]);
 });
@@ -160,7 +154,11 @@ test("replacement heads compete again, while input edits cancel an obsolete answ
 for (const rejected of [false, true]) test(`native market permit ${rejected ? "rejection stops without another prompt" : "and swap use one transaction and show actual receipt economics"}`, async ({ page }) => {
   const observed = await installMarket(page); await wallet(page, rejected, !rejected);
   let head = { ...context };
-  await page.route("**/api/transaction/wait/head", route => route.fulfill({ json: { ...head, blockTimestamp: String(Math.floor(Date.now() / 1000)) } }));
+  const headReads: string[] = [];
+  await page.route("**/api/transaction/wait/head", route => {
+    headReads.push(head.blockHash);
+    return route.fulfill({ json: { ...head, blockTimestamp: String(Math.floor(Date.now() / 1000)) } });
+  });
   if (!rejected) await page.route("**/api/quotes/trade/stream", async route => {
     const request = route.request().postDataJSON(); observed.requests.push(request);
     const coreRequest = coreIntentRequest(request);
@@ -201,6 +199,7 @@ for (const rejected of [false, true]) test(`native market permit ${rejected ? "r
   await expect(page.locator("#buy-amount")).not.toHaveValue("");
   if (!rejected) await page.clock.install();
   await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
+  const selected = marketTradeFixture(observed.requests.at(-1)!);
   await page.getByRole("button", { name: "Swap currencies", exact: true }).click();
   if (rejected) { await expect(page.getByText("Wallet request cancelled", { exact: true })).toContainText("Wallet request cancelled"); expect(simulated).toEqual([]); }
   else {
@@ -208,7 +207,9 @@ for (const rejected of [false, true]) test(`native market permit ${rejected ? "r
     expect(simulated).toEqual([]);
     const before = observed.requests.length;
     head = { ...head, blockHash: `0x${"e".repeat(64)}` };
-    await page.clock.runFor(12_500); await expect.poll(() => observed.requests.length).toBeGreaterThan(before);
+    await page.clock.runFor(12_500);
+    await expect.poll(() => headReads.includes(head.blockHash)).toBe(true);
+    expect(observed.requests).toHaveLength(before);
     await expect(page.locator("#buy-amount")).not.toHaveValue("");
     await expect(page.locator("#buy-amount")).toHaveValue("0.999");
     await expect(page.locator("#sell-amount")).toBeDisabled();
@@ -221,7 +222,7 @@ for (const rejected of [false, true]) test(`native market permit ${rejected ? "r
     expect(simulated[0].operation).toBe("swapExactInput");
     expect(simulated[0].args[1].nativePermit.value).toBe("1000000000000000000");
     expect(simulated[0].args[1].mode).toBe(1);
-    expect(simulated[0].args[0].routedInput).toBe(observed.requests.at(-1) && marketTradeFixture(observed.requests.at(-1)!).providerQuote.params.routedInput);
+    expect(simulated[0].args[0].routedInput).toBe(selected.providerQuote.params.routedInput);
   }
   const methods = await page.evaluate(() => (window as unknown as { __marketWalletRequests: { method: string }[] }).__marketWalletRequests.map(request => request.method));
   expect(methods.filter(method => method === "eth_signTypedData_v4")).toHaveLength(1);

@@ -200,3 +200,22 @@ for (const path of ["/api/quotes/routes/stream", "/api/quotes/intent/stream", "/
     assert.equal(cancelled, true);
   });
 });
+
+test("fixed adapters preserve optional diagnostic linkage without forwarding browser credentials", async () => {
+  const attemptId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e", requestId = "eb3e6932-a2af-4303-a09e-35831f864a1d";
+  await withEnvironment({ CYBERGOLD_BACKEND_URL: "http://127.0.0.1:3210", CYBERGOLD_BACKEND_BEARER_TOKEN: "fixture-private" }, async () => {
+    const route = backendRoute("/api/quotes/trade/stream", (async (_url, init) => {
+      assert.equal(new Headers(init?.headers).get("X-CyberGold-Attempt-Id"), attemptId);
+      assert.equal(new Headers(init?.headers).get("authorization"), "Bearer fixture-private");
+      return new Response('{"type":"complete","value":{}}\n', { headers: { "X-CyberGold-Request-Id": requestId } });
+    }) as typeof fetch);
+    const response = await route(new Request("https://app.invalid/api/quotes/trade/stream", { method: "POST", body: "{}",
+      headers: { "X-CyberGold-Attempt-Id": attemptId, authorization: "browser-secret" } }));
+    assert.equal(response.headers.get("X-CyberGold-Request-Id"), requestId);
+    const failed = backendRoute("/api/quotes/trade/stream", (async () => { throw new TypeError("private transport text"); }) as typeof fetch);
+    const result = await failed(new Request("https://app.invalid/api/quotes/trade/stream", { headers: { "X-CyberGold-Attempt-Id": attemptId } }));
+    const body = await result.json();
+    assert.equal(body.attemptId, attemptId); assert.equal(body.requestId, result.headers.get("X-CyberGold-Request-Id"));
+    assert.equal(body.correlationId, body.requestId); assert.doesNotMatch(JSON.stringify(body), /private transport/);
+  });
+});

@@ -1,5 +1,6 @@
 import type { Address } from "viem";
 import type { components } from "../contracts/backend/http";
+import { backendObservationError } from "./backendObservationError.ts";
 
 export type WalletBalancesSnapshot = components["schemas"]["WalletBalances"];
 type TokenMetadata = { id: string; symbol: string; name: string; decimals: number };
@@ -7,7 +8,7 @@ type TokenMetadata = { id: string; symbol: string; name: string; decimals: numbe
 export async function fetchWalletBalances(holder: Address, signal?: AbortSignal, fetchImpl: typeof fetch = fetch, purpose: "display" | "swap-preflight" = "display"): Promise<WalletBalancesSnapshot> {
   const params = new URLSearchParams({ holder, purpose });
   const response = await fetchImpl(`/api/account/wallet-balances?${params}`, { signal, cache: "no-store" });
-  if (!response.ok) throw new Error("Wallet balances are temporarily unavailable.");
+  if (!response.ok) throw await backendObservationError(response, "Wallet balances are temporarily unavailable.");
   return response.json();
 }
 

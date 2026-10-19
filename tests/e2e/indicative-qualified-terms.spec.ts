@@ -9,7 +9,7 @@ import type { QuoteIntentRequest } from "../../app/utils/quoteIntent";
 test("fee row stays visible, and qualified issuance uses execution fees without an output haircut", async ({ page }) => {
   let response: ServerResponse | undefined, input: QuoteIntentRequest | undefined, requests = 0;
   const server = createServer(async (request, reply) => {
-    reply.setHeader("Access-Control-Allow-Origin", "*"); reply.setHeader("Access-Control-Allow-Headers", "content-type");
+    reply.setHeader("Access-Control-Allow-Origin", "*"); reply.setHeader("Access-Control-Allow-Headers", "content-type,x-cybergold-attempt-id");
     if (request.method === "OPTIONS") { reply.end(); return; }
     let body = ""; for await (const chunk of request) body += chunk;
     input = JSON.parse(body); response = reply; requests++;
@@ -26,13 +26,13 @@ test("fee row stays visible, and qualified issuance uses execution fees without 
     await choose(page, "WETH");
     const quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
     await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("3");
-    await expect(quoted).toHaveValue("3"); await expect(quoted).toBeDisabled();
+    await expect(quoted).toHaveValue("3"); await expect(quoted).toHaveAttribute("aria-busy", "true");
     await expect(feeRow).toBeVisible();
     const value = intentFixture(input!);
     value.initialPreview!.fees = { protocolFeeCygld: "10000000000000000", helperFeeCygld: "0" };
     value.preview.fees = { protocolFeeCygld: "1000000000000000", helperFeeCygld: "0" };
     response!.write(JSON.stringify(tradeIntentEvent({ type: "qualified", value }, input!)) + "\n");
-    await expect(quoted).toBeEnabled(); await expect(quoted).toHaveValue("3");
+    await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).toHaveValue("3");
     await expect(page.getByText(/^0\.001 CYGLD/)).toBeVisible();
     await expect(page.getByText(/^0\.01 CYGLD/)).toHaveCount(0);
     await expect(page.getByTestId("quote-estimate-description")).not.toBeAttached();

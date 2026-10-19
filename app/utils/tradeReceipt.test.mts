@@ -3,7 +3,7 @@ import test from "node:test";
 import { encodeAbiParameters, encodeEventTopics, zeroAddress, type Address, type Hex } from "viem";
 import { HELPERS_DIAMOND_ABI } from "../contracts/generated/helpersDiamond.ts";
 import { HELPERS_MARKET_ABI } from "../contracts/generated/helpersMarket.ts";
-import { tradeReceipt } from "./tradeReceipt.ts";
+import { tradeReceipt, tradeRefundEvidence } from "./tradeReceipt.ts";
 import { tradeCore, tradeCounter, tradeHelpers, tradeOwner } from "../../tests/fixtures/trade-quote.mts";
 
 function log(name: "Issued" | "Redeemed" | "DustRefunded" | "MarketSwapExecuted", args: Record<string, unknown>, address: Address = tradeHelpers) {
@@ -43,4 +43,28 @@ test("Core redemption retains actual burned lot and distinct recovery-share amou
   assert.equal(measured.operation, "redeem"); assert.equal(measured.inputUsed, 20n); assert.equal(measured.amountOut, 25n);
   assert.deepEqual(measured.recoveryShareAmounts, [2n ** 100n]); assert.deepEqual(measured.recoveryAssets.map(value => value.toLowerCase()), [tradeCounter]);
   assert.equal(tradeReceipt([{ ...event, address: tradeOwner }], tradeHelpers, tradeOwner, "core", tradeCore), undefined);
+});
+
+test("refund evidence retains native and collateral events in receipt order without changing the input-refund scalar", () => {
+  const events = [log("DustRefunded", { payer: tradeOwner, asset: zeroAddress, amount: 3n }),
+    log("DustRefunded", { payer: tradeOwner, asset: tradeCounter, amount: 2n ** 200n }),
+    log("DustRefunded", { payer: tradeOwner, asset: zeroAddress, amount: 4n }),
+    log("Issued", { payer: tradeOwner, recipient: tradeOwner, inputToken: zeroAddress,
+      inputUsed: 20n, netCygldOut: 25n, protocolFeeCygld: 2n, helperFeeCygld: 1n })];
+  assert.deepEqual(tradeRefundEvidence(events, tradeHelpers, tradeOwner), [
+    { asset: zeroAddress, amount: "3" }, { asset: tradeCounter, amount: String(2n ** 200n) }, { asset: zeroAddress, amount: "4" },
+  ]);
+  assert.equal(tradeReceipt(events, tradeHelpers, tradeOwner, "core", zeroAddress)!.inputRefund, 7n);
+  assert.doesNotThrow(() => JSON.stringify(tradeRefundEvidence(events, tradeHelpers, tradeOwner)));
+});
+
+test("refund evidence excludes other emitters, payers, unrelated events and undecodable logs", () => {
+  const refund = log("DustRefunded", { payer: tradeOwner, asset: tradeCounter, amount: 8n });
+  const unrelated = log("Issued", { payer: tradeOwner, recipient: tradeOwner, inputToken: zeroAddress,
+    inputUsed: 20n, netCygldOut: 25n, protocolFeeCygld: 2n, helperFeeCygld: 1n });
+  const events = [{ ...refund, address: tradeOwner },
+    log("DustRefunded", { payer: tradeHelpers, asset: tradeCounter, amount: 9n }),
+    { ...refund, data: "0x" as Hex }, unrelated, refund];
+  assert.deepEqual(tradeRefundEvidence(events, tradeHelpers, tradeOwner), [{ asset: tradeCounter, amount: "8" }]);
+  assert.deepEqual(tradeRefundEvidence([], tradeHelpers, tradeOwner), []);
 });

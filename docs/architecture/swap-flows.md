@@ -4,11 +4,22 @@ doc_type: architecture
 status: active
 owner: app-maintainer
 created: 2026-07-11
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-19
 canonical_for: App preview and execution orchestration
 ---
 
 # App swap-flow architecture
+
+The home form accepts spend amounts only. Receive token and basket amounts
+are read-only estimates that can be selected and copied. Reversing the pair
+clears amounts and the basket driver, then focuses the new spend input. Old
+output-driven session drafts retain their pair/preferences and clear amounts;
+legitimate input drafts restore without trusting a saved receive quote.
+
+The Backend alone selects among supported Core and Market plans. The App
+submits exact-in user intent and executes the complete returned plan without
+locally ranking providers or resizing inputs to favor one. The direct-basket
+API currently supports Core only; this change adds no Market basket provider.
 
 The App treats generated Core/Helpers ABIs and the current Helpers interface as
 executable authority. Each flow previews first, displays gross/net results and
@@ -26,6 +37,17 @@ configurable fee in the same accounting domain throughout construction and
 execution. The user transaction targets the Helpers diamond with its
 authorization, recipient, ordering, and minimum bindings.
 
+Browser diagnostics are best effort and never affect quote/execution readiness.
+Quote calls carry an optional `X-CyberGold-Attempt-Id`; the fixed Next adapter
+forwards the Backend request reference and logs its own transport failures with
+safe linkage. Structured errors and accepted quote tuples retain those IDs.
+Swap attempts link to the quote and record balance, network, preparation,
+authorization, simulation, submission and confirmation stage context with the
+selected Core/market family and raw integer bounds. A failure may expose a
+copyable reference alongside the localized product message. Error/provider text,
+signatures, calldata and private URLs are excluded. Submitted-but-unconfirmed
+transactions retain their hash and are rechecked without resubmission.
+
 Issuance binds the current ordered Core input assets. Redemption has no
 healthy/recovery mode split: every Core preview returns one complete canonical
 vector whose leading legs are ERC-20 reserve assets and whose trailing legs are
@@ -42,21 +64,17 @@ An unreadable reserve balance contributes zero live
 custody; a redemption may still proceed when another leg is positive and the
 unreadable leg's minimum is zero. An all-zero redemption never burns CYGLD.
 
-The exact-output token/native UI remains a client-side convenience, not a
-second state-changing contract family. It obtains an initial gross CYGLD input
-from an exact-output preview, iterates the ordinary exact-input aggregation
-preview until the requested aggregate floor is covered, then submits the same
-exact-input executor with the complete per-output minima. Holder settlement of
-already-owned shares remains pool-scoped: it burns shares only for a positive
-current payout, capped by live custody. A zero-output balance stays with its
-holder and can participate in later donation, restitution, or resolution
-upside.
+Output-target entry is deferred. Standalone exact-out basket hooks, Backend
+solvers, contract entry points and broad generated API/ABI types remain
+available for future work and explicit component diagnostics. The production
+page neither imports those form hooks nor creates output-driven requests.
+Input-budget token/native issuance still uses fixed-output Helpers operations;
+the `ExactOut` executor names are necessary to the retained spend-budget flow.
 
-Direct-basket exact-output redemption follows the same rule: the App calls
-`previewRedeemToBasketExactOut` with a complete mixed minimum vector, then calls
-the retained `redeemToBasketExactIn` family using the previewed gross
-input and a bound complete mixed vector. The requested ERC-20 basket amounts
-remain hard minima, so the user-facing exact-output target is preserved.
+Holder settlement of already-owned shares remains pool-scoped: it burns shares
+only for a positive current payout, capped by live custody. A zero-output
+balance stays with its holder and can participate in later donation,
+restitution, or resolution upside.
 
 Preview results contain computed fees, canonical ordering, and current typed
 outputs; they do not echo request structs. The App keeps original user intent
@@ -71,25 +89,34 @@ outcome assertions are specified in the acceptance documents linked from the
 [App index](../README.md).
 
 The expandable fee section exposes execution tolerance from 0% to 1%, defaulting
-to 1%. It displays the active flow's minimum output for an input budget or its
-maximum input for an output target. Market estimates exclude this tolerance.
+to 1%. It displays the selected plan's minimum output for the input budget.
+Market estimates exclude this tolerance.
 Routed token/native issuance entered as an input budget still executes a fixed
 CYGLD output with that budget as its maximum input; it does not become a new
 exact-input contract operation.
-Unused input follows the existing Helpers refund behavior.
-Output-target redemption still burns the fixed protected CYGLD amount selected
-by its solver; the input field displays that actual amount.
+Unused input follows the existing Helpers refund behavior. Input ceilings and
+fixed output guarantees remain the Backend-selected plan's actual terms.
 
 Issuance amounts that exceed remaining gross mint capacity keep the requested
 amounts visible in red and disable submission. Fees count toward gross mint
 capacity, using the same integer fee inversion as Core and Helpers. The warning
 retains the uncapped requested output even when a warm model or Helpers preview
-clips issuance to the remaining capacity. Either
-issuance MAX button selects terms that fit capacity and available wallet funds;
-for a basket, all asset balances are solved together after reserving each input's
-execution tolerance ceiling. Native input retains the existing gas reserve.
-A pending MAX calculation is cancelled when the user changes its form inputs,
-tolerance, token pair or wallet.
+clips issuance to the remaining capacity. This Core-specific cap presentation
+cannot reject another eligible Backend-selected provider.
+
+Basket MAX depends only on proportions, decimal scales and wallet balances.
+It chooses the positive-weight component with the smallest balance divided by
+its raw-unit proportion, sets that limiting balance as the raw driver and
+floors the derived component budgets in canonical order. Zero-weight members
+do not limit MAX; a known zero positive-weight balance produces a zero basket.
+Unavailable balances remain unavailable. MAX uses BigInt and keeps its raw
+precision independently from shortened display values.
+
+Provider quotes, conversion prices, fees, tolerance and mint capacity do not
+resize that basket. A wallet-funded MAX can receive an ordinary Core cap
+warning; the user can reduce the spend amount. Token/native MAX retains its
+spending balance and native gas reserve. Existing cancellation prevents a
+pending MAX from overwriting a later form, token-pair or wallet change.
 
 Token and direct-basket purchases share one authorization builder. It reuses
 sufficient Helpers allowance, including legacy unlimited allowance. Otherwise,

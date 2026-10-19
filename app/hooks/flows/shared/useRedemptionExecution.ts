@@ -22,14 +22,17 @@ export function useRedemptionExecution(feeHandlers: FlowNetworkFeeEstimateHandle
   const { signCygldPermit } = useCygldPermit();
   const { estimateSignedContractFee } = useExecutionFeeEstimate(feeHandlers);
   const submitRedemption = useCallback(async ({ owner, walletBatch, walletConfirmationTracker, feeEstimateSignal,
-    operation, grossCygldIn, request, legs, deployment,
+    operation, grossCygldIn, request, legs, deployment, diagnosticStage,
   }: SubmitBasketFlowParams & { operation: RedemptionOperation; grossCygldIn: bigint; request: unknown; legs?: readonly unknown[] }) => {
     const helpers = requireProtocolAddress(deployment?.helpers ?? HELPERS_DIAMOND_ADDRESS, "Helpers");
+    diagnosticStage?.("authorization");
     const permit = await signCygldPermit({ owner, value: grossCygldIn, walletBatch, walletConfirmationTracker, deployment });
     const functionName = permit ? `${operation}WithPermit` as const : operation;
     const args = permit ? [request, permit] : [request];
     if (legs) args.push(legs);
+    diagnosticStage?.("simulation");
     if (!walletBatch?.approvals.length) await estimateSignedContractFee({ account: owner, functionName, args, helpers, signal: feeEstimateSignal });
+    diagnosticStage?.("submission");
     if (walletBatch?.mode !== "requests") walletConfirmationTracker?.requestNext("transaction", "Transaction confirmation");
     if (walletBatch)
       return walletBatch.submit(functionName, args, undefined, walletConfirmationTracker);

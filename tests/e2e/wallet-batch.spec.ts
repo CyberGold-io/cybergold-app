@@ -6,6 +6,7 @@ import { erc20Abi } from "../../app/contracts/erc20";
 import { HELPERS_DIAMOND_ABI } from "../../app/contracts/generated/helpersDiamond";
 import { choose, context, install } from "./fixtures/token-quotes";
 import { selectBasket } from "./fixtures/swap-selection";
+import { installUiSwapObservation, uiSwapObservation } from "../trading/uiSwapObservation";
 
 const owner = "0x0000000000000000000000000000000000000011";
 const weth = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";
@@ -175,7 +176,7 @@ for (const mode of ["supported", "unsupported", "ready", "unavailable", "other-c
   });
 }
 
-for (const exactOut of [false, true]) {
+for (const exactOut of [false]) {
   test(`basket purchase batches its first-use approval: ${exactOut ? "exact-out" : "exact-in"}`, async ({ page }) => {
     const observed = await setup(page, "supported"); await selectBasket(page);
     const amount = exactOut ? page.getByRole("textbox", { name: "You Buy CYGLD", exact: true })
@@ -189,22 +190,6 @@ for (const exactOut of [false, true]) {
     expect(decoded.functionName).toBe(exactOut ? "issueFromBasketExactOutWithPermit2" : "issueFromBasketExactInWithPermit2");
   });
 }
-
-test("a token exact-output purchase preserves its target and input limit in the batch", async ({ page }) => {
-  const observed = await setup(page, "supported"); await choose(page, "WETH");
-  await page.locator("#buy-amount").click(); await page.locator("#buy-amount").fill("2");
-  await expect(page.locator("#sell-amount")).toHaveValue("2");
-  await page.getByRole("button", { name: /Total fee/ }).click();
-  await expect(page.getByTestId("swap-maximum-input")).toContainText("2.02 WETH");
-  const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
-  await expect(swap).toBeEnabled(); await swap.click();
-  await expect(page.getByText("Transaction confirmed", { exact: true })).toBeVisible();
-  const state = await observed();
-  const decoded = decodeFunctionData({ abi: HELPERS_DIAMOND_ABI, data: state.bundles[0].calls.at(-1)!.data });
-  expect(decoded.functionName).toBe("issueFromTokenExactOutWithPermit2");
-  // The fixture's 2 WETH expected input has a 1% execution ceiling.
-  expect(decoded.args![0]).toMatchObject({ netCygldOut: 2n * 10n ** 18n, maximumInputAmount: 2_020_000_000_000_000_000n });
-});
 
 test("preapproved atomic spending retains one execution call without unnecessary approvals", async ({ page }) => {
   const observed = await setup(page, "supported", "success", true); await choose(page, "WETH");
@@ -319,6 +304,7 @@ test("installed MetaMask SDK queues approval then swap after Permit2 signing whi
 
 for (const outcome of ["reverted", "outage", "rejected"] as const) {
   test(`batch ${outcome} keeps its original outcome without sending separate transactions`, async ({ page }) => {
+    await page.addInitScript(installUiSwapObservation as () => void);
     const observed = await setup(page, "supported", outcome); await choose(page, "WETH");
     await page.locator("#sell-amount").fill("1");
     const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
@@ -333,10 +319,18 @@ for (const outcome of ["reverted", "outage", "rejected"] as const) {
       await expect(notice.getByRole("link", { name: "View transaction" })).toHaveCount(0);
       await expect(notice).not.toContainText(id);
       if (outcome === "outage") {
+        const pending = await uiSwapObservation(page);
+        // An atomic bundle has no transaction hash until its receipt is read.
+        expect(pending).toMatchObject({ outcome: "unconfirmed" });
+        expect(pending?.attemptId).toBeTruthy();
+        expect(pending?.transactionHash).toBeUndefined();
         await page.evaluate(() => (window as unknown as { __walletBatchTest: { restoreStatus: () => void } }).__walletBatchTest.restoreStatus());
         await notice.getByRole("button", { name: "Check confirmation", exact: true }).click();
         await expect(notice).toContainText("Transaction confirmed");
         await expect(notice).toContainText(hash);
+        await expect.poll(() => uiSwapObservation(page, pending!.attemptId)).toMatchObject({
+          attemptId: pending!.attemptId, outcome: "succeeded", transactionHash: hash,
+        });
       }
     }
     expect((await observed()).bundles).toHaveLength(1); expect((await observed()).transactions).toHaveLength(0);
@@ -344,7 +338,7 @@ for (const outcome of ["reverted", "outage", "rejected"] as const) {
 }
 
 
-for (const exactOut of [false, true]) {
+for (const exactOut of [false]) {
   test(`standard token permit needs one signature and one purchase transaction: ${exactOut ? "exact-out" : "exact-in"}`, async ({ page }) => {
     const observed = await setup(page, "unsupported", "success", false, "metamask", "standard");
     await page.locator('main button[aria-haspopup="dialog"]').first().click();
@@ -389,7 +383,7 @@ test("wallet typed-data unavailability retains ordinary exact approval", async (
   expect(decodeFunctionData({ abi: HELPERS_DIAMOND_ABI, data: state.transactions[1].data }).functionName).toBe("issueFromTokenExactOut");
 });
 
-for (const mode of ["unsupported", "supported"] as const) for (const exactOut of [false, true]) {
+for (const mode of ["unsupported", "supported"] as const) for (const exactOut of [false]) {
   test(`all-native basket groups signatures and retains ${mode} transaction transport: ${exactOut ? "exact-out" : "exact-in"}`, async ({ page }) => {
     const observed = await setup(page, mode, "success", false, "metamask", "standard", [paxg, xaut]);
     await selectBasket(page);

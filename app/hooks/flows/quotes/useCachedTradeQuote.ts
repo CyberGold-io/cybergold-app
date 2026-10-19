@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useSyncExternalStore } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { notifyManager, useQueryClient } from "@tanstack/react-query";
 import { targetChainId } from "@/app/config/chain";
 import { useProtocolConfiguration } from "@/app/context/protocolConfigurationContext";
 import { useSandboxForkGeneration } from "@/app/context/sandboxForkContext";
@@ -11,7 +11,12 @@ import type { TradeQuoteRequest, TradeQuoteResult } from "@/app/utils/tradeQuote
 export function useCachedTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retainedPlan">, enabled: boolean) {
   const client = useQueryClient(), scope = useQuoteCacheScope(), generation = useSandboxForkGeneration();
   const { identity } = useProtocolConfiguration(), inputKey = JSON.stringify(input);
-  const subscribe = useCallback((changed: () => void) => client.getQueryCache().subscribe(changed), [client]);
+  const subscribe = useCallback((changed: () => void) => {
+    const notify = notifyManager.batchCalls(changed);
+    return client.getQueryCache().subscribe(event => {
+      if (event.query.queryKey[0] === "trade-quote") notify();
+    });
+  }, [client]);
   const read = useCallback(() => {
     if (!enabled || !scope) return false;
     const request = { ...JSON.parse(inputKey), deadline: String(buildQuoteDeadline(scope)) };

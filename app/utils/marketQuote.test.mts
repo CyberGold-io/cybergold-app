@@ -55,3 +55,14 @@ test("market-only packets do not erase Core models or the current basket snapsho
   assert.notEqual(marketModelFamily(marketFixtureRequest), marketModelFamily({ ...marketFixtureRequest, mode: "exact-out" }));
   clearQuoteModels(); assert.equal(getMarketQuoteModel(market.family), undefined);
 });
+
+test('Market result adaptation retains optional qualified diagnostics and references without changing executable terms', async () => {
+  const {diagnosticReferences,quoteDiagnostics,retainDiagnosticReferences,retainQuoteDiagnostics}=await import('./diagnosticReferences.ts');
+  const input=structuredClone(marketFixtureQuote), baseline=marketQuoteResult(input), refs={workId:'00000000-0000-0000-0000-000000000049'};
+  const trace={qualified:true,providerQualifications:{provider:'market',attempts:1,selectedAttempt:1,selectionReason:'complete',selectionMs:1.5,rows:[{attempt:1,stage:'qualification',outcome:'qualified',elapsedMs:1.5}]}};
+  retainDiagnosticReferences(input,refs);retainQuoteDiagnostics(input,trace);
+  const observed=marketQuoteResult(input), {quoteDiagnostics:removed,...terms}=observed, {quoteDiagnostics:prior,...previous}=baseline;
+  assert.deepEqual(terms,previous);assert.equal(prior,undefined);assert.ok(removed);
+  assert.deepEqual(quoteDiagnostics(observed),trace);assert.deepEqual(diagnosticReferences(observed),refs);
+  (trace.providerQualifications.rows[0] as {elapsedMs:number}).elapsedMs=999;assert.equal(quoteDiagnostics(observed)?.providerQualifications?.rows[0].elapsedMs,1.5);
+});

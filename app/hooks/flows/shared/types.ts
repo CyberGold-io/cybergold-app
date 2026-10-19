@@ -2,6 +2,7 @@ import type { Address, Hex } from "viem";
 import type { NetworkFeeEstimate } from "@/app/types";
 import type { WalletSwapBatch } from "@/app/utils/walletBatch";
 import type { ProtocolDeployment } from "@/app/utils/protocolConfiguration";
+import type { DiagnosticStage } from "@/app/utils/clientDiagnostics";
 
 export type SubmitBasketFlowParams = {
   owner: Address;
@@ -11,6 +12,7 @@ export type SubmitBasketFlowParams = {
   feeEstimateSignal?: AbortSignal;
   walletBatch?: WalletSwapBatch;
   deployment?: ProtocolDeployment;
+  diagnosticStage?: (stage: DiagnosticStage) => void;
 };
 
 export type WalletConfirmationKind =

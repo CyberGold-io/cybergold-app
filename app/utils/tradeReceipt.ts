@@ -10,6 +10,21 @@ export type TradeReceipt = {
 };
 type Log = { address: Address; data: Hex; topics: readonly Hex[] };
 
+/** Retain every owned Helpers refund in receipt order, including other assets.
+ * These are observed event amounts, not complete wallet/value reconciliation.
+ */
+export function tradeRefundEvidence(logs: readonly Log[], helpers: Address, payer: Address): { asset: Address; amount: string }[] {
+  return logs.flatMap(log => {
+    if (log.address.toLowerCase() !== helpers.toLowerCase()) return [];
+    try {
+      const event = decodeEventLog({ abi: HELPERS_DIAMOND_ABI, data: log.data,
+        topics: log.topics as [Hex, ...Hex[]] });
+      return event.eventName === "DustRefunded" && event.args.payer.toLowerCase() === payer.toLowerCase()
+        ? [{ asset: event.args.asset, amount: String(event.args.amount) }] : [];
+    } catch { return []; }
+  });
+}
+
 /** Decode measured receipts only for the captured operation's Helpers and payer. */
 export function tradeReceipt(logs: readonly Log[], helpers: Address, payer: Address,
   strategy: "core" | "market", inputToken: Address): TradeReceipt | undefined {

@@ -8,6 +8,8 @@ import {
   metaMaskFixtures,
 } from "@synthetixio/synpress-metamask/playwright";
 import metamaskSetup from "../../wallet-setup/metamask.setup";
+import { observeWalletOnboarding, safeRunnerError, walletFixtureOutput, walletOnboardingStep, writeWalletSetupDiagnostic, type WalletSetupDiagnostic } from "../trading/runnerDiagnostics";
+import { observeWalletPageUiState } from "../trading/walletUiState";
 
 type MetaMaskConstructor = ConstructorParameters<typeof MetaMask>;
 
@@ -19,36 +21,88 @@ export const test = testWithSynpress(metaMaskFixtures(metamaskSetup)).extend<{
   // browser profile state whose lock/session restoration differs on Linux.
   // Hosted imports must not consume the session's behavior deadline. Native
   // actions retain their own timeouts; startup/import has a separate budget.
-  context: [async ({}, fixtureUse) => {
-    const profile = await mkdtemp(join(tmpdir(), "cybergold-wallet-profile-"));
-    const extension = await realpath(resolve(".cache-synpress/metamask-chrome-13.13.1"));
+  context: [async ({}, fixtureUse, testInfo) => {
+    const diagnosticOutput = walletFixtureOutput(testInfo.file);
+    let stage: WalletSetupDiagnostic["stage"] = "profile";
+    let profile: string | undefined;
     let context: BrowserContext | undefined;
+    let failed = false;
+    let onboarding: ReturnType<typeof observeWalletOnboarding> | undefined;
+    let uiObservation: ReturnType<typeof observeWalletPageUiState> | undefined;
+    const observations = () => onboarding ? { onboarding: onboarding.snapshot() } : {};
+    const checkpoint = (result: WalletSetupDiagnostic["result"]) => writeWalletSetupDiagnostic(diagnosticOutput, { stage, result, ...observations() });
     try {
+      await checkpoint("running");
+      profile = await mkdtemp(join(tmpdir(), "cybergold-wallet-profile-"));
+      stage = "extension"; await checkpoint("running");
+      const extension = await realpath(resolve(".cache-synpress/metamask-chrome-13.13.1"));
+      stage = "browser-launch"; await checkpoint("running");
       context = await chromium.launchPersistentContext(profile, {
         channel: "chromium", headless: false,
         args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
       });
+      stage = "extension-worker"; await checkpoint("running");
       const worker = context.serviceWorkers()[0] ?? await context.waitForEvent("serviceworker");
       const extensionId = new URL(worker.url()).host;
       const home = `chrome-extension://${extensionId}/home.html`;
       const page = context.pages().find(candidate => candidate.url().startsWith(home)) ?? await context.newPage();
+      onboarding = observeWalletOnboarding(context, () => { void checkpoint("running"); });
+      uiObservation = observeWalletPageUiState(page, value => onboarding?.uiState(value));
+      stage = "wallet-onboarding"; await checkpoint("running");
       await page.goto(home, { waitUntil: "domcontentloaded" });
+      walletOnboardingStep(context, "focus");
       await page.bringToFront();
+      walletOnboardingStep(context, "other-pages-close");
       for (const other of context.pages()) if (other !== page) await other.close();
       console.log("MetaMask fixture extension:", extensionId);
+      walletOnboardingStep(context, "setup-callback");
       await metamaskSetup.fn(
         context as unknown as Parameters<typeof metamaskSetup.fn>[0],
         page as unknown as Parameters<typeof metamaskSetup.fn>[1]
       );
+      uiObservation.stop(); onboarding.stop();
+      stage = "wallet-ready"; await checkpoint("running");
       await page.goto(`chrome-extension://${extensionId}/home.html`, { waitUntil: "domcontentloaded" });
       await page.getByTestId("account-menu-icon").waitFor({ timeout: 30000 });
       for (const other of context.pages()) if (other !== page) await other.close();
+      await checkpoint("pass");
       await fixtureUse(context);
+    } catch (error) {
+      failed = true;
+      uiObservation?.stop(); onboarding?.stop();
+      await writeWalletSetupDiagnostic(diagnosticOutput, { stage, result: "fail", ...safeRunnerError(error), ...observations() });
+      throw error;
     } finally {
-      await context?.close();
-      await rm(profile, { recursive: true, force: true });
+      try {
+        if (context) {
+          if (!failed) { stage = "browser-close"; await checkpoint("running"); }
+          try { await context.close(); }
+          catch (error) {
+            if (!failed) {
+              failed = true;
+              await writeWalletSetupDiagnostic(diagnosticOutput, { stage: "browser-close", result: "fail", ...safeRunnerError(error), ...observations() });
+              throw error;
+            }
+          }
+          if (!failed) await checkpoint("pass");
+        }
+      } finally {
+        try { if (profile) await rm(profile, { recursive: true, force: true }); }
+        catch (error) {
+          if (!failed) {
+            await writeWalletSetupDiagnostic(diagnosticOutput, { stage: "profile", result: "fail", ...safeRunnerError(error), ...observations() });
+            throw error;
+          }
+        }
+      }
     }
   }, { scope: "test", timeout: 180000 }],
+  // Each suite persists its initial report before navigating to the App.
+  // Synpress's inherited page fixture navigates to / before the body starts,
+  // hiding navigation failures from that suite's own result handling.
+  page: async ({ context }, fixtureUse) => {
+    await fixtureUse(await context.newPage());
+  },
   extensionId: async ({ context }, fixtureUse) => {
     await fixtureUse(new URL(context.serviceWorkers()[0].url()).host);
   },

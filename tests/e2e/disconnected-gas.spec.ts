@@ -3,7 +3,7 @@ import { expect, test } from "./fixtures/app-test";
 import { choose, context, install } from "./fixtures/token-quotes";
 
 for (const symbol of ["BASKET", "WETH", "ETH", "USDC"]) {
-  test(`${symbol}: gas is estimated without a wallet in all four quote modes`, async ({ page }) => {
+  test(`${symbol}: gas is estimated without a wallet in input-driven purchases and redemptions`, async ({ page }) => {
     const observed = await install(page);
     let fees = 0, executionSimulations = 0;
     page.on("request", request => {
@@ -34,20 +34,11 @@ for (const symbol of ["BASKET", "WETH", "ETH", "USDC"]) {
     const initialFees = fees;
     await inputs.first().fill("0"); await placeholder();
     await inputs.first().fill(""); await placeholder();
-    await inputs.last().click(); await inputs.last().fill("2");
-    await quoted("issue-exact-out"); await expect(gas).toContainText("~ 0.00083 ETH");
-    await inputs.last().fill("0"); await placeholder();
-    await inputs.last().fill(""); await placeholder();
     await page.getByRole("button", { name: "Reverse swap direction" }).click();
     await inputs.first().click(); await inputs.first().fill("3");
     await quoted("redeem-exact-in"); await expect(gas).toContainText("~ 0.0006 ETH");
     await inputs.first().fill("0"); await placeholder();
     await inputs.first().fill(""); await placeholder();
-    if (symbol === "BASKET") await page.getByRole("button", { name: /^Basket assets/ }).click();
-    await inputs.last().click(); await inputs.last().fill("4");
-    await quoted("redeem-exact-out"); await expect(gas).toContainText("~ 0.0006 ETH");
-    await inputs.last().fill("0"); await placeholder();
-    await inputs.last().fill(""); await placeholder();
     expect(fees).toBe(initialFees); expect(executionSimulations).toBe(0);
     await expect(page.getByRole("button", { name: "Please connect your wallet", exact: true })).toBeVisible();
   });

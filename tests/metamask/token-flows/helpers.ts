@@ -1,6 +1,5 @@
-import type { Page } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import type { MetaMask } from "@synthetixio/synpress-metamask/playwright";
-import { expect } from "../testWithMetaMask";
 
 type SwapSide = "sell" | "buy";
 
@@ -147,7 +146,7 @@ export async function approveMetaMaskPrompts(page: Page, password: string) {
     const handledPrompt = await handleMetaMaskPrompt(page, password);
     if (handledPrompt) continue;
 
-    const successToast = page.getByText(/The transaction was mined successfully/i);
+    const successToast = page.getByText(/^Transaction confirmed$/i);
     if (await successToast.isVisible().catch(() => false)) return;
 
     await page.waitForTimeout(500);
@@ -157,12 +156,13 @@ export async function approveMetaMaskPrompts(page: Page, password: string) {
 }
 
 export async function openWalletBalanceModal(page: Page) {
-  await page.getByRole("button", { name: "Open wallet menu" }).click();
-  await page.getByRole("button", { name: "View balances" }).click();
+  if (!await page.getByTestId("wallet-balance-modal").isVisible())
+    await page.getByRole("button", { name: "Open wallet menu" }).click();
   await expect(page.getByTestId("wallet-balance-modal")).toBeVisible();
 }
 
 export async function closeWalletBalanceModal(page: Page) {
+  if (!await page.getByTestId("wallet-balance-modal").isVisible()) return;
   const closeButton = page.getByRole("button", { name: /Close balances/i });
   await expect(closeButton).toBeVisible();
   await closeButton.click();
@@ -175,30 +175,29 @@ export async function getWalletBalance(page: Page, tokenId: string) {
 
 export async function readWalletBalances(page: Page, tokenIds: string[]) {
   await openWalletBalanceModal(page);
-  const balances = Object.fromEntries(
-    await Promise.all(
+  try {
+    return Object.fromEntries(await Promise.all(
       tokenIds.map(async (tokenId) => [tokenId, await getWalletBalance(page, tokenId)] as const)
-    )
-  );
-  await closeWalletBalanceModal(page);
-  return balances;
+    ));
+  } finally { await closeWalletBalanceModal(page); }
 }
 
 export function getSwapSection(page: Page) {
   return page.locator("#swapsection");
 }
 
-export function getSideSection(page: Page, side: SwapSide) {
-  const label = side === "sell" ? "You Sell" : "You Buy";
-  // A quoted basket renders a summary instead of an amount input. Its token
-  // picker remains present, so selecting BASKET must keep the same side scope.
-  return page
-    .locator("label", { hasText: label })
-    .locator('xpath=ancestor::div[.//button[contains(@class, "w-44")]][1]');
+export function getMainInput(page: Page, side: SwapSide) {
+  return page.locator(`#${side}-amount`);
 }
 
-export function getMainInput(page: Page, side: SwapSide) {
-  return getSideSection(page, side).locator('input[type="text"]').first();
+export async function ensureBasketInputEditable(page: Page, side: SwapSide) {
+  const composition = page.locator(`#${side}-basket-composition`);
+  // Quoted basket components are edit buttons until their side is activated.
+  const edit = composition.getByRole("button", { name: new RegExp(`^Edit ${side} amount \\(`) }).first();
+  await composition.getByRole("textbox").first().or(edit).first().click();
+  const input = composition.locator("input").first();
+  await expect(input).toBeEditable();
+  return input;
 }
 
 export async function ensureMainInputEditable(page: Page, side: SwapSide) {
@@ -211,9 +210,9 @@ export async function ensureMainInputEditable(page: Page, side: SwapSide) {
 }
 
 export function getTokenButton(page: Page, side: SwapSide, symbol?: string) {
-  const buttons = getSideSection(page, side).locator('button[class*="w-44"]');
+  const buttons = page.getByRole("button").filter({ has: page.locator(`#${side}-token-label`) });
   if (symbol) return buttons.filter({ hasText: tokenSymbolPattern(symbol) }).first();
-  return buttons.filter({ hasText: /BASKET|CYGLD|USDC|USDT|ETH|WETH|PAXG|XAUt/i }).first();
+  return buttons.first();
 }
 
 export async function selectToken(page: Page, side: SwapSide, symbol: string) {
@@ -244,8 +243,9 @@ export async function selectTokenIfAvailable(page: Page, side: SwapSide, symbol:
 }
 
 export async function showAllSellTokens(page: Page) {
-  const walletOnlySwitch = page.getByRole("switch").first();
-  await expect(walletOnlySwitch).toBeVisible();
+  const walletOnlySwitch = page.locator("#wallet-only-tokens");
+  // Disconnected pages already list all tokens and omit the wallet filter.
+  if (!await walletOnlySwitch.isVisible()) return;
   const isChecked = await walletOnlySwitch.getAttribute("aria-checked");
   if (isChecked === "true") {
     await walletOnlySwitch.click();
@@ -327,7 +327,7 @@ export async function submitSwapAndExpectSuccess(page: Page, metamask: MetaMask)
   await swapButton.click();
   await expect(swapButton).toHaveText(/Processing|MetaMask|Quote processing/i, { timeout: 15_000 });
   await approveMetaMaskPrompts(page, metamask.password);
-  await expect(page.getByText(/The transaction was mined successfully/i)).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText(/^Transaction confirmed$/i)).toBeVisible({ timeout: 60_000 });
 }
 
 export async function expectSwapDisabled(page: Page, label?: RegExp) {

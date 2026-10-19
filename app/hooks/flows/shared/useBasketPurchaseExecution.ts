@@ -23,10 +23,11 @@ export function useBasketPurchaseExecution(feeHandlers: FlowNetworkFeeEstimateHa
   const { prepareBatchPermit2 } = usePermit2Transfer();
   const { estimateSignedContractFee } = useExecutionFeeEstimate(feeHandlers);
   const submitBasketPurchase = useCallback(async ({ owner, walletBatch, walletConfirmationTracker, feeEstimateSignal,
-    mode, permitted, request, deployment,
+    mode, permitted, request, deployment, diagnosticStage,
   }: SubmitBasketFlowParams & { mode: "exact-in" | "exact-out"; permitted: readonly TokenPermissions[];
     request: { recipient: `0x${string}`; minimumNetCygldOut?: bigint; netCygldOut?: bigint } }) => {
     const helpers = requireProtocolAddress(deployment?.helpers ?? HELPERS_DIAMOND_ADDRESS, "Helpers");
+    diagnosticStage?.("authorization");
     const mixed = await fetchBasketPermitIssuanceInstalled(mode);
     const authorization = mixed ? await preparePurchaseAuthorization({ owner, permitted,
       nativePermitsInstalled: true, spender: helpers, walletBatch, walletConfirmationTracker }) : undefined;
@@ -35,7 +36,9 @@ export function useBasketPurchaseExecution(feeHandlers: FlowNetworkFeeEstimateHa
       ? mixed ? "issueFromBasketExactInWithMixedPermits" : "issueFromBasketExactInWithPermit2"
       : mixed ? "issueFromBasketExactOutWithMixedPermits" : "issueFromBasketExactOutWithPermit2";
     const args = authorization ? [request, authorization.inputs, permit2] : [request, permit2];
+    diagnosticStage?.("simulation");
     if (!walletBatch?.approvals.length) await estimateSignedContractFee({ account: owner, functionName, args, helpers, signal: feeEstimateSignal });
+    diagnosticStage?.("submission");
     if (walletBatch?.mode !== "requests") walletConfirmationTracker?.requestNext("transaction", "Transaction confirmation");
     if (walletBatch)
       return walletBatch.submit(functionName, args, undefined, walletConfirmationTracker);
