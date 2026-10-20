@@ -100,11 +100,11 @@ test("retired RPC returns 404 and reloaded current clients use fixed observation
     return route.fulfill({ status: 503, json: { error: "Protocol facts are temporarily unavailable." } });
   });
   await page.goto("/en");
-  await expect(page.getByText("Your budget", { exact: true })).toBeVisible();
+  await expect(page.getByText("Your budget", { exact: true }).filter({ visible: true })).toBeVisible();
   await expect.poll(() => factsRequests).toBeGreaterThan(0);
   const beforeReload = factsRequests;
   await page.reload();
-  await expect(page.getByText("Your budget", { exact: true })).toBeVisible();
+  await expect(page.getByText("Your budget", { exact: true }).filter({ visible: true })).toBeVisible();
   await expect.poll(() => factsRequests).toBeGreaterThan(beforeReload);
   await page.getByRole("button", { name: "Connect Wallet", exact: true }).first().click();
   await expect(page.getByText("Connect a Wallet", { exact: true })).toBeVisible();
