@@ -70,6 +70,10 @@ produce universal plans.
 
 Read-only basket/token previews, MAX sizing and lightweight trade models retain
 their numerical interfaces. A provisional model is not an executable plan.
+The refreshed Backend schema includes optional budget ranges for indicative
+models; those ranges do not change universal declared input or wallet funding.
+Insufficient exchange liquidity has its own localized error, preserved through
+HTTP and streaming responses and bounded diagnostics.
 
 ## ABI and verification
 
@@ -94,9 +98,9 @@ separate from executable terms. Deferred exact-output fixtures retain their
 historical transport. No deployed release or live wallet execution is claimed
 by these checks.
 
-The 2026-10-20 local candidate passed 950 Node tests, a production build,
+The 2026-10-20 local candidate passed 953 Node tests, a production build,
 type checking, linting, ABI generation checks and release-boundary checks.
-Chromium passed 341 tests against that production build; five existing Sandbox
+Chromium passed 347 tests against that production build; five existing Sandbox
 reset tests require chain 31338 and were skipped on the chain 31337 fixture.
 The vendored Backend schema identifies local, unpublished commit
-`008833b1fd43236cd8a7a5988e3ebda0aa14bdf1` and records matching artifact hashes.
+`9857ee1a863134c21d35c6139672ac8ca3d7e3f8` and records matching artifact hashes.

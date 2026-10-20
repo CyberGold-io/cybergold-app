@@ -191,6 +191,7 @@
     "quoteRpcUnavailable": "Erreur RPC : le service de connexion à la blockchain est indisponible. Réessayez.",
     "quoteTimedOut": "Le calcul du devis a dépassé le délai. Réessayez.",
     "quoteNoRoute": "Aucune route d’échange n’est disponible pour ce montant.",
+    "quoteInsufficientLiquidity": "Le Market ne dispose pas de liquidités suffisantes pour ce montant. Réduisez le montant.",
     "quoteContractRejected": "Le contrat a refusé le devis pour ce montant.",
     "quoteUnexpectedError": "Le service de devis n’a pas pu traiter cette demande. Réessayez.",
     "quoteServiceUnavailable": "Impossible de joindre le service de devis. Réessayez.",

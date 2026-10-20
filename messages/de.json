@@ -191,6 +191,7 @@
     "quoteRpcUnavailable": "RPC-Fehler: Der Verbindungsdienst zur Blockchain ist nicht verfügbar. Versuchen Sie es erneut.",
     "quoteTimedOut": "Die Kursberechnung hat das Zeitlimit überschritten. Versuchen Sie es erneut.",
     "quoteNoRoute": "Für diesen Betrag ist keine Tauschroute verfügbar.",
+    "quoteInsufficientLiquidity": "Der Market verfügt nicht über genügend Liquidität für diesen Betrag. Verringern Sie den Betrag.",
     "quoteContractRejected": "Der Vertrag hat die Kursanfrage für diesen Betrag abgelehnt.",
     "quoteUnexpectedError": "Der Kursdienst konnte diese Anfrage nicht bearbeiten. Versuchen Sie es erneut.",
     "quoteServiceUnavailable": "Der Kursdienst ist nicht erreichbar. Versuchen Sie es erneut.",
