@@ -986,6 +986,7 @@ function TradingScreen() {
   const hasEnteredSwapAmount = isIssueFromBasketExactIn
     ? hasDerivedBasketAmounts : rawQuoteAmount > 0n;
   const displayedSpendAmount = parseDisplayNumber(showSellBasket ? driverAmountStr : sellAmount, locale);
+  const isSpendAmountZero = hasHydratedPersistedSwapForm && (displayedSpendAmount ?? 0) === 0;
   const evaluationDraftKey = JSON.stringify([displayIntentKey, slippageBps]);
   const [reloadEvaluation, setReloadEvaluation] = useState<{ draft: string; unchanged: boolean }>();
   useLayoutEffect(() => {
@@ -1645,13 +1646,13 @@ const computedReceiveQuote = useMemo((): Prefill => {
   const hasProgressiveBuyEstimate = (isIssueFromTokenExactIn || isRedeemToTokenExactIn || isIssueFromBasketExactIn) &&
     (activeQuoteStatus === "loading" || quoteInputPending) && !retainedReceiveQuote.retained && receiveQuote.mainRaw > 0n;
   const liveDisplayedQuotedBuyAmount = formatMeaningfulDecimalString(receiveQuote.main, locale);
-  const keepCompletedQuotePresentation = cachedTradeDisplay?.quoteComplete === "true" &&
+  const keepCompletedQuotePresentation = !isSpendAmountZero && cachedTradeDisplay?.quoteComplete === "true" &&
     (quoteInputPending || activeQuoteStatus !== "success");
   const showPurchaseSpending = !showSellBasket;
   const readySpendingQuote = activeQuoteStatus === "success" && !quoteInputPending
     ? selectedQuote ?? (isRedeemToBasketExactIn ? { quotedInput: editedSellAmount, inputMaximum: editedSellAmount } : undefined)
     : undefined;
-  const indicativeSpending = !readySpendingQuote && localTradeEstimate?.quotedInput !== undefined
+  const indicativeSpending = !readySpendingQuote && activeQuoteStatus !== "failed" && localTradeEstimate?.quotedInput !== undefined
     ? { quotedInput: localTradeEstimate.quotedInput, inputMaximum: localTradeEstimate.inputMaximum } : undefined;
   const currentPurchaseSpending = showPurchaseSpending ? purchaseBudgetAmounts(editedSellAmount,
     readySpendingQuote ?? indicativeSpending) : undefined;
@@ -1668,14 +1669,14 @@ const computedReceiveQuote = useMemo((): Prefill => {
   };
   const purchaseSpendingLimited = purchaseSpendingPresentation.purchaseSpendingLimited === "true";
   const spendAmountLabel = buyTokenId === cygldTokenId ? t("purchaseBudgetLabel") : t("youSell");
-  const displayedQuotedBuyAmount = keepCompletedQuotePresentation ? cachedTradeDisplay?.buyAmount :
-    liveDisplayedQuotedBuyAmount || cachedTradeDisplay?.buyAmount;
+  // A cleared draft and a rejected, never-qualified estimate cannot restore
+  // their own cached placeholder/value. Confirmed refresh retention is above.
+  const displayedQuotedBuyAmount = isSpendAmountZero ? zeroAmountPlaceholder
+    : keepCompletedQuotePresentation ? cachedTradeDisplay?.buyAmount
+    : liveDisplayedQuotedBuyAmount || (activeQuoteStatus !== "failed" ? cachedTradeDisplay?.buyAmount : undefined);
 
   const sellAmountPlaceholderText = zeroAmountPlaceholder;
-  const isSpendAmountZero = hasHydratedPersistedSwapForm && (displayedSpendAmount ?? 0) === 0;
-  const buyAmountPlaceholderText = !isSpendAmountZero || shouldBlockQuotedBuyInput || quoteInputPending
-    ? loadingAmountPlaceholder
-    : zeroAmountPlaceholder;
+  const buyAmountPlaceholderText = isSpendAmountZero ? zeroAmountPlaceholder : loadingAmountPlaceholder;
   const zeroAmountEquivalents = `~ ${formatCombinedDisplayValueFromUsd({
     amountUsd: 0, formatFiat, formatGoldAmount,
   })}`;
@@ -1688,9 +1689,9 @@ const computedReceiveQuote = useMemo((): Prefill => {
     : currentPurchaseSpending ? formatAmountEquivalentDisplayValue(spendingUsd, cachedSpendingEquivalent ?? amountEquivalentsPlaceholder)
     : "…";
   const sellAmountEquivalentsPlaceholderText = isSpendAmountZero ? zeroAmountEquivalents : cachedTradeDisplay?.sellEquivalent ?? amountEquivalentsPlaceholder;
-  const buyAmountEquivalentsPlaceholderText = shouldBlockQuotedBuyInput
+  const buyAmountEquivalentsPlaceholderText = isSpendAmountZero ? zeroAmountEquivalents : shouldBlockQuotedBuyInput
     ? cachedTradeDisplay?.buyEquivalent ?? loadingAmountEquivalentsPlaceholder
-    : isSpendAmountZero ? zeroAmountEquivalents : cachedTradeDisplay?.buyEquivalent ?? amountEquivalentsPlaceholder;
+    : cachedTradeDisplay?.buyEquivalent ?? amountEquivalentsPlaceholder;
   const sellMobileAmountEquivalentDisplayValue = restoreFormattedDisplay && cachedTradeDisplay?.sellEquivalent
     ? cachedTradeDisplay.sellEquivalent : isSpendAmountZero ? zeroAmountEquivalents : isSellBasket
     ? formatAmountEquivalentDisplayValue(
@@ -1700,8 +1701,9 @@ const computedReceiveQuote = useMemo((): Prefill => {
     : sellAmountUsdApprox !== undefined
         ? formatAmountEquivalentDisplayValue(sellAmountUsdApprox, sellAmountEquivalentsPlaceholderText)
         : sellAmountEquivalentsPlaceholderText;
-  const buyMobileAmountEquivalentDisplayValue = (restoreFormattedDisplay || keepCompletedQuotePresentation) && cachedTradeDisplay?.buyEquivalent
-    ? cachedTradeDisplay.buyEquivalent : isSpendAmountZero ? zeroAmountEquivalents : isBuyBasket
+  const buyMobileAmountEquivalentDisplayValue = isSpendAmountZero ? zeroAmountEquivalents
+    : (restoreFormattedDisplay || keepCompletedQuotePresentation) && cachedTradeDisplay?.buyEquivalent
+    ? cachedTradeDisplay.buyEquivalent : isBuyBasket
     ? formatAmountEquivalentDisplayValue(
         buyBasketComponentsUsdTotal,
         buyAmountEquivalentsPlaceholderText
@@ -1733,8 +1735,10 @@ const computedReceiveQuote = useMemo((): Prefill => {
   const basketRowsFor = (side: "sell" | "buy"): TradeBasketDisplayRow[] => {
     if ((side === "sell" ? !showSellBasket : !showBuyBasket)) return [];
     if (!hasBasketComponents) return previousRows.filter(row => row.side === side).map(row => ({ ...row,
-      amount: matchingTradeDisplay ? row.amount : side === "sell" && row.address === driverToken ? driverAmountStr : "",
-      equivalent: matchingTradeDisplay ? row.equivalent : amountEquivalentsPlaceholder,
+      amount: side === "buy" && isSpendAmountZero ? zeroAmountPlaceholder
+        : matchingTradeDisplay ? row.amount : side === "sell" && row.address === driverToken ? driverAmountStr : "",
+      equivalent: side === "buy" && isSpendAmountZero ? zeroAmountEquivalents
+        : matchingTradeDisplay ? row.equivalent : amountEquivalentsPlaceholder,
       driver: side === "sell" && row.address === driverToken,
     }));
     return basketComponents.map((component, index) => {
@@ -1744,10 +1748,11 @@ const computedReceiveQuote = useMemo((): Prefill => {
       const amount = side === "sell" ? driver ? driverAmountStr : derivedBasketAmountsAsStringMap[address] ?? ""
         : keepCompletedQuotePresentation && previous ? previous.amount : receiveQuote.components.length
           ? formatMeaningfulDecimalString(receiveQuote.components[index] ?? "", locale)
-          : shouldHideQuotedBasketBuyAmounts ? loadingAmountPlaceholder : zeroAmountPlaceholder;
+          : isSpendAmountZero ? zeroAmountPlaceholder : shouldHideQuotedBasketBuyAmounts ? loadingAmountPlaceholder : zeroAmountPlaceholder;
       if (side === "sell") basketComponentWarnings[component.token.id] = isBasketComponentAmountOverWalletBalance(component, amount);
       const price = displayPrices[component.token.id];
-      const equivalent = side === "buy" && keepCompletedQuotePresentation && previous ? previous.equivalent :
+      const equivalent = side === "buy" && isSpendAmountZero ? zeroAmountEquivalents
+        : side === "buy" && keepCompletedQuotePresentation && previous ? previous.equivalent :
         price !== undefined ? formatApproxDisplayValue((parseDisplayNumber(amount, locale) ?? 0) * price,
           previous?.equivalent ?? displayAmountPlaceholder) : previous?.equivalent ?? displayAmountPlaceholder;
       return { side, tokenId: component.token.id, symbol: component.token.symbol, address,

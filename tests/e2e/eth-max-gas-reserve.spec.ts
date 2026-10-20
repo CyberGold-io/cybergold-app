@@ -93,6 +93,14 @@ test("ETH MAX uses refreshed fees while the previous gas presentation is retaine
     await page.getByRole("button", { name: /Total fee/ }).click();
     const gas = page.getByText("Transaction fee (gas):", { exact: true }).locator("..");
     const gasValue = gas.locator("span").last();
+    const pendingColor = await page.evaluate(() => {
+      const sample = document.createElement("span");
+      sample.style.color = "var(--text-input-disabled)";
+      document.body.append(sample);
+      const color = getComputedStyle(sample).color;
+      sample.remove();
+      return color;
+    });
     await expect(gas).toContainText("~ 0.000415 ETH");
     const previousPresentation = await gasValue.innerText();
     const initialFeeReads = observed.feeReads();
@@ -101,12 +109,12 @@ test("ETH MAX uses refreshed fees while the previous gas presentation is retaine
     await sell(page).fill("2");
     await expect.poll(() => observed.intents.length).toBeGreaterThan(initialIntents);
     await expect(gasValue).toHaveText(previousPresentation);
-    await expect(gasValue).toHaveClass(/text-text-input-disabled/);
+    await expect(gasValue).toHaveCSS("color", pendingColor);
     await page.clock.install();
     head = { ...head, blockHash: `0x${"b".repeat(64)}` };
     await expect.poll(async () => { await page.clock.runFor(1000); return observed.feeReads(); }).toBe(initialFeeReads + 1);
     await expect(gasValue).toHaveText(previousPresentation);
-    await expect(gasValue).toHaveClass(/text-text-input-disabled/);
+    await expect(gasValue).toHaveCSS("color", pendingColor);
 
     await maximum(page).click();
     await expect(sell(page)).toHaveValue("123.455");

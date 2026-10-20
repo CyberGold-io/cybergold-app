@@ -194,7 +194,7 @@ test("a restored Basket renders before facts arrive and an amount cannot enable 
     await expect(page.getByTestId("swap-minimum-output")).toContainText("...");
     const pendingSwap = page.locator("#swapsection").getByRole("button", { name: /^Quote processing/ });
     await expect(pendingSwap).toBeVisible(); await expect(pendingSwap).toBeDisabled();
-    await expect(pendingSwap.locator("svg")).toBeVisible();
+    await expect(pendingSwap.locator("svg")).toHaveCount(0);
     await expect(page.locator("#swapsection").getByRole("button", { name: "Swap currencies", exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => (window as unknown as { __shellWalletMethods: string[] }).__shellWalletMethods)
       .then(methods => methods.some(method => method.startsWith("eth_sign") || method === "eth_sendTransaction"))).toBe(false);

@@ -133,7 +133,7 @@ test("rapid tolerance edits retain nominal terms and start one settled competiti
   await expect(page.locator("#buy-amount")).toHaveText("0.999");
 });
 
-for (const mode of ["exact-in"] as ("exact-in" | "exact-out")[]) test(`${mode}: tolerance refresh keeps amounts, fee colors and displayed bounds steady`, async ({ page }) => {
+for (const mode of ["exact-in"] as ("exact-in" | "exact-out")[]) test(`${mode}: tolerance refresh keeps amounts and bounds while pending estimates are grey`, async ({ page }) => {
   await installMarket(page);
   let release!: () => void, waiting = 0;
   const held = new Promise<void>(resolve => { release = resolve; });
@@ -159,13 +159,21 @@ for (const mode of ["exact-in"] as ("exact-in" | "exact-out")[]) test(`${mode}: 
       return elements.map(element => ({ color: getComputedStyle(element).color, className: element.className }));
     }, { amountId: mode === "exact-in" ? "#buy-amount" : "#sell-amount", boundId: mode === "exact-in" ? "swap-minimum-output" : "swap-maximum-input" });
     const originalColors = await colors();
+    const pendingColors = await page.evaluate(original => {
+      const sample = document.createElement("span");
+      sample.style.color = "var(--text-input-disabled)";
+      document.body.append(sample);
+      const color = getComputedStyle(sample).color;
+      sample.remove();
+      return original.map((value, index) => [0, 2, 4].includes(index) ? { ...value, color } : value);
+    }, originalColors);
     await page.locator("#execution-tolerance").fill("0.5");
     await expect(computed).toHaveText(originalAmount); await expect(bound).toHaveText(originalBound);
-    expect(await colors()).toEqual(originalColors);
+    await expect.poll(colors).toEqual(pendingColors);
     await expect.poll(() => waiting).toBeGreaterThan(0);
     await expect(computed).toHaveAttribute("aria-busy", "true"); // The current quote is still preparing execution terms.
     await expect(computed).toHaveText(originalAmount); await expect(bound).toHaveText(originalBound);
-    expect(await colors()).toEqual(originalColors);
+    expect(await colors()).toEqual(pendingColors);
     release();
     await expect(bound).not.toHaveText(originalBound); await expect(computed).toHaveText(originalAmount);
     expect(await colors()).toEqual(originalColors);

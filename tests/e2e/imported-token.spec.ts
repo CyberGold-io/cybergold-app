@@ -120,5 +120,6 @@ test("wallet-only import filtering retains unknown balances without presenting z
   await page.getByRole("switch", { name: "Show only tokens available in wallet" }).uncheck();
   await page.locator('main button[aria-haspopup="dialog"]').first().click();
   await page.getByRole("dialog").getByRole("button", { name: "NEW Imported sample NEW", exact: true }).click();
-  await expect(page.getByTestId("sell-wallet-balance")).toHaveText("... NEW");
+  await expect(page.getByTestId("sell-wallet-balance")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Use maximum sell amount", exact: true })).toBeDisabled();
 });
