@@ -26,6 +26,7 @@ async function installDashboardResponses(page: Page, options: {
   available: boolean;
   staleGold?: boolean;
   goldFetchedAt?: string;
+  goldPrice?: number;
   goldUnavailable?: () => boolean;
   goldRequest?: () => void;
   getSummary?: () => typeof summary;
@@ -43,7 +44,7 @@ async function installDashboardResponses(page: Page, options: {
         await route.fulfill({ status: 503, json: { error: "Gold supplier unavailable" } });
         return;
       }
-      await route.fulfill({ json: { price: 3110.34768,
+      await route.fulfill({ json: { price: options.goldPrice ?? 3110.34768,
         fetchedAt: options.goldFetchedAt ?? new Date().toISOString(), stale: options.staleGold ?? false } });
     } else {
       await route.fulfill({ status: 503, json: { error: "Unrelated data unavailable in this fixture" } });
@@ -180,19 +181,26 @@ test("a stale or fallback gold feed cannot supply a displayed fiat reference", a
   await expectQuietMarketDiagnostics(page, diagnostics);
 });
 
-test("a near-expiry acquisition loses its fiat reference without gaining a new browser lifetime", async ({ page }) => {
+test("an expired acquisition keeps its last displayed approximation while refreshing", async ({ page }) => {
   const diagnostics = observeMarketDiagnostics(page);
   const now = Date.now();
   await page.clock.install({ time: new Date(now - 10_000) });
   await page.clock.pauseAt(new Date(now));
-  await installDashboardResponses(page, { available: true,
-    goldFetchedAt: new Date(now - 3_600_000 + 1_000).toISOString() });
+  const originalAcquisition = new Date(now - 3_600_000 + 1_000).toISOString();
+  const options = { available: true, goldFetchedAt: originalAcquisition, goldPrice: 3110.34768 };
+  await installDashboardResponses(page, options);
   await page.goto("/en/dashboard");
   const reference = page.getByText("CYGLD gold reference", { exact: true }).locator("..").locator("..");
   await expect(reference).toContainText("200");
   await page.clock.runFor(1_500);
-  await expect(reference).not.toContainText("200");
+  await expect(reference).toContainText("200");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("cybergold:display:gold:v1") ?? "null")?.fetchedAt)).toBe(originalAcquisition);
   await expectQuietMarketDiagnostics(page, diagnostics);
+  options.goldFetchedAt = new Date(now + 1_500).toISOString();
+  options.goldPrice = 6220.69536;
+  await page.clock.runFor(10_100);
+  await expect(reference).toContainText("400");
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem("cybergold:display:gold:v1") ?? "null")?.fetchedAt)).toBe(options.goldFetchedAt);
 });
 
 test("the Governance dashboard does not invent proposal counts or timelock readiness", async ({ page }) => {
@@ -204,7 +212,7 @@ test("the Governance dashboard does not invent proposal counts or timelock readi
   await expect(panel.getByText("Ready", { exact: true })).toHaveCount(0);
 });
 
-test("gold refreshes at thirty minutes, retaining its price until the one-hour expiry", async ({ page }) => {
+test("gold refreshes at thirty minutes and keeps its last displayed price through a supplier outage", async ({ page }) => {
   const diagnostics = observeMarketDiagnostics(page);
   const now = Date.now();
   await page.clock.install({ time: new Date(now - 10_000) });
@@ -225,6 +233,6 @@ test("gold refreshes at thirty minutes, retaining its price until the one-hour e
   await expect(page.getByTestId("market-data-stale-notice")).toHaveCount(0);
   expect(diagnostics).toHaveLength(0);
   await page.clock.fastForward(1_792_000);
-  await expect(reference).not.toContainText("200");
+  await expect(reference).toContainText("200");
   await expectQuietMarketDiagnostics(page, diagnostics);
 });

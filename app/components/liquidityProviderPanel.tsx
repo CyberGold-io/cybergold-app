@@ -9,9 +9,11 @@ import { useCurrency } from "../context/currencyContext";
 import { formatNumberWithCustomGrouping } from "../utils/formatting";
 import { formatDisplayValueFromUsd } from "../utils/priceDisplay";
 import type { LiquidityPositionsSnapshot } from "../utils/liquidityPositions";
+import type { WalletLiquidityDisplay } from "../utils/walletDisplayCache";
 import { WalletActionSlot } from "./walletActionSlot";
 
 type LiquidityProviderPanelProps = {
+  testIds?: boolean;
   expanded: boolean;
   onExpandedChange: (expanded: boolean) => void;
   liquidity: {
@@ -21,6 +23,8 @@ type LiquidityProviderPanelProps = {
     isRefreshing: boolean;
     refetch: () => unknown;
   };
+  cachedDisplay?: WalletLiquidityDisplay;
+  cachedValues?: Record<string, string>;
   paxgPriceUsd?: number;
   cygldPriceUsd?: number;
   goldSpotUsdPerOzt?: number;
@@ -34,9 +38,12 @@ function tokenValue(amount: number, price?: number) {
 }
 
 export function LiquidityProviderPanel({
+  testIds = true,
   expanded,
   onExpandedChange,
   liquidity,
+  cachedDisplay,
+  cachedValues,
   paxgPriceUsd,
   cygldPriceUsd,
   goldSpotUsdPerOzt,
@@ -49,9 +56,10 @@ export function LiquidityProviderPanel({
   const contentId = useId();
   const titleId = useId();
   const { data, error, isLoading, isRefreshing } = liquidity;
-  const positionCount = data?.positions.length;
-  const paxgValueUsd = data ? tokenValue(Number(data.paxgAmount), paxgPriceUsd) : undefined;
-  const cygldValueUsd = data ? tokenValue(Number(data.cygldAmount), cygldPriceUsd) : undefined;
+  const display = data ? { positionCount: data.positions.length, paxgAmount: data.paxgAmount, cygldAmount: data.cygldAmount } : cachedDisplay;
+  const positionCount = display?.positionCount;
+  const paxgValueUsd = display ? tokenValue(Number(display.paxgAmount), paxgPriceUsd) : undefined;
+  const cygldValueUsd = display ? tokenValue(Number(display.cygldAmount), cygldPriceUsd) : undefined;
   const combinedValueUsd = paxgValueUsd !== undefined && cygldValueUsd !== undefined
     ? paxgValueUsd + cygldValueUsd
     : undefined;
@@ -72,11 +80,11 @@ export function LiquidityProviderPanel({
   const formatTokenAmount = (amount: string) => formatNumberWithCustomGrouping(Number(amount), locale, {
     maximumFractionDigits: 6,
   });
-  const isInitialLoading = !data && (isLoading || !error);
+  const isInitialLoading = !display && (isLoading || !error);
   const focusClass = "focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
 
   return (
-    <section className="mt-4 rounded-xl border border-swap-container-border bg-background-input" data-testid="liquidity-provider-panel">
+    <section className="mt-4 rounded-xl border border-swap-container-border bg-background-input" data-wallet-liquidity-section data-testid={testIds ? "liquidity-provider-panel" : undefined}>
       <h3>
         <button
           type="button"
@@ -91,16 +99,15 @@ export function LiquidityProviderPanel({
             </span>
             <span className="min-w-0">
               <span id={titleId} className="block text-sm font-medium text-text-input">{t("title")}</span>
-              <span className="block text-xs font-medium text-text-input">
+              <span data-wallet-liquidity="positions" className="block text-xs font-medium text-text-input">
                 {positionCount !== undefined ? t("positions", { count: positionCount }) : "PAXG / CYGLD"}
               </span>
             </span>
           </span>
           <span className="flex shrink-0 items-center gap-3">
-            <span className="whitespace-nowrap text-xs font-semibold text-black dark:text-white" data-testid="liquidity-collapsed-value">
-              {isInitialLoading || (data && totalValueUsd === undefined && isPricesLoading)
-                ? "..."
-                : formatValue(totalValueUsd) ?? t("valueUnavailable")}
+            <span data-wallet-liquidity="value" className="whitespace-nowrap text-xs font-semibold text-black dark:text-white" data-testid={testIds ? "liquidity-collapsed-value" : undefined}>
+              {formatValue(totalValueUsd) ?? cachedValues?.value ?? (isInitialLoading || (display && totalValueUsd === undefined && isPricesLoading)
+                ? "..." : t("valueUnavailable"))}
             </span>
             <WalletActionSlot>
               <IoChevronDownOutline aria-hidden="true" className={`size-4 text-text-muted transition-transform ${expanded ? "rotate-180" : ""}`} />
@@ -118,47 +125,45 @@ export function LiquidityProviderPanel({
 
         {isInitialLoading && (
           <div aria-busy="true">
-            <p role="status" className="text-xs text-text-muted">{t("loading")}</p>
             <div aria-hidden="true" className="mt-3 h-24 animate-pulse rounded-xl bg-background-swap-container" />
           </div>
         )}
 
         {Boolean(error) && (
           <div role="status" className="mb-3 text-xs text-text-amber">
-            <p>{t(data ? "stale" : "unavailable")}</p>
+            <p>{t(display ? "stale" : "unavailable")}</p>
             <button
               type="button"
               onClick={() => void liquidity.refetch()}
               disabled={isRefreshing}
               className={`mt-2 inline-flex items-center gap-1.5 rounded-lg border border-swap-container-border px-3 py-2 font-semibold text-text-input hover:border-gold-cg disabled:opacity-60 ${focusClass}`}
             >
-              <IoRefreshOutline aria-hidden="true" className={`size-3.5 ${isRefreshing ? "animate-spin" : ""}`} />
-              {t(isRefreshing ? "refreshing" : "retry")}
+              <IoRefreshOutline aria-hidden="true" className={`size-3.5 ${isRefreshing ? "opacity-60" : ""}`} />
+              {t("retry")}
             </button>
           </div>
         )}
 
-        {data && (
+        {display && (
           <div>
             <div className="flex items-center justify-between gap-3 text-xs">
-              <p className="font-medium text-text-input" data-testid="liquidity-position-count">{t("positions", { count: positionCount ?? 0 })}</p>
-              {isRefreshing && !error && <p role="status" className="text-text-muted">{t("refreshing")}</p>}
+              <p data-wallet-liquidity="positionCount" className="font-medium text-text-input" data-testid={testIds ? "liquidity-position-count" : undefined}>{t("positions", { count: positionCount ?? 0 })}</p>
             </div>
-            {positionCount === 0 && <p className="mt-1 text-xs text-text-muted">{t("empty")}</p>}
+            {positionCount === 0 && <p data-wallet-liquidity="empty" className="mt-1 text-xs text-text-muted">{t("empty")}</p>}
 
             <div className="mt-3 rounded-xl border border-gold-cg/25 bg-gold-cg/5 p-3">
               <p className="text-xs text-text-muted">{t("totalValue")}</p>
               <dl className="mt-2 space-y-2">
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                  <dt className="text-xs text-text-muted">{t("fiatValue", { currency: selectedCurrency })}</dt>
-                  <dd className="text-base font-semibold tabular-nums text-text-input" data-testid="liquidity-fiat-value">
-                    {displayTotal("fiat") ?? t("valueUnavailable")}
+                  <dt data-wallet-liquidity="fiatLabel" className="text-xs text-text-muted">{t("fiatValue", { currency: selectedCurrency })}</dt>
+                  <dd data-wallet-liquidity="fiatValue" className="text-base font-semibold tabular-nums text-text-input" data-testid={testIds ? "liquidity-fiat-value" : undefined}>
+                    {displayTotal("fiat") ?? cachedValues?.fiatValue ?? t("valueUnavailable")}
                   </dd>
                 </div>
                 <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                   <dt className="text-xs text-text-muted">{t("goldValue")}</dt>
-                  <dd className="text-sm font-medium tabular-nums text-text-input" data-testid="liquidity-gold-value">
-                    {displayTotal("gold") ?? t("valueUnavailable")}
+                  <dd data-wallet-liquidity="goldValue" className="text-sm font-medium tabular-nums text-text-input" data-testid={testIds ? "liquidity-gold-value" : undefined}>
+                    {displayTotal("gold") ?? cachedValues?.goldValue ?? t("valueUnavailable")}
                   </dd>
                 </div>
               </dl>
@@ -167,11 +172,11 @@ export function LiquidityProviderPanel({
             <dl className="mt-3 space-y-1.5 text-xs">
               <div className="flex flex-wrap justify-between gap-x-3 gap-y-1">
                 <dt className="text-text-muted">PAXG</dt>
-                <dd className="font-medium tabular-nums text-text-input">{formatTokenAmount(data.paxgAmount)}</dd>
+                <dd data-wallet-liquidity="paxgAmount" className="font-medium tabular-nums text-text-input">{formatTokenAmount(display.paxgAmount)}</dd>
               </div>
               <div className="flex flex-wrap justify-between gap-x-3 gap-y-1">
                 <dt className="text-text-muted">CYGLD</dt>
-                <dd className="font-medium tabular-nums text-text-input">{formatTokenAmount(data.cygldAmount)}</dd>
+                <dd data-wallet-liquidity="cygldAmount" className="font-medium tabular-nums text-text-input">{formatTokenAmount(display.cygldAmount)}</dd>
               </div>
             </dl>
           </div>

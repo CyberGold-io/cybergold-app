@@ -1,5 +1,7 @@
 "use client";
 
+import { useGovernanceObservationText } from "../_hooks/useGovernanceObservationText";
+
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
@@ -37,11 +39,12 @@ export function CoreMaxTotalSupplyActionCard({
   const currentCap = controllerConfig.data?.maxTotalSupply;
   const currentSupply = controllerConfig.data?.totalSupply;
   const currentCapText = currentCap?.toString() ?? "";
-  const currentSupplyText = currentSupply?.toString() ?? "";
   const remainingSupply =
     currentCap !== undefined && currentSupply !== undefined && currentCap > currentSupply
       ? currentCap - currentSupply
       : 0n;
+  const display = useGovernanceObservationText(action.id, { cap: currentCap?.toString(), supply: currentSupply?.toString(),
+    remaining: currentCap !== undefined && currentSupply !== undefined ? remainingSupply.toString() : undefined });
   const draftNewCap = isDirty ? newCapInput : currentCapText || newCapInput;
   const parsedNewCap = parseUintInput(draftNewCap);
 
@@ -114,23 +117,23 @@ export function CoreMaxTotalSupplyActionCard({
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
           {t("maxSupplyFormCurrentTitle")}
         </p>
-        {controllerConfig.isLoading ? (
-          <p className="mt-2 text-xs text-[var(--text-muted)]">{t("maxSupplyFormLoadingCurrent")}</p>
-        ) : currentCap !== undefined ? (
+        {controllerConfig.isLoading && display.cap === undefined ? (
+          <p data-page-display-pending="true" className="mt-2 text-xs text-[var(--text-muted)]">{t("maxSupplyFormLoadingCurrent")}</p>
+        ) : display.cap !== undefined ? (
           <div className="mt-2 space-y-1 text-xs text-[var(--text-muted)]">
             <p>
               {t("maxSupplyFormCurrentCapLabel")}:{" "}
-              <span className="font-mono text-[var(--text-input)]">{currentCapText}</span>
+              <span className="font-mono text-[var(--text-input)]">{display.cap}</span>
             </p>
             <p>
               {t("maxSupplyFormCurrentSupplyLabel")}:{" "}
               <span className="font-mono text-[var(--text-input)]">
-                {currentSupplyText || t("notAvailable")}
+                {display.supply ?? t("notAvailable")}
               </span>
             </p>
             <p>
               {t("maxSupplyFormRemainingLabel")}:{" "}
-              <span className="font-mono text-[var(--text-input)]">{remainingSupply.toString()}</span>
+              <span className="font-mono text-[var(--text-input)]">{display.remaining ?? t("notAvailable")}</span>
             </p>
           </div>
         ) : (
@@ -143,7 +146,7 @@ export function CoreMaxTotalSupplyActionCard({
         <p className="mt-1 text-xs text-[var(--text-muted)]">{t("maxSupplyFormEditSubtitle")}</p>
         <label className="mt-3 block text-xs text-[var(--text-muted)]">
           <span className="mb-1 block">{t("maxSupplyFormNewCapLabel")}</span>
-          <input
+          <input data-page-draft-key={`${action.id}:max-supply`}
             type="text"
             inputMode="numeric"
             value={draftNewCap}

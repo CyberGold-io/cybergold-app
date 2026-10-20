@@ -1,5 +1,7 @@
 "use client";
 
+import { useGovernanceObservationText } from "../_hooks/useGovernanceObservationText";
+
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { useProtocolConfiguration } from "@/app/context/protocolConfigurationContext";
@@ -48,6 +50,7 @@ export function CoreLinkedContractActionCard({
     return new Map(entries.map((entry) => [entry.address.toLowerCase(), entry.label]));
   }, [addresses]);
   const currentAlias = getGovernanceAddressLabel(addressBook, currentAddress);
+  const display = useGovernanceObservationText(action.id, { address: currentAddress, alias: currentAddress ? currentAlias ?? "" : undefined });
   const draftAddress = isDirty ? newAddress : currentAddress ?? newAddress;
 
   const normalizedNextAddress = useMemo(() => {
@@ -115,19 +118,19 @@ export function CoreLinkedContractActionCard({
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
           {t("linkedContractFormCurrentTitle")}
         </p>
-        {controllerConfig.isLoading ? (
-          <p className="mt-2 text-xs text-[var(--text-muted)]">{t("linkedContractFormLoadingCurrent")}</p>
-        ) : currentAddress ? (
+        {controllerConfig.isLoading && display.address === undefined ? (
+          <p data-page-display-pending="true" className="mt-2 text-xs text-[var(--text-muted)]">{t("linkedContractFormLoadingCurrent")}</p>
+        ) : display.address ? (
           <div className="mt-2 space-y-1 text-xs text-[var(--text-muted)]">
-            {currentAlias && (
+            {display.alias && (
               <p>
                 {t("linkedContractFormCurrentAliasLabel")}:{" "}
-                <span className="font-semibold text-[var(--text-input)]">{currentAlias}</span>
+                <span className="font-semibold text-[var(--text-input)]">{display.alias}</span>
               </p>
             )}
             <p>
               {t("linkedContractFormCurrentAddressLabel")}:{" "}
-              <span className="font-mono text-[var(--text-input)] break-all">{currentAddress}</span>
+              <span className="font-mono text-[var(--text-input)] break-all">{display.address}</span>
             </p>
           </div>
         ) : (
@@ -140,7 +143,7 @@ export function CoreLinkedContractActionCard({
         <p className="mt-1 text-xs text-[var(--text-muted)]">{t("linkedContractFormEditSubtitle")}</p>
         <label className="mt-3 block text-xs text-[var(--text-muted)]">
           <span className="mb-1 block">{t("linkedContractFormAddressLabel")}</span>
-          <input
+          <input data-page-draft-key={`${action.id}:address`}
             type="text"
             value={draftAddress}
             onChange={(event) => {

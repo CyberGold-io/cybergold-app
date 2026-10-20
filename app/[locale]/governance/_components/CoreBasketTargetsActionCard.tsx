@@ -1,6 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useGovernanceObservationText } from "../_hooks/useGovernanceObservationText";
+
+import { useMemo } from "react";
+import { useSessionPagePreference } from "@/app/hooks/useSessionPagePreference";
+import { useObservedWalletAccount } from "@/app/hooks/useObservedWalletAccount";
+import { EXPECTED_CHAIN_ID } from "@/app/utils/expectedChain";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
 import {
@@ -22,6 +27,7 @@ import type { useDiamondGovernanceActions } from "../_hooks/useDiamondGovernance
 import { useCoreControllerConfig } from "../_hooks/useCoreControllerConfig";
 
 type BasketDraftRow = {
+  displayKey: string;
   id: string;
   asset: string;
   targetPpm: string;
@@ -35,8 +41,10 @@ function normalizeDecimalInput(value: string) {
 }
 
 function makeDraftRow(overrides: Partial<BasketDraftRow> = {}): BasketDraftRow {
+  const id = crypto.randomUUID();
   return {
-    id: crypto.randomUUID(),
+    id,
+    displayKey: overrides.asset?.toLowerCase() || id,
     asset: "",
     targetPpm: "0",
     goldRefGrams: "0",
@@ -58,8 +66,8 @@ export function CoreBasketTargetsActionCard({
   const t = useTranslations("Governance");
   const { basket, cygldRefGrams } = useBasketData();
   const controllerConfig = useCoreControllerConfig();
-  const [rows, setRows] = useState<BasketDraftRow[]>([]);
-  const [isDirty, setIsDirty] = useState(false);
+  const { address } = useObservedWalletAccount();
+  const [savedRows, saveRows] = useSessionPagePreference<string>(`cg:governance-basket-draft:v1:${EXPECTED_CHAIN_ID}:${address?.toLowerCase() ?? "disconnected"}:${action.id}`, "");
 
   const currentProtocolBasket = basket.data;
   const currentBasketHash = controllerConfig.data?.basketConfigHash;
@@ -81,27 +89,29 @@ export function CoreBasketTargetsActionCard({
     );
   }, [currentBasket, currentProtocolBasket]);
 
-  const currentRowsKey = useMemo(
-    () =>
-      JSON.stringify(
-        currentRows.map((row) => ({
-          asset: row.asset.toLowerCase(),
-          targetPpm: row.targetPpm,
-          goldRefGrams: row.goldRefGrams,
-          symbol: row.symbol,
-          name: row.name,
-        }))
-      ),
-    [currentRows]
-  );
-
-  useEffect(() => {
-    if (currentRows.length === 0) return;
-    if (!isDirty || rows.length === 0) {
-      setRows(currentRows);
-      setIsDirty(false);
-    }
-  }, [currentRows, currentRowsKey, isDirty, rows.length]);
+  const restoredRows = useMemo(() => {
+    try {
+      const parsed = JSON.parse(savedRows) as unknown;
+      if (!Array.isArray(parsed) || parsed.some(row => !row || [row.id, row.displayKey, row.asset, row.targetPpm, row.goldRefGrams].some(value => typeof value !== "string"))) return;
+      return parsed as BasketDraftRow[];
+    } catch { return; }
+  }, [savedRows]);
+  const display = useGovernanceObservationText(action.id, {
+    reference: cygldRefGrams.data === undefined ? undefined : formatUnits(cygldRefGrams.data, 18),
+    count: currentProtocolBasket ? String(currentRows.length) : undefined,
+    total: currentProtocolBasket ? String(currentRows.reduce((sum, row) => sum + Number.parseInt(row.targetPpm, 10), 0)) : undefined,
+  });
+  const rows = restoredRows ?? currentRows;
+  const setRows = (next: BasketDraftRow[] | ((current: BasketDraftRow[]) => BasketDraftRow[])) => {
+    saveRows(previous => {
+      let latest = rows;
+      try {
+        const parsed = JSON.parse(previous);
+        if (Array.isArray(parsed) && parsed.every(row => row && [row.id, row.displayKey, row.asset, row.targetPpm, row.goldRefGrams].every(value => typeof value === "string"))) latest = parsed;
+      } catch { /* A first edit starts with the current ordinary form rows. */ }
+      return JSON.stringify(typeof next === "function" ? next(latest) : next);
+    });
+  };
 
   const totalTargetPpm = useMemo(
     () =>
@@ -170,22 +180,18 @@ export function CoreBasketTargetsActionCard({
 
   const updateRow = (rowId: string, patch: Partial<BasketDraftRow>) => {
     setRows((current) => current.map((row) => (row.id === rowId ? { ...row, ...patch } : row)));
-    setIsDirty(true);
   };
 
   const addRow = () => {
     setRows((current) => [...current, makeDraftRow()]);
-    setIsDirty(true);
   };
 
   const removeRow = (rowId: string) => {
     setRows((current) => current.filter((row) => row.id !== rowId));
-    setIsDirty(true);
   };
 
   const resetToCurrent = () => {
-    setRows(currentRows);
-    setIsDirty(false);
+    saveRows("");
   };
 
   const buildSafeData = () =>
@@ -240,26 +246,26 @@ export function CoreBasketTargetsActionCard({
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
           {t("basketFormCurrentTitle")}
         </p>
-        {basket.isLoading || cygldRefGrams.isLoading ? (
-          <p className="mt-2 text-xs text-[var(--text-muted)]">{t("basketFormLoadingCurrent")}</p>
-        ) : currentRows.length === 0 ? (
+        {(basket.isLoading || cygldRefGrams.isLoading) && display.count === undefined ? (
+          <p data-page-display-pending="true" className="mt-2 text-xs text-[var(--text-muted)]">{t("basketFormLoadingCurrent")}</p>
+        ) : display.count === undefined || display.count === "0" ? (
           <p className="mt-2 text-xs text-[var(--text-muted)]">{t("basketFormCurrentUnavailable")}</p>
         ) : (
           <div className="mt-2 space-y-1 text-xs text-[var(--text-muted)]">
             <p>
               {t("basketFormCurrentCygldRefLabel")}:{" "}
               <span className="font-mono text-[var(--text-input)]">
-                {cygldRefGrams.data ? formatUnits(cygldRefGrams.data, 18) : t("notAvailable")}
+                {display.reference ?? t("notAvailable")}
               </span>
             </p>
             <p>
               {t("basketFormCurrentAssetCountLabel")}:{" "}
-              <span className="font-mono text-[var(--text-input)]">{currentRows.length}</span>
+              <span className="font-mono text-[var(--text-input)]">{display.count}</span>
             </p>
             <p>
               {t("basketFormCurrentTotalLabel")}:{" "}
               <span className="font-mono text-[var(--text-input)]">
-                {currentRows.reduce((sum, row) => sum + Number.parseInt(row.targetPpm, 10), 0)}
+                {display.total ?? t("notAvailable")}
               </span>
             </p>
           </div>
@@ -322,6 +328,7 @@ export function CoreBasketTargetsActionCard({
                 <label className="text-xs text-[var(--text-muted)]">
                   <span className="mb-1 block">{t("basketFormAssetLabel")}</span>
                   <input
+                    data-page-draft-key={`${action.id}:${row.displayKey}:asset`}
                     type="text"
                     value={row.asset}
                     onChange={(event) => updateRow(row.id, { asset: event.target.value })}
@@ -333,6 +340,7 @@ export function CoreBasketTargetsActionCard({
                 <label className="text-xs text-[var(--text-muted)]">
                   <span className="mb-1 block">{t("basketFormTargetPpmLabel")}</span>
                   <input
+                    data-page-draft-key={`${action.id}:${row.displayKey}:target`}
                     type="text"
                     inputMode="numeric"
                     value={row.targetPpm}
@@ -344,6 +352,7 @@ export function CoreBasketTargetsActionCard({
                 <label className="text-xs text-[var(--text-muted)]">
                   <span className="mb-1 block">{t("basketFormGoldRefLabel")}</span>
                   <input
+                    data-page-draft-key={`${action.id}:${row.displayKey}:gold-reference`}
                     type="text"
                     value={row.goldRefGrams}
                     onChange={(event) => updateRow(row.id, { goldRefGrams: event.target.value })}

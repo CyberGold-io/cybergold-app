@@ -14,16 +14,19 @@ import { applySlippageFloor } from "@/app/utils/swapPolicy";
 import { EXPECTED_CHAIN_ID } from "@/app/utils/expectedChain";
 import { useProtocolConfiguration } from "@/app/context/protocolConfigurationContext";
 import { getLocaleDecimalSeparator } from "@/app/utils/formatting";
+import { useWalletDisplayCache } from "@/app/hooks/useWalletDisplayCache";
+import { parseWalletRecoveryDisplay, walletDisplayCacheKey, type WalletRecoveryDisplay } from "@/app/utils/walletDisplayCache";
+import { WalletRecoveryPresentation } from "./walletRecoveryPresentation";
 
 function shorten(value: string) {
   return `${value.slice(0, 6)}…${value.slice(-4)}`;
 }
 
 export function RecoverySharePortfolio({ holder }: { holder?: Address }) {
-  const { tokens } = useProtocolConfiguration();
+  const { displayTokens } = useProtocolConfiguration();
   const t = useTranslations("RecoveryShares");
   const locale = useLocale();
-  const format = (value: bigint, decimals: number) => formatUnits(value, decimals).replace(".", getLocaleDecimalSeparator(locale));
+  const format = useMemo(() => (value: bigint, decimals: number) => formatUnits(value, decimals).replace(".", getLocaleDecimalSeparator(locale)), [locale]);
   const portfolio = useRecoverySharePortfolio(holder);
   const settlement = useRecoveryShareSettlement(holder);
   const publicClient = usePublicClient({ chainId: EXPECTED_CHAIN_ID });
@@ -43,8 +46,42 @@ export function RecoverySharePortfolio({ holder }: { holder?: Address }) {
       }),
     [portfolio.data.balances]
   );
+  const observedDisplay = useMemo<WalletRecoveryDisplay | undefined>(() => {
+    if (portfolio.isLoading || portfolio.error || (!portfolio.data.complete && portfolio.data.status !== "not-configured")) return;
+    return {
+      notConfigured: portfolio.data.status === "not-configured", corePaused: Boolean(portfolio.data.corePaused),
+      rows: balances.map(entry => {
+        const token = displayTokens.find(token => token.type === "erc20" && token.address.toLowerCase() === entry.pool?.asset.toLowerCase());
+        return {
+          shareId: entry.shareId,
+          assetLabel: token?.symbol ?? (entry.pool ? shorten(entry.pool.asset) : t("unknownAsset")),
+          balance: t("balance", { amount: format(entry.shares, entry.pool.shareDecimals) }),
+          payout: entry.expectedPayoutRaw !== undefined
+            ? `${format(entry.expectedPayoutRaw, entry.pool.shareDecimals)} ${token?.symbol ?? t("underlyingTokens")}`
+            : t("payoutUnavailable"),
+          ...(entry.fundOffer?.available ? { fundOffer: entry.fundOffer.governancePaused ? t("fundPaused") : t("fundOffer", {
+            shares: format(BigInt(entry.fundOffer.acceptedShares), entry.pool.shareDecimals),
+            amount: format(BigInt(entry.fundOffer.cygldAmount), 18),
+          }) } : {}),
+          ...(entry.pool && !portfolio.data.corePaused && !portfolio.isStale && entry.pool.custody.liveBalanceAvailable
+            && entry.shares > 0n && entry.expectedPayoutRaw !== undefined && entry.expectedPayoutRaw > 0n ? { redeemLabel: t("redeem") } : {}),
+          zeroPayout: entry.shares > 0n && entry.expectedPayoutRaw === 0n,
+        };
+      }),
+    };
+  }, [portfolio.isLoading, portfolio.error, portfolio.data, portfolio.isStale, balances, displayTokens, format, t]);
+  const display = useWalletDisplayCache(walletDisplayCacheKey(EXPECTED_CHAIN_ID, holder, `recovery:${locale}`),
+    parseWalletRecoveryDisplay, observedDisplay);
 
   if (!holder) return null;
+  if ((portfolio.isLoading || (portfolio.error && !portfolio.data.complete)) && display) {
+    if (display.notConfigured) return <WalletRecoveryPresentation display={display} stale={Boolean(portfolio.error)} />;
+    if (!display.rows.length) return portfolio.error
+      ? <p role="status" className="mt-4 text-xs text-text-amber">{t("unavailable")}</p> : null;
+    // Cached text has no pool, transaction inputs, or redemption action. A live
+    // portfolio independently restores its ordinary settlement controls.
+    return <WalletRecoveryPresentation display={display} refreshing={portfolio.isRefreshing} stale={Boolean(portfolio.error)} />;
+  }
   if (portfolio.isLoading) return (
     <section className="mt-4" aria-busy="true" aria-label={t("title")}>
       <span className="sr-only" role="status">{t("loading")}</span>
@@ -118,7 +155,7 @@ export function RecoverySharePortfolio({ holder }: { holder?: Address }) {
         {balances.map((entry) => {
           const pool = entry.pool;
           const fundOffer = entry.fundOffer;
-          const token = tokens.find(token => token.type === "erc20" && token.address.toLowerCase() === pool?.asset.toLowerCase());
+          const token = displayTokens.find(token => token.type === "erc20" && token.address.toLowerCase() === pool?.asset.toLowerCase());
           const assetLabel = token?.symbol ?? (pool ? shorten(pool.asset) : t("unknownAsset"));
           const canSettle =
             pool !== null &&

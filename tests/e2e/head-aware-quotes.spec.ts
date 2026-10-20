@@ -106,8 +106,7 @@ test("unchanged heads cause no quote/fee refresh; same-height replacement refres
   } }));
   await page.goto("/en");
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
-  await expect(page.getByRole("switch")).toBeChecked();
-  await page.getByRole("switch").uncheck(); // Settle the connection default before opening the picker.
+  await expect(page.getByRole("switch")).not.toBeChecked();
   await choose(page, "WETH");
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
   const computed = page.locator("#buy-amount");
@@ -179,7 +178,7 @@ test("the first head after an outage refreshes facts loaded at an older hash", a
   await page.goto("/en");
   await initialFacts;
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  await expect(page.getByRole("button", { name: /^(Select token|BASKET|XAUt XAUt|PAXG PAXG|Sélectionner un token|Token auswählen)$/ }).first()).toBeVisible();
+  await expect(page.locator('main button[aria-haspopup="dialog"]').first()).toBeVisible();
   const before = facts;
   current = { ...current, blockHash: `0x${"b".repeat(64)}` };
   ready = true;

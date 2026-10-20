@@ -64,6 +64,31 @@ async function installSyntheticWallet(page: Page) {
   return observed;
 }
 
+test("the dark gold swap action keeps black text while disabled, preparing a quote and ready", async ({ page }) => {
+  await installSyntheticWallet(page);
+  await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+  let release!: () => void, requests = 0;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/quotes/trade/**", async route => { requests++; await pending; await route.fallback(); });
+  const action = page.locator("main button.bg-gold-cg").last();
+  const foreground = () => action.evaluate(button => getComputedStyle(button).color);
+  try {
+    await page.goto("/en");
+    await expect(page.getByRole("button", { name: "Open wallet menu", exact: true })).toBeVisible();
+    await expect(page.locator("html")).toHaveClass(/dark/);
+    await expect(action).toBeDisabled();
+    await expect.poll(foreground).toBe("rgb(0, 0, 0)");
+    await choose(page, "WETH");
+    await page.locator("#sell-amount").fill("1");
+    await expect.poll(() => requests).toBeGreaterThan(0);
+    await expect(action).toBeDisabled();
+    await expect.poll(foreground).toBe("rgb(0, 0, 0)");
+    release();
+    await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
+    await expect.poll(foreground).toBe("rgb(0, 0, 0)");
+  } finally { release(); }
+});
+
 test("redemption uses the slider's selected minimum in final calldata", async ({ page }) => {
   const observed = await installSyntheticWallet(page);
   await page.goto("/en");
@@ -99,7 +124,7 @@ for (const width of [1280, 390]) {
   test(`French tolerance field and keyboard slider fit at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 920 }); await install(page);
     await page.goto("/fr");
-    await page.getByRole("button", { name: "Sélectionner un token", exact: true }).first().click();
+    await page.locator('main button[aria-haspopup="dialog"]').first().click();
     await page.getByPlaceholder("Rechercher une devise...").fill("WETH");
     await page.locator("#dropdown-from").getByRole("button", { name: "WETH Wrapped Ether WETH", exact: true }).click();
     await page.getByRole("button", { name: "Inverser le sens de l’échange", exact: true }).click();
@@ -126,8 +151,8 @@ test("fees accordion owns tolerance, retains its value and shows only the active
   await sell.fill("1"); await expect(buy).toHaveText("1");
   const accordion = page.getByRole("button", { name: /Total fee/ });
   await expect(accordion).toHaveAttribute("aria-expanded", "false");
-  await expect(page.getByTestId("execution-tolerance-control")).toHaveCount(0);
-  await expect(page.getByTestId("swap-minimum-output")).toHaveCount(0);
+  await expect(page.getByTestId("execution-tolerance-control")).not.toBeVisible();
+  await expect(page.getByTestId("swap-minimum-output")).not.toBeVisible();
   await expect(page.getByTestId("swap-maximum-input")).toHaveCount(0);
   await accordion.click();
   const field = page.locator("#execution-tolerance");
@@ -150,8 +175,8 @@ test("fees accordion owns tolerance, retains its value and shows only the active
   await field.fill("1.01"); await field.blur();
   await expect(field).toHaveValue("0.5"); await expect(slider).toHaveValue("0.5");
   await accordion.click();
-  await expect(page.getByTestId("execution-tolerance-control")).toHaveCount(0);
-  await expect(page.getByTestId("swap-minimum-output")).toHaveCount(0);
+  await expect(page.getByTestId("execution-tolerance-control")).not.toBeVisible();
+  await expect(page.getByTestId("swap-minimum-output")).not.toBeVisible();
   await accordion.click(); await expect(field).toHaveValue("0.5");
 
 

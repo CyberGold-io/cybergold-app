@@ -18,6 +18,8 @@ import {
 } from "@/app/utils/governanceActionEligibility";
 import { resolveDiamondGovernanceAuthority } from "@/app/utils/governanceAuthority";
 import { GovernanceAccessGate } from "./GovernanceAccessGate";
+import { RetainedPageDisplay } from "@/app/components/retainedPageDisplay";
+import { useGovernanceObservationText } from "../_hooks/useGovernanceObservationText";
 import { GovernanceSurfaceNav } from "./GovernanceSurfaceNav";
 import {
   getGovernanceSurface,
@@ -241,7 +243,11 @@ function PauseControlActions({
   });
   const pausedData = surface.id === "helpers" ? helpersPaused.data : governanceAuthorityFlag(authority.data, "paused");
   const pausedState = typeof pausedData === "boolean" ? pausedData : undefined;
-  const pausedStatus = pausedState === true ? "active" : pausedState === false ? "inactive" : "unknown";
+  const display = useGovernanceObservationText(`${surface.id}:${resolvedTargetAddress ?? "missing"}:pause`, {
+    paused: pausedState === undefined ? undefined : String(pausedState),
+  });
+  const displayedPaused = display.paused === "true" ? true : display.paused === "false" ? false : undefined;
+  const pausedStatus = displayedPaused === true ? "active" : displayedPaused === false ? "inactive" : "unknown";
   const isDynamicSafePauseSection = section.id === "pause" && authoritySurface !== undefined;
   const governanceAuthorityLoading = isDynamicSafePauseSection && authority.isLoading;
 
@@ -256,9 +262,9 @@ function PauseControlActions({
                 pausedStatus
               )}`}
             >
-              {pausedState === true
+              {displayedPaused === true
                 ? pauseStatusLabels.paused
-                : pausedState === false
+                : displayedPaused === false
                   ? pauseStatusLabels.active
                   : pauseStatusLabels.unknown}
             </span>
@@ -371,6 +377,7 @@ function PauseControlActions({
 }
 
 function RolePrincipalCard({
+  detailScope,
   member,
   principal,
   ownerAliasesByOwner,
@@ -379,6 +386,7 @@ function RolePrincipalCard({
   onCopy,
   labels,
 }: {
+  detailScope: string;
   member: Address;
   principal?: GovernanceRolePrincipal;
   ownerAliasesByOwner: Map<string, string>;
@@ -412,7 +420,7 @@ function RolePrincipalCard({
   }
 
   return (
-    <details className="w-full rounded-md border border-[var(--swap-container-border)] bg-[var(--background-input)] px-2 py-1.5">
+    <details data-page-detail-key={`${detailScope}:${member.toLowerCase()}`} className="w-full rounded-md border border-[var(--swap-container-border)] bg-[var(--background-input)] px-2 py-1.5">
       <summary className="flex cursor-pointer list-none flex-wrap items-center gap-1.5 text-[10px] text-[var(--text-input)] marker:hidden">
         <span className="rounded-full bg-gold-cg/15 px-2 py-0.5 font-semibold text-gold-cg">{labels.safeLabel}</span>
         <span className="font-mono" title={member}>
@@ -458,6 +466,7 @@ function RolePrincipalCard({
 }
 
 function RoleMembers({
+  detailScope,
   state,
   principalsByAddress,
   ownerAliasesByOwner,
@@ -466,6 +475,7 @@ function RoleMembers({
   onCopy,
   labels,
 }: {
+  detailScope: string;
   state?: GovernanceRoleMembersState;
   principalsByAddress: Map<string, GovernanceRolePrincipal>;
   ownerAliasesByOwner: Map<string, string>;
@@ -478,7 +488,7 @@ function RoleMembers({
     return <span className="text-xs text-[var(--text-muted)]">Not configured</span>;
   }
   if (state.isLoading) {
-    return <span className="text-xs text-[var(--text-muted)]">Loading members...</span>;
+    return <span data-page-display-pending="true" className="text-xs text-[var(--text-muted)]">Loading members...</span>;
   }
   if (state.isUnavailable) {
     return <span className="text-xs text-[var(--text-muted)]">Members unavailable on this deployment</span>;
@@ -494,6 +504,7 @@ function RoleMembers({
         return (
           <RolePrincipalCard
             key={member}
+            detailScope={detailScope}
             member={member}
             principal={principal}
             ownerAliasesByOwner={ownerAliasesByOwner}
@@ -577,6 +588,7 @@ function SectionCard({
                 <div key={roleId} className="grid grid-cols-1 gap-1 text-xs md:grid-cols-[180px_1fr]">
                   <span className="font-mono text-[var(--text-input)]">{role?.label ?? roleId}</span>
                   <RoleMembers
+                    detailScope={`${surface.id}:${section.id}:${roleId}`}
                     state={roleMembersById[roleId]}
                     principalsByAddress={principalsByAddress}
                     ownerAliasesByOwner={ownerAliasesByOwner}
@@ -761,8 +773,8 @@ function SectionCard({
 
 export function DiamondGovernancePage({ surfaceId }: DiamondGovernancePageProps) {
   const t = useTranslations("Governance");
-  const { address, isConnected } = useObservedWalletAccount();
-  const { addresses } = useProtocolConfiguration();
+  const { address, isConnected, hasObservedProviderAccounts, status: walletStatus } = useObservedWalletAccount();
+  const { addresses, configuration, error: configurationError } = useProtocolConfiguration();
   const surface = useMemo(() => getGovernanceSurface(surfaceId, addresses), [surfaceId, addresses]);
   const {
     byRoleId: roleMembersById,
@@ -870,7 +882,14 @@ export function DiamondGovernancePage({ surfaceId }: DiamondGovernancePageProps)
     }
   };
 
+  const observedDisconnect = hasObservedProviderAccounts && !isConnected && walletStatus !== "connecting" && walletStatus !== "reconnecting";
+  const deniedAccess = !!configuration && hasObservedProviderAccounts && !safeLoading && !safeError && !hasAccess;
+  const restoredContent = hasAccess && !safeLoading && !roleMembersLoading && !governanceAuthorityLoading;
+
   return (
+    <RetainedPageDisplay page={`governance-${surfaceId}`} privatePage account={address ?? null}
+      ready={restoredContent || !!governanceActions.busyActionKey || observedDisconnect || deniedAccess || !!configurationError}
+      discard={observedDisconnect || deniedAccess}>
     <div className="flex min-h-screen flex-col items-center bg-background font-sans">
       <div className="mx-auto flex w-full max-w-6xl flex-col p-3">
         <section className="mt-4 flex w-full max-w-6xl items-center justify-between pt-4 text-[var(--text-input)]">
@@ -923,6 +942,7 @@ export function DiamondGovernancePage({ surfaceId }: DiamondGovernancePageProps)
                         <p className="mt-1 text-xs text-[var(--text-muted)]">{role.description}</p>
                         <div className="mt-2">
                           <RoleMembers
+                            detailScope={`${surface.id}:summary:${role.id}`}
                             state={roleMembersById[role.id]}
                             principalsByAddress={principalsByAddress}
                             ownerAliasesByOwner={ownerAliasesByOwner}
@@ -968,5 +988,6 @@ export function DiamondGovernancePage({ surfaceId }: DiamondGovernancePageProps)
         </section>
       </div>
     </div>
+    </RetainedPageDisplay>
   );
 }

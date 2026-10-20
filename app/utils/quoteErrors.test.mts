@@ -62,3 +62,17 @@ test("RPC failure descriptions are translated in every supported locale", () => 
     }
   }
 });
+
+test("insufficient market liquidity retains its specific HTTP code and localized explanation", async () => {
+  const error = await quoteResponseError(Response.json({ code: "quote-insufficient-liquidity", error: "private route diagnostic" }, { status: 422 }));
+  assert.equal(error.code, "quote-insufficient-liquidity");
+  for (const locale of ["en", "fr", "de", "ru"]) {
+    const messages = JSON.parse(readFileSync(new URL(`../../messages/${locale}.json`, import.meta.url), "utf8")).Home;
+    assert.equal(quoteErrorMessage(error, key => key), "quoteInsufficientLiquidity");
+    const description = quoteErrorMessage(error, key => messages[key]);
+    assert.equal(typeof description, "string");
+    assert.notEqual(description, messages.quoteNoRoute);
+    assert.notEqual(description, messages.quoteTimedOut);
+    assert.doesNotMatch(description, /private/);
+  }
+});

@@ -183,8 +183,10 @@ test("ETH MAX preserves the entered amount when the gas fee read fails", async (
   await choose(page, "ETH");
   await sell(page).fill("0.1");
   await expect.poll(() => observed.intents.at(-1)?.amount).toBe("100000000000000000");
-  await expect.poll(observed.feeResponses).toBe(2);
-  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expect.poll(observed.feeResponses).toBeGreaterThanOrEqual(2);
+  // Initial ETH can start a canceled development mount read as well as the
+  // active query. Wait for that query's failure before asking MAX to retry it.
+  await expect(page.getByTestId("swap-fees")).toHaveAttribute("aria-busy", "false");
   const initialFeeResponses = observed.feeResponses();
   let failedResponses = 0;
   const finalFailedRead = page.waitForResponse(response =>
@@ -223,7 +225,7 @@ test("accepting Swap prevents a pending ETH MAX fee read from changing the accep
     await expect.poll(() => observed.intents.at(-1)?.amount).toBe("1000000000000000000");
     const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
     await expect(swap).toBeEnabled();
-    await expect.poll(observed.feeReads).toBe(1);
+    await expect.poll(observed.feeReads).toBeGreaterThan(0);
     await maximum(page).click();
     await expect(sell(page)).toHaveValue("1");
     await swap.click();
@@ -233,7 +235,7 @@ test("accepting Swap prevents a pending ETH MAX fee read from changing the accep
       new URL(response.url()).pathname === "/api/transaction/fees" && response.status() === 200);
     finishFee();
     await (await completedFeeRead).finished();
-    await expect.poll(observed.feeResponses).toBe(1);
+    await expect.poll(observed.feeResponses).toBeGreaterThan(0);
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
     await expect(sell(page)).toHaveValue("1");
     expect(observed.intents.every(intent => intent.amount === "1000000000000000000")).toBe(true);

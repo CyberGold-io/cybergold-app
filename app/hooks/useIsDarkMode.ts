@@ -11,11 +11,11 @@ function readIsDarkMode() {
 }
 
 export function useIsDarkMode() {
-  const [isDarkMode, setIsDarkMode] = useState(readIsDarkMode);
+  const [isDarkMode, setIsDarkMode] = useState(false);
 
   useEffect(() => {
     const root = document.documentElement;
-    const update = () => setIsDarkMode(root.classList.contains("dark"));
+    const update = () => setIsDarkMode(readIsDarkMode());
 
     update();
 

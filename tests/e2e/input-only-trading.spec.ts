@@ -3,6 +3,45 @@ import { choose, install } from "./fixtures/token-quotes";
 import { install as installBasket } from "./fixtures/basket-quotes";
 import { selectBasket } from "./fixtures/swap-selection";
 
+test("the restored spend amount is selected so typing immediately replaces it", async ({ page }) => {
+  await install(page);
+  await page.addInitScript(() => sessionStorage.setItem("cg:swap-form-state:v1", JSON.stringify({
+    sellTokenId: "weth", buyTokenId: "cygld", sellAmount: "12.34",
+  })));
+  await page.goto("/en");
+  const spend = page.locator("#sell-amount");
+  await expect(spend).toHaveValue("12.34");
+  await expect(spend).toBeFocused();
+  await expect.poll(() => spend.evaluate(element => {
+    const input = element as HTMLInputElement;
+    return [input.selectionStart, input.selectionEnd];
+  })).toEqual([0, 5]);
+  await page.keyboard.type("2");
+  await expect(spend).toHaveValue("2");
+});
+
+for (const [locale, currency, equivalent] of [
+  ["en", "USD", "~ 0.00 g of gold • $0.00"],
+  ["fr", "EUR", "~ 0,00 g d'or • 0,00 €"],
+] as const) {
+  test(`empty and zero amounts show localized zero equivalents in ${currency} without a gold price`, async ({ page }) => {
+    await install(page);
+    await page.addInitScript(currency => localStorage.setItem("display-currency", currency), currency);
+    await page.route("**/api/gold", route => route.fulfill({ status: 503, json: { error: "Price unavailable" } }));
+    await page.goto(`/${locale}`);
+    const spend = page.locator("#sell-amount");
+    await expect(spend).toBeFocused();
+    for (const side of ["sell", "buy"]) {
+      await expect(page.getByTestId(`${side}-amount-equivalents`).filter({ visible: true })).toHaveText(equivalent);
+    }
+    await page.keyboard.type("0");
+    await expect(spend).toHaveValue("0");
+    for (const side of ["sell", "buy"]) {
+      await expect(page.getByTestId(`${side}-amount-equivalents`).filter({ visible: true })).toHaveText(equivalent);
+    }
+  });
+}
+
 async function selectAndCopyAmount(page: Page, amount: Locator) {
   const displayed = (await amount.textContent())!.trim();
   await expect(amount).toHaveJSProperty("tagName", "OUTPUT");

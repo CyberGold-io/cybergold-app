@@ -50,12 +50,11 @@ test("the empty swap form can open wallet connection while quotes are unavailabl
 test("amount controls and wallet filter have names and visible keyboard focus", async ({ page }) => {
   await installWallet(page);
   await page.goto("/en");
-  await expect(page.getByRole("switch")).toBeChecked();
-  await page.getByRole("switch").uncheck();
+  await expect(page.getByRole("switch")).not.toBeChecked();
   await selectBasket(page);
   await expect(page.getByRole("textbox", { name: "Sell amount (PAXG)", exact: true })).toBeVisible();
   await choose(page, "WETH");
-  const sell = page.getByRole("textbox", { name: "You Sell WETH", exact: true });
+  const sell = page.getByRole("textbox", { name: "Your budget WETH", exact: true });
   await expect(sell).toBeVisible();
   await expect(page.getByRole("status", { name: "You Buy CYGLD", exact: true })).toBeVisible();
   const walletFilter = page.getByRole("switch", { name: "Show only tokens available in wallet", exact: true });
@@ -94,14 +93,12 @@ test("maximum token sell amount remains usable on mobile", async ({ page }) => {
   await installWallet(page);
   await page.goto("/en");
   const walletFilter = page.getByRole("switch", { name: "Show only tokens available in wallet", exact: true });
-  // Connection applies this default after hydration; change it once that completes.
-  await expect(walletFilter).toBeChecked();
-  await walletFilter.uncheck();
+  await expect(walletFilter).not.toBeChecked();
   await choose(page, "WETH");
   const maximum = page.getByRole("button", { name: "Use maximum sell amount", exact: true });
   await expect(maximum).toBeVisible();
   await maximum.click();
-  const sell = page.getByRole("textbox", { name: "You Sell WETH", exact: true });
+  const sell = page.getByRole("textbox", { name: "Your budget WETH", exact: true });
   await expect(sell).not.toHaveValue("");
   await expect.poll(async () => Number((await sell.inputValue()).replace(/\s/g, ""))).toBeGreaterThan(1.23);
 });

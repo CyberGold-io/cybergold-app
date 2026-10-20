@@ -1,7 +1,6 @@
 "use client";
 
 import { ConnectButton, useChainModal, useConnectModal } from "@rainbow-me/rainbowkit";
-import type { CSSProperties } from "react";
 import { useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { useTranslations } from "next-intl";
@@ -9,6 +8,8 @@ import { useDisconnect, useSwitchChain } from "wagmi";
 import { resolveActiveProvider, type EthereumProvider } from "../utils/ethereumProvider";
 import { useObservedWalletAccount } from "../hooks/useObservedWalletAccount";
 import { WalletBalanceModal } from "./walletBalanceModal";
+import { WalletDisplayBootstrap, clearWalletPresentation } from "./walletDisplayBootstrap";
+import { walletConnectedPillClass, walletPillBaseClass } from "./walletPresentation";
 import { setWalletExplicitlyDisconnected } from "../utils/walletConnectionPreference";
 import { closedWalletPanelState, setWalletPanelOpen, subscribeWalletPanel, walletPanelState } from "../utils/walletPanelState";
 import {
@@ -124,11 +125,13 @@ async function switchOrAddChain(provider: EthereumProvider) {
 }
 
 export function WalletConnectButton() {
+  return <WalletDisplayBootstrap><WalletConnectControl /></WalletDisplayBootstrap>;
+}
+
+function WalletConnectControl() {
   const t = useTranslations("WalletMenu");
   const balanceT = useTranslations("WalletBalances");
   const balanceReturnFocusRef = useRef<HTMLButtonElement>(null);
-  const walletPillBaseClass =
-    "rounded-full border px-3 py-1.5 text-[15px] transition disabled:opacity-60 disabled:cursor-not-allowed";
   const unsupportedWalletButtonClass = `${walletPillBaseClass} border-red-500 bg-red-500 font-semibold text-white hover:bg-red-600`;
   const { isOpen: showBalances, hasOpened: hasOpenedBalances } = useSyncExternalStore(
     subscribeWalletPanel, walletPanelState, closedWalletPanelState
@@ -211,6 +214,7 @@ export function WalletConnectButton() {
           try {
             setIsDisconnectingWallet(true);
             setWalletPanelOpen(false);
+            clearWalletPresentation();
             await disconnectAsync();
             setWalletExplicitlyDisconnected(true);
           } catch (error) {
@@ -223,16 +227,7 @@ export function WalletConnectButton() {
           }
         };
         return (
-          <div
-            {...(!ready && {
-              "aria-hidden": true,
-              style: {
-                opacity: 0,
-                pointerEvents: "none",
-                userSelect: "none",
-              } as CSSProperties,
-            })}
-          >
+          <div data-wallet-disconnecting={isDisconnectingWallet || undefined}>
             {/* Not connected */}
             {!connected && (
               <button
@@ -253,6 +248,7 @@ export function WalletConnectButton() {
                   <button
                     type="button"
                     onClick={handleSwitchOrAddNetwork}
+                    data-wallet-network-switch
                     disabled={isSwitchingNetwork}
                     className={unsupportedWalletButtonClass}
                   >
@@ -262,10 +258,10 @@ export function WalletConnectButton() {
                   <button
                     type="button"
                     onClick={() => setWalletPanelOpen(!walletPanelState().isOpen)}
+                    data-wallet-connected-button
+                    data-wallet-address={address?.toLowerCase()}
                     aria-expanded={showBalances}
-                    className={`${walletPillBaseClass} ${showBalances
-                      ? "border-[var(--text-input)] bg-[var(--text-input)] text-[var(--background-input)] hover:opacity-90"
-                      : "border-[var(--swap-container-border)] bg-[var(--background-input)] text-[var(--text-input)] hover:bg-zinc-200"}`}
+                    className={walletConnectedPillClass(showBalances)}
                     aria-label={showBalances ? balanceT("close") : t("menu")}
                     ref={balanceReturnFocusRef}
                   >

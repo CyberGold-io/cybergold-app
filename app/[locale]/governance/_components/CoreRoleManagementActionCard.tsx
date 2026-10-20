@@ -200,7 +200,7 @@ export function CoreRoleManagementActionCard({
         <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
           <label className="text-xs text-[var(--text-muted)]">
             <span className="mb-1 block">{t("roleFormRoleLabel")}</span>
-            <select
+            <select data-page-draft-key={`${action.id}:role`}
               value={selectedRole?.id ?? ""}
               onChange={(event) => setSelectedRoleInput(event.target.value)}
               className="w-full rounded-md border border-[var(--swap-container-border)] bg-[var(--background-swap-container)] px-3 py-2 text-[var(--text-input)]"
@@ -214,7 +214,7 @@ export function CoreRoleManagementActionCard({
           </label>
           <label className="text-xs text-[var(--text-muted)]">
             <span className="mb-1 block">{t("roleFormAccountLabel")}</span>
-            <input
+            <input data-page-draft-key={`${action.id}:account`}
               type="text"
               value={accountInput}
               onChange={(event) => setAccountInput(event.target.value)}

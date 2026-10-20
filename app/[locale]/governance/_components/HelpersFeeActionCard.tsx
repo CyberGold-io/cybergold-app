@@ -1,5 +1,7 @@
 "use client";
 
+import { useGovernanceObservationText } from "../_hooks/useGovernanceObservationText";
+
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
@@ -39,6 +41,7 @@ export function HelpersFeeActionCard({
   const draftFee = isDirty ? feeInput : currentFeeText || feeInput;
   const parsedFee = parsePpmInput(draftFee);
   const maxFee = HELPERS_MAX_FEE_PPM;
+  const display = useGovernanceObservationText(action.id, { fee: currentFee?.toString() });
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
     if (currentFee === undefined || parsedFee === undefined) {
@@ -102,13 +105,13 @@ export function HelpersFeeActionCard({
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
           {t("helpersFeeFormCurrentTitle")}
         </p>
-        {helpersConfig.isLoading ? (
-          <p className="mt-2 text-xs text-[var(--text-muted)]">{t("helpersFeeFormLoadingCurrent")}</p>
+        {helpersConfig.isLoading && display.fee === undefined ? (
+          <p data-page-display-pending="true" className="mt-2 text-xs text-[var(--text-muted)]">{t("helpersFeeFormLoadingCurrent")}</p>
         ) : (
           <div className="mt-2 space-y-1 text-xs text-[var(--text-muted)]">
             <p>
               {t("helpersFeeFormCurrentLabel")}:{" "}
-              <span className="font-mono text-[var(--text-input)]">{currentFeeText || t("notAvailable")}</span>
+              <span className="font-mono text-[var(--text-input)]">{display.fee ?? t("notAvailable")}</span>
             </p>
             <p>
               {t("helpersFeeFormCapLabel")}:{" "}
@@ -124,7 +127,7 @@ export function HelpersFeeActionCard({
         <p className="text-sm font-semibold text-[var(--text-input)]">{t("helpersFeeFormEditTitle")}</p>
         <label className="mt-3 block text-xs text-[var(--text-muted)]">
           <span className="mb-1 block">{t("helpersFeeFormInputLabel")}</span>
-          <input
+          <input data-page-draft-key={`${action.id}:fee`}
             type="text"
             inputMode="numeric"
             value={draftFee}

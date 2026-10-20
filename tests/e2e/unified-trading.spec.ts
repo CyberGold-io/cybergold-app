@@ -5,17 +5,26 @@ import { coreIntentRequest, tradeFixture } from "./fixtures/trade-core";
 import { intentFixture } from "./fixtures/quote-intent";
 
 async function pickPaxg(page: Page) {
+  if (!await page.getByPlaceholder("Search currency...").isVisible()) {
+    await page.locator('main button[aria-haspopup="dialog"]').first().click();
+  }
   await page.getByPlaceholder("Search currency...").fill("PAXG");
   await page.locator("#dropdown-from").getByRole("button").filter({ has: page.getByText("PAXG", { exact: true }) }).click();
 }
 
-for (const action of ["click", "edit"] as const) test(`no selected input token: ${action} opens the picker and preserves entered amount`, async ({ page }) => {
+for (const action of ["click", "edit"] as const) test(`fresh ETH input: ${action} keeps the amount editable until explicit token selection`, async ({ page }) => {
   await installMarket(page); await page.goto("/en");
+  await expect(page.locator("#sell-token-label")).toHaveText("ETH");
   await expect(page.getByPlaceholder("Search currency...")).toHaveCount(0);
   if (action === "click") await page.locator("#sell-amount").click();
   else await page.locator("#sell-amount").fill("2");
+  await expect(page.locator("#sell-amount")).toBeEditable();
+  await expect(page.getByPlaceholder("Search currency...")).toHaveCount(0);
+  await page.locator("#sell-amount").fill("2");
+  await page.locator('main button[aria-haspopup="dialog"]').first().click();
   await expect(page.getByPlaceholder("Search currency...")).toBeVisible();
   await pickPaxg(page);
+  await expect(page.locator("#sell-token-label")).toHaveText("PAXG");
   await page.locator("#sell-amount").fill("2");
   await expect(page.locator("#buy-amount")).toHaveText("1.998");
 });
@@ -23,7 +32,7 @@ for (const action of ["click", "edit"] as const) test(`no selected input token: 
 test("dark token search uses readable foreground and placeholder colors", async ({ page }) => {
   await install(page); await page.addInitScript(() => localStorage.setItem("theme", "dark"));
   await page.goto("/en"); await expect(page.locator("html")).toHaveClass(/dark/);
-  await page.locator("#sell-amount").click();
+  await page.locator('main button[aria-haspopup="dialog"]').first().click();
   const search = page.getByPlaceholder("Search currency..."); await search.fill("PAXG");
   const colors = await search.evaluate(input => {
     const style = getComputedStyle(input), placeholder = getComputedStyle(input, "::placeholder");
@@ -145,7 +154,7 @@ for (const mode of ["exact-in"] as ("exact-in" | "exact-out")[]) test(`${mode}: 
     const colors = () => page.evaluate(({ amountId, boundId }) => {
       const fees = document.querySelector('[data-testid="swap-fees"]')!;
       const row = [...fees.querySelectorAll("span")].find(value => value.textContent?.startsWith("Front-end fee ("))!.parentElement!;
-      const elements = [document.querySelector(amountId)!, fees.querySelector("button")!.lastElementChild!,
+      const elements = [document.querySelector(amountId)!, fees.querySelector("summary")!.lastElementChild!,
         row.lastElementChild!, document.querySelector("#execution-tolerance")!, document.querySelector(`[data-testid="${boundId}"]`)!.lastElementChild!];
       return elements.map(element => ({ color: getComputedStyle(element).color, className: element.className }));
     }, { amountId: mode === "exact-in" ? "#buy-amount" : "#sell-amount", boundId: mode === "exact-in" ? "swap-minimum-output" : "swap-maximum-input" });

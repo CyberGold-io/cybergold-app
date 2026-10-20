@@ -27,7 +27,7 @@ test("renders the English swap page", async ({ page }) => {
   await page.goto("/en");
 
   await expect(page).toHaveTitle(/CyberGold/i);
-  await expect(page.getByText("You Sell")).toBeVisible();
+  await expect(page.getByText("Your budget")).toBeVisible();
   await expect(page.getByText("You Buy")).toBeVisible();
   await expect(page.getByRole("contentinfo")).toContainText(
     "© 2026 CyberGold. All rights reserved."
@@ -39,7 +39,7 @@ test("renders the French swap page", async ({ page }) => {
 
   await expect(page).toHaveURL(/\/fr$/);
   await expect(page.locator("html")).toHaveAttribute("lang", "fr");
-  await expect(page.getByText("Vous vendez")).toBeVisible();
+  await expect(page.getByText("Votre budget")).toBeVisible();
   await expect(page.getByText("Vous recevez")).toBeVisible();
   await expect(page.getByRole("contentinfo")).toContainText(
     "© 2026 CyberGold. Tous droits réservés."
@@ -51,7 +51,7 @@ test("renders the German swap page", async ({ page }) => {
 
   await expect(page).toHaveURL(/\/de$/);
   await expect(page.locator("html")).toHaveAttribute("lang", "de");
-  await expect(page.getByText("Sie verkaufen")).toBeVisible();
+  await expect(page.getByText("Ihr Budget")).toBeVisible();
   await expect(page.getByText("Sie erhalten")).toBeVisible();
   await expect(page.getByRole("contentinfo")).toContainText(
     "© 2026 CyberGold. Alle Rechte vorbehalten."
@@ -61,26 +61,26 @@ test("renders the German swap page", async ({ page }) => {
 test("switches from English to French from the language menu", async ({ page }) => {
   await page.goto("/en");
 
-  await expect(page.getByText("You Sell")).toBeVisible();
+  await expect(page.getByText("Your budget")).toBeVisible();
   await page.getByRole("button", { name: "Language" }).click();
   await page.getByRole("button", { name: /Fran/i }).click();
 
   await expect(page).toHaveURL(/\/fr$/);
   await expect(page.locator("html")).toHaveAttribute("lang", "fr");
-  await expect(page.getByText("Vous vendez")).toBeVisible();
+  await expect(page.getByText("Votre budget")).toBeVisible();
   await expect(page.getByText("Vous recevez")).toBeVisible();
 });
 
 test("switches from English to German from the language menu", async ({ page }) => {
   await page.goto("/en");
 
-  await expect(page.getByText("You Sell")).toBeVisible();
+  await expect(page.getByText("Your budget")).toBeVisible();
   await page.getByRole("button", { name: "Language" }).click();
   await page.getByRole("button", { name: /Deutsch/i }).click();
 
   await expect(page).toHaveURL(/\/de$/);
   await expect(page.locator("html")).toHaveAttribute("lang", "de");
-  await expect(page.getByText("Sie verkaufen")).toBeVisible();
+  await expect(page.getByText("Ihr Budget")).toBeVisible();
   await expect(page.getByText("Sie erhalten")).toBeVisible();
 });
 
@@ -100,11 +100,11 @@ test("retired RPC returns 404 and reloaded current clients use fixed observation
     return route.fulfill({ status: 503, json: { error: "Protocol facts are temporarily unavailable." } });
   });
   await page.goto("/en");
-  await expect(page.getByText("You Sell", { exact: true })).toBeVisible();
+  await expect(page.getByText("Your budget", { exact: true })).toBeVisible();
   await expect.poll(() => factsRequests).toBeGreaterThan(0);
   const beforeReload = factsRequests;
   await page.reload();
-  await expect(page.getByText("You Sell", { exact: true })).toBeVisible();
+  await expect(page.getByText("Your budget", { exact: true })).toBeVisible();
   await expect.poll(() => factsRequests).toBeGreaterThan(beforeReload);
   await page.getByRole("button", { name: "Connect Wallet", exact: true }).first().click();
   await expect(page.getByText("Connect a Wallet", { exact: true })).toBeVisible();

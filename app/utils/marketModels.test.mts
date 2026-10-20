@@ -7,7 +7,7 @@ import { predictMarketModel, fetchMarketModel } from "./marketModels.ts";
 import { marketFixtureQuote, marketFixtureRequest } from "../../tests/fixtures/market-quote.mts";
 import { marketModelFamily, type MarketQuoteModelPacket } from "./marketQuote.ts";
 import { fetchTradeModel, receiveTradeModel, type TradeModelRequest, type TradeQuoteModelPacket } from "./tradeQuote.ts";
-import { clearQuoteModels, getMarketQuoteModel } from "./quoteModelStore.ts";
+import { clearQuoteModels, getMarketQuoteModel, getTradeBudgetRange, subscribeQuoteModels, tradeDisplayModelScope } from "./quoteModelStore.ts";
 
 const model: MarketQuoteModelPacket = { namespace: "market", family: marketModelFamily(marketFixtureRequest),
   intent: { side: "sell", mode: "exact-in", counterToken: marketFixtureRequest.counterToken, adapter: marketFixtureRequest.adapter },
@@ -47,7 +47,8 @@ test("the unified hook retains a Backend-resolved family and uses only its ranke
   const identity = "configured-roots-adapter-unavailable";
   let observedKey: unknown[] = [], acquire!: (input: { signal: AbortSignal }) => Promise<TradeQuoteModelPacket>;
   const dependencies: Record<string, unknown> = {
-    react: { useEffect: (effect: () => void) => effect() },
+    react: { useEffect: (effect: () => void) => effect(), useCallback: (callback: () => unknown) => callback,
+      useSyncExternalStore: (_subscribe: unknown, snapshot: () => unknown) => snapshot() },
     "@tanstack/react-query": { useQuery: (options: { queryKey: unknown[]; queryFn: typeof acquire }) => {
       observedKey = options.queryKey; acquire = options.queryFn; return { data: packet };
     }, useQueryClient: () => ({}) },
@@ -56,6 +57,7 @@ test("the unified hook retains a Backend-resolved family and uses only its ranke
     "@/app/context/sandboxForkContext": { useSandboxForkGeneration: () => null },
     "@/app/context/chainHeadContext": { useQuoteCacheScope: () => "1:head" },
     "@/app/hooks/usePageVisible": { usePageVisible: () => true },
+    "@/app/utils/quoteModelStore": { getTradeBudgetRange, subscribeQuoteModels, tradeDisplayModelScope },
     "@/app/utils/tradeQuote": { receiveTradeModel, fetchTradeModel: (input: TradeModelRequest, signal: AbortSignal) =>
       fetchTradeModel(input, signal, (async (url, options) => {
         assert.equal(url, "/api/quotes/trade/model"); assert.deepEqual(JSON.parse(String(options?.body)), request);
@@ -64,12 +66,12 @@ test("the unified hook retains a Backend-resolved family and uses only its ranke
   };
   const source = readFileSync(new URL("../hooks/flows/quotes/useTradeModel.ts", import.meta.url), "utf8");
   const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
-  const exports: { useTradeModel?: (input: TradeModelRequest, enabled: boolean) => bigint } = {};
+  const exports: { useTradeModel?: (input: TradeModelRequest, enabled: boolean) => { quotedOutput: bigint } | undefined } = {};
   runInNewContext(output, { exports, require: (key: string) => { assert.ok(key in dependencies, key); return dependencies[key]; } });
   clearQuoteModels();
   try {
     assert.equal(predictMarketModel(model, 1002n), 1000n, "the family arithmetic differs from Backend ranking");
-    assert.equal(exports.useTradeModel!(request, true), 42n, "the App does not rank or reconstruct family estimates");
+    assert.equal(exports.useTradeModel!(request, true)?.quotedOutput, 42n, "the App does not rank or reconstruct family estimates");
     assert.equal(getMarketQuoteModel(model.family, identity), model, "retain the concrete producer adapter family");
     assert.equal(getMarketQuoteModel(model.family, "other-deployment"), undefined);
     assert.deepEqual(observedKey[4], request, "the unified request requires no caller adapter");

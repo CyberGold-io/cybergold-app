@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "./fixtures/app-test";
+import { writeFile } from "node:fs/promises";
 import type { PoolSnapshot } from "../../app/utils/poolSnapshot";
 import type { WalletBalancesSnapshot } from "../../app/utils/walletBalanceSnapshot";
 import { choose } from "./fixtures/token-quotes";
@@ -23,13 +24,24 @@ function snapshot(holder: string, partial = false): WalletBalancesSnapshot { ret
 
 async function install(page: Page, mode: "ready" | "partial" | "outage", poolMode?: "ready" | "partial" | "outage") {
   await page.addInitScript(({ account, chainHex }) => {
-    const listeners = new Map<string, Set<(...args: unknown[]) => void>>(); let accounts = [account];
-    const provider = { isMetaMask: true, selectedAddress: account,
+    const reload = JSON.parse(sessionStorage.getItem("balance-test-wallet-reload") ?? "null") as { accounts: string[]; chainHex?: string } | null;
+    const listeners = new Map<string, Set<(...args: unknown[]) => void>>(); let accounts = reload?.accounts ?? [account];
+    let activeChainHex = reload?.chainHex ?? chainHex;
+    let releaseAccounts!: () => void;
+    const pendingAccounts = reload ? new Promise<void>(resolve => { releaseAccounts = resolve; }) : Promise.resolve();
+    const methods: string[] = [];
+    let accountRequests = 0;
+    const provider = { isMetaMask: true, selectedAddress: reload ? null : account as string | null,
       request: async ({ method }: { method: string }) => {
-        if (["eth_accounts", "eth_requestAccounts"].includes(method)) return accounts;
+        methods.push(method);
+        if (["eth_accounts", "eth_requestAccounts"].includes(method)) {
+          accountRequests++;
+          await pendingAccounts;
+          return accounts;
+        }
         if (method === "wallet_requestPermissions") return [{ parentCapability: "eth_accounts", caveats: [{ type: "restrictReturnedAccounts", value: accounts }] }];
-        if (method === "eth_chainId") return chainHex;
-        if (method === "net_version") return String(BigInt(chainHex));
+        if (method === "eth_chainId") return activeChainHex;
+        if (method === "net_version") return String(BigInt(activeChainHex));
         if (method === "eth_getBalance") return "0x0";
         if (method === "wallet_watchAsset") return true;
         throw new Error(`Synthetic wallet rejects ${method}`);
@@ -45,6 +57,15 @@ async function install(page: Page, mode: "ready" | "partial" | "outage", poolMod
       accounts = [account]; provider.selectedAddress = account;
       listeners.get("accountsChanged")?.forEach(listener => listener(accounts));
     } });
+    Object.assign(window, {
+      __switchBalanceTestChain: (next: string) => {
+        activeChainHex = next;
+        listeners.get("chainChanged")?.forEach(listener => listener(next));
+      },
+      __balanceTestWalletMethods: methods,
+      __balanceTestAccountRequests: () => accountRequests,
+      __releaseBalanceTestWallet: () => { provider.selectedAddress = accounts[0] ?? null; releaseAccounts?.(); },
+    });
   }, { account: ALICE, chainHex });
   const holders: string[] = [], calls: string[] = [], pools: number[] = [], genericRequests: string[] = [], nativeHolders: string[] = [], tokenRequests: string[] = [];
   const origin = new URL(test.info().project.use.baseURL ?? "http://localhost:3000").origin;
@@ -103,7 +124,7 @@ async function selectSwapToken(page: Page, side: "sell" | "buy", symbol: string,
   await picker.getByRole("button", { name: `${symbol} ${name} ${symbol}`, exact: true }).click();
 }
 
-test("swap fields follow selected tokens and direction, retain zero and MAX, and hide balances after disconnect", async ({ page }) => {
+test("swap input balances follow tokens and direction while output balances stay absent", async ({ page }) => {
   await install(page, "ready");
   const current = snapshot(ALICE);
   current.native = success("3123456789000000000");
@@ -111,21 +132,20 @@ test("swap fields follow selected tokens and direction, retain zero and MAX, and
   await page.goto("/en");
   const sellBalance = page.getByTestId("sell-wallet-balance");
   const buyBalance = page.getByTestId("buy-wallet-balance");
-  await expect(sellBalance).toHaveCount(0);
-  await expect(buyBalance).toHaveText("2 CYGLD");
+  await expect(sellBalance).toHaveText("3.12346 ETH");
+  await expect(buyBalance).toHaveCount(0);
   await selectSwapToken(page, "sell", "ETH", "Ether");
   await expect(sellBalance).toHaveText("3.12346 ETH");
   await expect(sellBalance).toHaveAttribute("title", "Balance: 3.123456789 ETH");
   await expect(page.getByRole("button", { name: "Use maximum sell amount", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Reverse swap direction", exact: true }).click();
   await expect(sellBalance).toHaveText("2 CYGLD");
-  await expect(buyBalance).toHaveText("3.12346 ETH");
+  await expect(buyBalance).toHaveCount(0);
   await selectSwapToken(page, "buy", "USDC", "USDC");
-  await expect(buyBalance).toHaveText("0 USDC");
-  await expect(buyBalance).toHaveAccessibleName("Balance: 0 USDC");
+  await expect(buyBalance).toHaveCount(0);
   await page.getByRole("button", { name: "Reverse swap direction", exact: true }).click();
   await expect(sellBalance).toHaveText("0 USDC");
-  await expect(buyBalance).toHaveText("2 CYGLD");
+  await expect(buyBalance).toHaveCount(0);
   await openWalletBalanceModal(page);
   await page.getByTestId("wallet-balance-modal").getByRole("button", { name: "Disconnect wallet", exact: true }).click();
   await expect(sellBalance).toHaveCount(0);
@@ -136,11 +156,10 @@ for (const mode of ["partial", "outage"] as const) {
   test(`swap fields keep unreadable balances unknown: ${mode}`, async ({ page }) => {
     await install(page, mode);
     await page.goto("/en");
-    await page.getByRole("switch", { name: "Show only tokens available in wallet" }).uncheck();
+    await expect(page.getByRole("switch", { name: "Show only tokens available in wallet" })).not.toBeChecked();
     await selectSwapToken(page, "sell", "USDC", "USDC");
-    await expect(page.getByTestId("sell-wallet-balance")).toHaveText("... USDC");
-    await expect(page.getByTestId("sell-wallet-balance")).toHaveAttribute("title", "Balance: Unavailable USDC");
-    await expect(page.getByTestId("buy-wallet-balance")).toHaveText(mode === "outage" ? "... CYGLD" : "2 CYGLD");
+    await expect(page.getByTestId("sell-wallet-balance")).toHaveCount(0);
+    await expect(page.getByTestId("buy-wallet-balance")).toHaveCount(0);
   });
 }
 
@@ -154,16 +173,14 @@ for (const width of [320, 1280]) {
       ? { ...row, balance: success("113448123456789000000") } : row);
     await routeWalletBalances(page, route => route.fulfill({ json: current }));
     await page.goto("/fr");
-    await expect(page.getByTestId("buy-wallet-balance")).toHaveText("113,448 CYGLD");
+    await expect(page.getByTestId("buy-wallet-balance")).toHaveCount(0);
     await selectSwapToken(page, "sell", "ETH", "Ether");
     const sell = page.getByTestId("sell-wallet-balance");
-    const buy = page.getByTestId("buy-wallet-balance");
     await expect(sell).toHaveText("0,01398 ETH");
     await expect(sell).toHaveAttribute("title", "Solde : 0,01398123456789 ETH");
-    await expect(buy).toHaveText("113,448 CYGLD");
-    await expect(buy).toHaveAccessibleName("Solde : 113,448123456789 CYGLD");
+    await expect(page.getByTestId("buy-wallet-balance")).toHaveCount(0);
     const pickers = page.locator("main button[aria-haspopup='dialog']");
-    for (const [index, balance] of [sell, buy].entries()) {
+    for (const [index, balance] of [sell].entries()) {
       await expect(balance).toBeVisible();
       const amountBox = await pickers.nth(index).boundingBox();
       const rect = await balance.boundingBox();
@@ -197,7 +214,7 @@ for (const mode of ["ready", "partial", "outage"] as const) {
       else await expect(page.getByTestId("wallet-balance-amount-usdc")).toHaveText("0.000 USDC");
       await page.evaluate(account => (window as unknown as { __switchBalanceTestAccount: (account: string) => void }).__switchBalanceTestAccount(account), BOB);
       await expect(page.getByTestId("wallet-balance-amount-cygld")).toHaveText("7.000 CYGLD");
-      await expect(page.getByTestId("buy-wallet-balance")).toHaveText("7 CYGLD");
+      await expect(page.getByTestId("buy-wallet-balance")).toHaveCount(0);
       expect(observed.holders).toContain(BOB);
     }
     expect(observed.holders).toContain(ALICE);
@@ -306,7 +323,7 @@ test("the address opens only the wallet panel, without a navbar balance or extra
 });
 
 for (const mode of ["ready", "outage"] as const) {
-  test(`the wallet-filtered token picker shows initial balance loading and settles: ${mode}`, async ({ page }) => {
+  test(`the wallet-filtered token picker remains searchable while initial balances settle: ${mode}`, async ({ page }) => {
     await install(page, mode);
     let release!: () => void;
     const pending = new Promise<void>(resolve => { release = resolve; });
@@ -319,31 +336,34 @@ for (const mode of ["ready", "outage"] as const) {
     const walletFilter = page.getByRole("switch", { name: "Show only tokens available in wallet" });
     try {
       await page.goto("/en");
-      await expect(walletFilter).toBeChecked();
-      await expect(sellPicker).toBeDisabled();
-      await expect(sellPicker).toHaveAttribute("aria-busy", "true");
-      await expect(sellPicker.locator("svg.animate-spin")).toBeVisible();
-      await expect(buyPicker.locator("svg.animate-spin")).toHaveCount(0);
-
-      await walletFilter.click();
+      await expect(walletFilter).not.toBeChecked();
       await expect(sellPicker).toBeEnabled();
-      await expect(sellPicker.locator("svg.animate-spin")).toHaveCount(0);
+      await walletFilter.check();
+      await expect(sellPicker).toBeEnabled();
       await expect(sellPicker).not.toHaveAttribute("aria-busy", "true");
-      await walletFilter.click();
-      await expect(sellPicker).toHaveAttribute("aria-busy", "true");
+      await expect(sellPicker.locator("svg.animate-spin")).toHaveCount(0);
+      await expect(buyPicker.locator("svg.animate-spin")).toHaveCount(0);
+      await sellPicker.click();
+      const picker = page.getByRole("dialog", { name: "Choose currency", exact: true });
+      await picker.getByRole("textbox").fill("ETH");
+      await expect(picker.getByRole("textbox")).toHaveValue("ETH");
+      await expect(picker.getByRole("status")).toHaveAttribute("aria-busy", "true");
     } finally {
       release();
     }
     await expect(sellPicker.locator("svg.animate-spin")).toHaveCount(0);
     await expect(sellPicker).not.toHaveAttribute("aria-busy", "true");
-    if (mode === "ready") await expect(sellPicker).toBeEnabled();
-    else await expect(sellPicker).toBeDisabled();
+    await expect(sellPicker).toBeEnabled();
+    const picker = page.getByRole("dialog", { name: "Choose currency", exact: true });
+    if (mode === "ready") await expect(picker.getByRole("button", { name: "ETH Ether ETH", exact: true })).toBeVisible();
+    else await expect(picker.getByRole("status")).toHaveAttribute("aria-busy", "false");
   });
 }
 
-test("refreshing cached wallet balances keeps the token picker available without initial loading", async ({ page }) => {
+test("refreshing cached wallet balances keeps amounts, MAX, and the token picker visible", async ({ page }) => {
   await install(page, "ready");
   await page.goto("/en");
+  await page.getByRole("switch", { name: "Show only tokens available in wallet" }).check();
   await page.getByRole("button", { name: "Open wallet menu" }).click();
   await expect(page.getByTestId("wallet-balance-amount-eth")).toHaveText("3.000 ETH");
   const refresh = page.getByRole("button", { name: /^(Refresh balances|Refreshing\.\.\.)$/ });
@@ -363,10 +383,453 @@ test("refreshing cached wallet balances keeps the token picker available without
     await expect(sellPicker).toBeEnabled();
     await expect(sellPicker.locator("svg.animate-spin")).toHaveCount(0);
     await expect(sellPicker).not.toHaveAttribute("aria-busy", "true");
+    await expect(page.getByTestId("sell-wallet-balance")).toHaveText("3 ETH");
+    await expect(page.getByTestId("buy-wallet-balance")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Use maximum sell amount", exact: true })).toHaveText("MAX");
   } finally {
     release();
   }
   await expect(refresh).toBeEnabled();
+});
+
+test("pending wallet refresh keeps values and controls usable across closing, reopening and account changes", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await install(page, "ready", "ready");
+  await page.addInitScript(() => {
+    const copied: string[] = [];
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: {
+      writeText: async (value: string) => { copied.push(value); },
+    } });
+    Object.assign(window, { __refreshCopiedAddresses: copied });
+  });
+  await page.goto("/en");
+  await page.getByRole("button", { name: "Open wallet menu", exact: true }).click();
+  const panel = page.getByTestId("wallet-balance-modal");
+  await expect(panel.getByTestId("wallet-balance-amount-eth")).toHaveText("3.000 ETH");
+  await expect(panel.getByTestId("wallet-balance-value-eth")).toContainText("698.49");
+  const valueBefore = (await panel.getByTestId("wallet-balance-value-eth").textContent())!.trim();
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/account/wallet-balances*", async route => { await pending; await route.fallback(); });
+  try {
+    const request = page.waitForRequest("**/api/account/wallet-balances*");
+    const refresh = panel.getByRole("button", { name: "Refresh balances", exact: true });
+    await refresh.click();
+    await request;
+    await expect(refresh).toHaveAttribute("aria-busy", "true");
+    await expect(refresh).toHaveAttribute("title", "Refresh balances");
+    await expect(refresh.locator(".animate-spin")).toHaveCount(0);
+    await expect(panel.getByTestId("wallet-balance-amount-cygld")).toHaveText("2.000 CYGLD");
+    await expect(panel.getByTestId("wallet-balance-value-eth")).toHaveText(valueBefore);
+    await panel.getByRole("button", { name: "Copy address", exact: true }).click();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __refreshCopiedAddresses: string[] }).__refreshCopiedAddresses.at(-1)?.toLowerCase())).toBe(ALICE);
+    await panel.getByRole("button", { name: "View full", exact: true }).click();
+    await expect(panel.getByRole("button", { name: "Hide", exact: true })).toHaveAttribute("aria-pressed", "true");
+
+    // The desktop panel leaves the swap and its token search interactive.
+    await page.locator("main button[aria-haspopup='dialog']").first().click();
+    const picker = page.getByRole("dialog", { name: "Choose currency", exact: true });
+    await picker.getByRole("textbox").fill("ETH");
+    await expect(picker.getByRole("button", { name: "ETH Ether ETH", exact: true })).toBeVisible();
+    await picker.getByRole("button", { name: "ETH Ether ETH", exact: true }).click();
+    await page.locator("nav").getByRole("button", { name: "Close balances", exact: true }).click();
+    await expect(panel).toBeHidden();
+    await page.getByRole("button", { name: "Open wallet menu", exact: true }).click();
+    await expect(panel.getByTestId("wallet-balance-amount-eth")).toHaveText("3.000 ETH");
+    await expect(panel.getByTestId("wallet-balance-value-eth")).toHaveText(valueBefore);
+    await expect(page.getByText(/updating[.…]*/i)).toHaveCount(0);
+
+    await page.evaluate(account => (window as unknown as { __switchBalanceTestAccount: (account: string) => void }).__switchBalanceTestAccount(account), BOB);
+    await expect(panel.getByTestId("wallet-balance-amount-cygld")).toHaveText("... CYGLD");
+    await expect(panel.getByTestId("wallet-balance-amount-eth")).toHaveText("... ETH");
+    await expect(panel.getByTestId("wallet-balance-value-eth")).toHaveText("...");
+  } finally { release(); }
+  await expect(panel.getByTestId("wallet-balance-amount-cygld")).toHaveText("7.000 CYGLD");
+});
+
+test("an open wallet restores automatically on reload with cached values while Backend observations remain pending", async ({ page }) => {
+  await install(page, "ready", "ready");
+  await page.goto("/en");
+  await page.getByRole("button", { name: "Open wallet menu", exact: true }).click();
+  const panel = page.getByTestId("wallet-balance-modal");
+  await expect(panel.getByTestId("wallet-balance-amount-eth")).toHaveText("3.000 ETH");
+  await expect(panel.getByTestId("wallet-balance-value-eth")).toContainText("698.49");
+  const valueBefore = (await panel.getByTestId("wallet-balance-value-eth").textContent())!.trim();
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  let release!: () => void, requests = 0;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route(/\/api\/(protocol\/(config|facts)|gold|fx|pools\/[^?]+|account\/wallet-balances)(\?|$)/, async route => {
+    requests++;
+    await pending;
+    await route.fallback();
+  });
+  try {
+    await page.reload();
+    await expect.poll(() => requests).toBeGreaterThan(0);
+    await expect(panel).toBeVisible();
+    await expect(page.getByRole("button", { name: "Close balances", exact: true })).toHaveAttribute("aria-expanded", "true");
+    await expect(panel.getByTestId("wallet-balance-amount-eth")).toHaveText("3.000 ETH");
+    await expect(panel.getByTestId("wallet-balance-amount-cygld")).toHaveText("2.000 CYGLD");
+    await expect(panel.getByTestId("wallet-balance-value-eth")).toHaveText(valueBefore);
+    await expect(panel.getByRole("button", { name: "Copy address", exact: true })).toBeEnabled();
+    await page.getByRole("button", { name: "Close balances", exact: true }).click();
+    await expect(panel).toBeHidden();
+    await page.reload();
+    await expect(page.getByRole("button", { name: "Open wallet menu", exact: true })).toHaveAttribute("aria-expanded", "false");
+    await expect(panel).toBeHidden();
+  } finally { release(); }
+});
+
+test("disconnecting closes the wallet panel and does not restore it on reload", async ({ page }) => {
+  await install(page, "ready");
+  await page.goto("/en");
+  await page.getByRole("button", { name: "Open wallet menu", exact: true }).click();
+  const panel = page.getByTestId("wallet-balance-modal");
+  await expect(panel).toBeVisible();
+  await panel.getByRole("button", { name: "Disconnect wallet", exact: true }).click();
+  await expect(panel).toBeHidden();
+  await page.reload();
+  // Opening a React-controlled token picker establishes that hydration has
+  // completed without requiring a particular wallet reconnection policy.
+  await page.locator("main button[aria-haspopup='dialog']").first().click();
+  await expect(page.getByRole("dialog", { name: "Choose currency", exact: true })).toBeVisible();
+  await expect(panel).toBeHidden();
+  await expect(page.getByRole("button", { name: "Close balances", exact: true })).toHaveCount(0);
+});
+
+async function seedOpenWalletReload(page: Page, accounts = [ALICE]) {
+  await install(page, "ready", "ready");
+  await page.goto("/en");
+  await page.getByRole("button", { name: "Open wallet menu", exact: true }).click();
+  const panel = page.getByTestId("wallet-balance-modal");
+  await expect(panel.getByTestId("wallet-balance-amount-eth")).toHaveText("3.000 ETH");
+  await expect(panel.getByTestId("wallet-balance-amount-cygld")).toHaveText("2.000 CYGLD");
+  await expect(panel.getByTestId("wallet-balance-value-eth")).toContainText("698.49");
+  const value = (await panel.getByTestId("wallet-balance-value-eth").textContent())!.trim();
+  const address = (await panel.locator('[data-wallet-display="address"]').textContent())!.trim();
+  const button = page.locator("nav [data-wallet-connected-button]:visible");
+  const openColors = await page.evaluate(() => {
+    const probe = document.createElement("span");
+    probe.style.cssText = "position:fixed;visibility:hidden;background:var(--text-input);color:var(--background-input)";
+    document.body.append(probe);
+    const colors = { background: getComputedStyle(probe).backgroundColor, foreground: getComputedStyle(probe).color };
+    probe.remove();
+    return colors;
+  });
+  // The open pill transitions from its closed colors after the click. Capture
+  // the settled open appearance rather than an arbitrary animation frame.
+  await expect(button).toHaveCSS("background-color", openColors.background);
+  await expect(button).toHaveCSS("color", openColors.foreground);
+  const colors = await button.evaluate(element => ({ background: getComputedStyle(element).backgroundColor,
+    foreground: getComputedStyle(element).color }));
+  await page.evaluate(accounts => {
+    sessionStorage.setItem("balance-test-wallet-reload", JSON.stringify({ accounts }));
+    return new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+  }, accounts);
+  return { value, colors, address };
+}
+
+async function holdWalletReloadJavaScript(page: Page) {
+  let release!: () => void, requests = 0;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/_next/static/**/*.js*", async route => { requests++; await pending; await route.fallback(); });
+  return { release, requests: () => requests };
+}
+
+async function expectWalletReloadPaint(page: Page) {
+  await expect.poll(() => page.evaluate(() => performance.getEntriesByType("paint")
+    .some(entry => entry.name === "first-contentful-paint"))).toBe(true);
+}
+
+async function expectUniqueDocumentIds(page: Page) {
+  const duplicates = await page.evaluate(() => {
+    const ids = [...document.querySelectorAll("[id]")].map(element => element.id);
+    return [...new Set(ids.filter((id, index) => ids.indexOf(id) !== index))];
+  });
+  expect(duplicates).toEqual([]);
+}
+
+async function releaseWalletAccount(page: Page) {
+  await page.evaluate(() => (window as unknown as { __releaseBalanceTestWallet: () => void }).__releaseBalanceTestWallet());
+}
+
+async function expectNoWalletWrites(page: Page) {
+  const methods = await page.evaluate(() => (window as unknown as { __balanceTestWalletMethods: string[] }).__balanceTestWalletMethods);
+  expect(methods.filter(method => /^(eth_send|eth_sign|personal_sign|wallet_send|wallet_watchAsset)/.test(method))).toEqual([]);
+}
+
+type WalletReloadFrame = { button: string; expanded: string | null; panel: boolean; ethAmount: string; ethValue: string };
+
+async function sampleWalletReloadFrames(page: Page) {
+  await page.evaluate(() => {
+    const state: { stopped: boolean; frames: WalletReloadFrame[] } = { stopped: false, frames: [] };
+    Object.assign(window, { __walletReloadFrames: state });
+    const visible = (element: Element) => element.getClientRects().length > 0 && !element.closest("[hidden]");
+    const sample = () => {
+      if (state.stopped) return;
+      const button = [...document.querySelectorAll<HTMLElement>("nav [data-wallet-connected-button]")].find(visible);
+      const panel = [...document.querySelectorAll(".wallet-panel[open]")].find(visible);
+      state.frames.push({ button: button?.textContent?.trim() ?? "", expanded: button?.getAttribute("aria-expanded") ?? null,
+        panel: !!panel,
+        ethAmount: panel?.querySelector('[data-wallet-row="eth"] [data-wallet-field="amount"]')?.textContent?.trim() ?? "",
+        ethValue: panel?.querySelector('[data-wallet-row="eth"] [data-wallet-field="value"]')?.textContent?.trim() ?? "",
+      });
+      requestAnimationFrame(sample);
+    };
+    requestAnimationFrame(sample);
+  });
+}
+
+async function stopWalletReloadFrames(page: Page) {
+  return page.evaluate(() => new Promise<WalletReloadFrame[]>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+    const state = (window as unknown as { __walletReloadFrames: { stopped: boolean; frames: WalletReloadFrame[] } }).__walletReloadFrames;
+    state.stopped = true;
+    resolve(state.frames);
+  }))));
+}
+
+for (const width of [390, 1440]) {
+  test(`wallet reload keeps the connected button and open balances visible before JavaScript and wallet reconnection at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    const baseline = await seedOpenWalletReload(page);
+    const scripts = await holdWalletReloadJavaScript(page);
+    const hydrationErrors: string[] = [];
+    const browserErrors: string[] = [];
+    page.on("console", message => {
+      if (message.type() === "error") browserErrors.push(message.text());
+      if (/hydrat|server.rendered HTML/i.test(message.text())) hydrationErrors.push(message.text());
+    });
+    page.on("pageerror", error => { browserErrors.push(error.message); if (/hydrat/i.test(error.message)) hydrationErrors.push(error.message); });
+    try {
+      await page.reload({ waitUntil: "commit" });
+      await expect.poll(scripts.requests).toBeGreaterThan(0);
+      const cached = page.getByTestId("wallet-cached-view");
+      await expect(cached).toBeVisible();
+      await expectWalletReloadPaint(page);
+      await expectUniqueDocumentIds(page);
+      const button = page.locator("nav [data-wallet-connected-button]:visible");
+      await expect(button).toHaveText(/^0x0000\.\.\.00a1$/i);
+      await expect(button).toHaveAttribute("aria-expanded", "true");
+      expect(await button.evaluate(element => ({ background: getComputedStyle(element).backgroundColor,
+        foreground: getComputedStyle(element).color }))).toEqual(baseline.colors);
+      await expect(page.getByRole("button", { name: /^(Connect|Connect Wallet)$/, exact: true })).toHaveCount(0);
+      const panel = cached.getByTestId("wallet-cached-panel");
+      await expect(panel).toBeVisible();
+      await expect(panel.locator('[data-wallet-display="address"]')).toHaveText(baseline.address);
+      const liquidity = panel.locator("[data-wallet-liquidity-section]");
+      await expect(liquidity.locator("h3 button")).toHaveAttribute("aria-expanded", "false");
+      await expect(liquidity.locator("h3 .transition-transform")).not.toHaveClass(/rotate-180/);
+      await expect(panel.locator('[data-wallet-row="eth"] [data-wallet-field="amount"]')).toHaveText("3.000 ETH");
+      await expect(panel.locator('[data-wallet-row="eth"] [data-wallet-field="value"]')).toHaveText(baseline.value);
+      await expect(panel.getByRole("button", { name: "Refresh balances", exact: true })).toBeDisabled();
+      await expect(panel.getByRole("button", { name: /^Network:/ })).toBeDisabled();
+      await expect(panel.getByRole("button", { name: "Disconnect wallet", exact: true })).toBeDisabled();
+      await expectNoWalletWrites(page);
+      const screenshotPath = test.info().outputPath(`wallet-before-hydration-${width}.png`);
+      await page.screenshot({ path: screenshotPath });
+      await test.info().attach(`wallet-before-hydration-${width}`, { path: screenshotPath, contentType: "image/png" });
+      await sampleWalletReloadFrames(page);
+
+      scripts.release();
+      await expect.poll(() => page.evaluate(() => (window as unknown as { __balanceTestAccountRequests: () => number }).__balanceTestAccountRequests())).toBeGreaterThan(0);
+      await expect(cached).toBeVisible();
+      await expect(button).toHaveText(/^0x0000\.\.\.00a1$/i);
+      await expect(panel).toBeVisible();
+      await expectNoWalletWrites(page);
+      await releaseWalletAccount(page);
+      await expect(cached).toBeHidden();
+      await expect(page.getByTestId("wallet-balance-modal")).toBeVisible();
+      await expect(page.getByTestId("wallet-balance-amount-cygld")).toHaveText("2.000 CYGLD");
+      await expect(button).toHaveText(/^0x0000\.\.\.00a1$/i);
+      await expectNoWalletWrites(page);
+      await expectUniqueDocumentIds(page);
+      const frames = await stopWalletReloadFrames(page);
+      const framePath = test.info().outputPath(`wallet-reload-frames-${width}.json`);
+      await writeFile(framePath, JSON.stringify(frames, null, 2));
+      await test.info().attach(`wallet-reload-frames-${width}`, { path: framePath, contentType: "application/json" });
+      expect(frames.length).toBeGreaterThan(0);
+      expect(frames.every(frame => /^0x0000\.\.\.00a1$/i.test(frame.button) && frame.expanded === "true" && frame.panel
+        && frame.ethAmount === "3.000 ETH" && frame.ethValue === baseline.value)).toBe(true);
+      expect(hydrationErrors).toEqual([]);
+    } catch (error) {
+      await test.info().attach("wallet-reload-browser-errors", { body: JSON.stringify({ hydrationErrors, browserErrors }), contentType: "application/json" });
+      throw error;
+    } finally { scripts.release(); await releaseWalletAccount(page).catch(() => {}); }
+  });
+}
+
+for (const width of [390, 1440]) {
+  test(`wallet reload preserves full address, scroll, actions and completed valuations at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 620 });
+    await seedOpenWalletReload(page);
+    const liquiditySnapshot = { positions: [{ tokenId: "1", paxgAmount: "1", cygldAmount: "0" }],
+      paxgAmount: "1", cygldAmount: "0", blockNumber: "26000000" };
+    await page.route("**/api/account/liquidity-positions?**", route => route.fulfill({ json: liquiditySnapshot }));
+    const live = page.getByTestId("wallet-balance-modal");
+    await live.getByRole("button", { name: "Refresh balances", exact: true }).click();
+    await expect(live.getByTestId("liquidity-collapsed-value")).toContainText("$");
+    await live.locator('[data-testid="liquidity-provider-panel"] h3 button').click();
+    await live.getByRole("button", { name: "View full", exact: true }).click();
+    await expect(live.locator('[data-wallet-display="address"]')).toHaveText(new RegExp(`^${ALICE}$`, "i"));
+    await expect(live.locator('[data-wallet-row="cygld"] [data-wallet-import]')).toHaveText("Import");
+    const before = await live.evaluate(panel => {
+      panel.scrollTop = 140;
+      const text = (selector: string) => panel.querySelector(selector)?.textContent?.trim() ?? "";
+      const opacity = (selector: string) => {
+        let value = 1;
+        for (let element = panel.querySelector(selector); element && element !== panel; element = element.parentElement)
+          value *= Number(getComputedStyle(element).opacity);
+        return value;
+      };
+      return { scroll: panel.scrollTop, value: text('[data-wallet-row="eth"] [data-wallet-field="value"]'),
+        liquidity: Object.fromEntries([...panel.querySelectorAll<HTMLElement>("[data-wallet-liquidity]")].map(node => [node.dataset.walletLiquidity!, node.textContent?.trim() ?? ""])),
+        amountOpacity: opacity('[data-wallet-row="eth"] [data-wallet-field="amount"]'),
+        valueOpacity: opacity('[data-wallet-row="eth"] [data-wallet-field="value"]') };
+    });
+    expect(before.scroll).toBeGreaterThan(0);
+    await expect.poll(() => page.evaluate(key => JSON.parse(sessionStorage.getItem(key) ?? "null")?.showFullAddress, `cybergold:wallet-presentation:v1:${chain}:en`)).toBe(true);
+    // Let the capturing scroll listener save the last visible panel position.
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    const scripts = await holdWalletReloadJavaScript(page);
+    let releaseData!: () => void;
+    const pending = new Promise<void>(resolve => { releaseData = resolve; });
+    let phase: "pending" | "failed" | "changed" = "pending";
+    await page.route(/\/api\/(gold|fx|pools\/[^?]+|account\/(wallet-balances|liquidity-positions))(\?|$)/, async route => {
+      if (phase === "pending") await pending;
+      if (phase === "failed") return route.fulfill({ status: 503, json: { error: "Synthetic refresh failure" } });
+      if (phase === "changed" && new URL(route.request().url()).pathname === "/api/account/wallet-balances") {
+        const changed = snapshot(ALICE); changed.native = success("4000000000000000000");
+        return route.fulfill({ json: changed });
+      }
+      await route.fallback();
+    });
+    const expectPresentation = async (panel: ReturnType<Page["getByTestId"]>, preserveScroll = true) => {
+      await expect(panel.locator('[data-wallet-display="address"]')).toHaveText(new RegExp(`^${ALICE}$`, "i"));
+      await expect(panel.getByRole("button", { name: "Hide", exact: true })).toHaveAttribute("aria-pressed", "true");
+      await expect(panel.locator('[data-wallet-row="cygld"] [data-wallet-import]')).toHaveText("Import");
+      await expect(panel.locator('[data-wallet-row="eth"] [data-wallet-field="amount"]')).toHaveText("3.000 ETH");
+      await expect(panel.locator('[data-wallet-row="eth"] [data-wallet-field="value"]')).toHaveText(before.value);
+      await expect(panel.locator('[data-wallet-liquidity-section] h3 button')).toHaveAttribute("aria-expanded", "true");
+      for (const field of ["value", "fiatValue", "goldValue"])
+        await expect(panel.locator(`[data-wallet-liquidity="${field}"]`)).toHaveText(before.liquidity[field]);
+      const observed = await panel.evaluate(node => {
+        const opacity = (selector: string) => {
+          let value = 1;
+          for (let element = node.querySelector(selector); element && element !== node; element = element.parentElement)
+            value *= Number(getComputedStyle(element).opacity);
+          return value;
+        };
+        return { scroll: node.scrollTop, amountOpacity: opacity('[data-wallet-row="eth"] [data-wallet-field="amount"]'),
+          valueOpacity: opacity('[data-wallet-row="eth"] [data-wallet-field="value"]') };
+      });
+      if (preserveScroll) expect(observed.scroll).toBe(before.scroll);
+      expect(observed.amountOpacity).toBe(before.amountOpacity);
+      expect(observed.valueOpacity).toBe(before.valueOpacity);
+    };
+    try {
+      await page.reload({ waitUntil: "commit" });
+      const cached = page.getByTestId("wallet-cached-view");
+      await expect(cached).toBeVisible();
+      await expectWalletReloadPaint(page);
+      const cachedPanel = cached.getByTestId("wallet-cached-panel");
+      await expectPresentation(cachedPanel);
+      await expect(cachedPanel.locator('[data-wallet-row="cygld"] [data-wallet-import]')).toBeDisabled();
+      scripts.release();
+      await expect.poll(() => page.evaluate(() => (window as unknown as { __balanceTestAccountRequests: () => number }).__balanceTestAccountRequests())).toBeGreaterThan(0);
+      await releaseWalletAccount(page);
+      await expect(cached).toBeHidden();
+      await expectPresentation(live);
+      phase = "failed"; releaseData();
+      await expect(live.getByRole("button", { name: "Refresh balances", exact: true })).toBeEnabled();
+      await expectPresentation(live, false);
+      phase = "changed";
+      await live.getByRole("button", { name: "Refresh balances", exact: true }).click();
+      await expect(live.locator('[data-wallet-row="eth"] [data-wallet-field="amount"]')).toHaveText("4.000 ETH");
+      await expectNoWalletWrites(page);
+    } finally { scripts.release(); releaseData(); await releaseWalletAccount(page).catch(() => {}); }
+  });
+}
+
+test("closing the cached wallet before hydration stays closed after wallet reconnection and another reload", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await seedOpenWalletReload(page);
+  const scripts = await holdWalletReloadJavaScript(page);
+  try {
+    await page.reload({ waitUntil: "commit" });
+    const cached = page.getByTestId("wallet-cached-view");
+    await expect(cached).toBeVisible();
+    await expectWalletReloadPaint(page);
+    await page.locator("nav [data-wallet-connected-button]:visible").click();
+    await expect(cached.getByTestId("wallet-cached-panel")).toBeHidden();
+    await expect(page.locator("nav [data-wallet-connected-button]:visible")).toHaveAttribute("aria-expanded", "false");
+    await page.locator("nav [data-wallet-connected-button]:visible").click();
+    await expect(cached.getByTestId("wallet-cached-panel")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(cached.getByTestId("wallet-cached-panel")).toBeHidden();
+    await expect(page.locator("nav [data-wallet-connected-button]:visible")).toHaveAttribute("aria-expanded", "false");
+    scripts.release();
+    await expect.poll(() => page.evaluate(() => (window as unknown as { __balanceTestAccountRequests: () => number }).__balanceTestAccountRequests())).toBeGreaterThan(0);
+    await releaseWalletAccount(page);
+    await expect(cached).toBeHidden();
+    await expect(page.getByTestId("wallet-balance-modal")).toBeHidden();
+    await expect(page.getByRole("button", { name: "Open wallet menu", exact: true })).toBeVisible();
+    await page.reload({ waitUntil: "commit" });
+    await expect(cached).toBeVisible();
+    await expect(cached.getByTestId("wallet-cached-panel")).toBeHidden();
+    await expect(page.locator("nav [data-wallet-connected-button]:visible")).toHaveAttribute("aria-expanded", "false");
+  } finally { scripts.release(); await releaseWalletAccount(page).catch(() => {}); }
+});
+
+test("wallet reload replaces the previous account presentation when the provider confirms another account", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await seedOpenWalletReload(page, [BOB]);
+  let releaseBalances!: () => void;
+  const pending = new Promise<void>(resolve => { releaseBalances = resolve; });
+  await page.route("**/api/account/wallet-balances*", async route => {
+    if (new URL(route.request().url()).searchParams.get("holder")?.toLowerCase() === BOB) await pending;
+    await route.fallback();
+  });
+  try {
+    await page.reload();
+    const cached = page.getByTestId("wallet-cached-view");
+    await expect(cached).toBeVisible();
+    await expect(cached.locator('[data-wallet-row="cygld"] [data-wallet-field="amount"]')).toHaveText("2.000 CYGLD");
+    const requested = page.waitForRequest(request => new URL(request.url()).pathname === "/api/account/wallet-balances"
+      && new URL(request.url()).searchParams.get("holder")?.toLowerCase() === BOB);
+    await releaseWalletAccount(page);
+    await requested;
+    await expect(cached).toBeHidden();
+    await expect(page.locator("nav [data-wallet-connected-button]:visible")).toHaveText(/^0x0000\.\.\.00b2$/i);
+    const panel = page.getByTestId("wallet-balance-modal");
+    await expect(panel).toBeVisible();
+    await expect(panel.getByTestId("wallet-balance-amount-cygld")).toHaveText("... CYGLD");
+    await expect(panel.getByTestId("wallet-balance-amount-eth")).toHaveText("... ETH");
+    await expect(panel.getByTestId("wallet-balance-value-eth")).toHaveText("...");
+  } finally { releaseBalances(); await releaseWalletAccount(page).catch(() => {}); }
+  await expect(page.getByTestId("wallet-balance-amount-cygld")).toHaveText("7.000 CYGLD");
+  await expectNoWalletWrites(page);
+});
+
+test("an authoritative disconnected wallet removes the reload presentation and keeps it absent on the next document", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await seedOpenWalletReload(page, []);
+  await page.reload();
+  const cached = page.getByTestId("wallet-cached-view");
+  await expect(cached).toBeVisible();
+  await releaseWalletAccount(page);
+  await expect(cached).toBeHidden();
+  await expect(page.getByTestId("wallet-balance-modal")).toBeHidden();
+  await expect(page.getByRole("button", { name: "Connect Wallet", exact: true })).toBeVisible();
+  await expectNoWalletWrites(page);
+  const scripts = await holdWalletReloadJavaScript(page);
+  try {
+    await page.reload({ waitUntil: "commit" });
+    await expect.poll(scripts.requests).toBeGreaterThan(0);
+    await expectWalletReloadPaint(page);
+    await expect(cached).toBeHidden();
+    await expect(page.getByRole("button", { name: "Connect Wallet", exact: true })).toBeVisible();
+    await expect(page.getByTestId("wallet-balance-modal")).toBeHidden();
+  } finally { scripts.release(); await releaseWalletAccount(page).catch(() => {}); }
 });
 
 test("manual balance-dialog refresh updates the wallet filter and MAX without reconnecting", async ({ page }) => {
@@ -374,7 +837,7 @@ test("manual balance-dialog refresh updates the wallet filter and MAX without re
   let current = snapshot(ALICE);
   await routeWalletBalances(page, route => route.fulfill({ json: current }));
   await page.goto("/en");
-  await expect(page.getByRole("switch", { name: "Show only tokens available in wallet" })).toBeChecked();
+  await page.getByRole("switch", { name: "Show only tokens available in wallet" }).check();
   await page.getByRole("button", { name: "Open wallet menu" }).click();
   const refresh = page.getByRole("button", { name: "Refresh balances", exact: true });
   await expect(refresh).toBeEnabled();
@@ -388,13 +851,13 @@ test("manual balance-dialog refresh updates the wallet filter and MAX without re
   await page.locator("main button[aria-haspopup='dialog']").first().click();
   await page.getByRole("button", { name: "WETH Wrapped Ether WETH", exact: true }).click();
   await page.getByRole("button", { name: "Use maximum sell amount", exact: true }).click();
-  await expect(page.getByRole("textbox", { name: "You Sell WETH", exact: true })).toHaveValue("5");
+  await expect(page.getByRole("textbox", { name: "Your budget WETH", exact: true })).toHaveValue("5");
 });
 
 test("swap and wallet panel share one aggregate snapshot, including one request per manual refresh", async ({ page }) => {
   const observed = await install(page, "ready");
   await page.goto("/en");
-  await expect(page.getByRole("switch", { name: "Show only tokens available in wallet" })).toBeChecked();
+  await expect(page.getByRole("switch", { name: "Show only tokens available in wallet" })).not.toBeChecked();
   await expect.poll(() => observed.holders.length).toBeGreaterThan(0);
   // Strict Mode may remount during startup; only compare the settled shared
   // request count when opening the second consumer and refreshing it.
@@ -464,8 +927,12 @@ test("wallet opens while the aggregate and liquidity reads are pending, then dis
   });
   try {
     await page.goto("/en");
-    await expect(page.getByTestId("buy-wallet-balance")).toHaveText("... CYGLD");
-    await expect(page.getByTestId("buy-wallet-balance")).toHaveAttribute("title", "Balance: Loading... CYGLD");
+    await expect(page.getByTestId("sell-wallet-balance")).toHaveCount(0);
+    await expect(page.getByTestId("buy-wallet-balance")).toHaveCount(0);
+    const max = page.getByRole("button", { name: "Use maximum sell amount", exact: true });
+    await expect(max).toHaveText("MAX");
+    await expect(max).toBeDisabled();
+    await expect(max.locator("svg.animate-spin")).toHaveCount(0);
     await page.getByRole("button", { name: "Open wallet menu" }).click();
     const panel = page.getByTestId("wallet-balance-modal");
     await expect(panel).toBeVisible({ timeout: 1_500 });
@@ -476,9 +943,10 @@ test("wallet opens while the aggregate and liquidity reads are pending, then dis
       await expect(page.getByTestId(`wallet-balance-value-${id}`)).toHaveText("...");
     }
     await page.getByRole("button", { name: /Liquidity Positions/ }).click();
-    await expect(page.getByText("Loading your pool positions…", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("liquidity-provider-panel").locator('[aria-busy="true"]')).toBeVisible();
+    await expect(page.getByText("Loading your pool positions…", { exact: true })).toHaveCount(0);
     releases.aggregate();
-    await expect(page.getByTestId("buy-wallet-balance")).toHaveText("2 CYGLD");
+    await expect(page.getByTestId("buy-wallet-balance")).toHaveCount(0);
     for (const id of ids) {
       const amount = id === "eth" ? "3.000" : id === "cygld" ? "2.000" : "0.000";
       const symbol = id === "xaut" ? "XAUt" : id.toUpperCase();
@@ -486,7 +954,7 @@ test("wallet opens while the aggregate and liquidity reads are pending, then dis
     }
     await expect(page.getByTestId("wallet-balance-value-usdc")).not.toHaveText("...");
     await expect(page.getByTestId("wallet-balance-value-eth")).toContainText("698.49");
-    await expect(page.getByText("Loading your pool positions…", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("liquidity-provider-panel").locator('[aria-busy="true"]')).toBeVisible();
     expect(observed.tokenRequests).toEqual([]);
     await page.screenshot({ path: "out/wallet-multicall-balances.png" });
     await page.getByRole("button", { name: "Close balances", exact: true }).click();
@@ -521,16 +989,17 @@ for (const failure of ["http", "token"] as const) test(`a failed ${failure} refr
     unavailable = true;
     await page.getByRole("button", { name: "Refresh balances", exact: true }).click();
     await expect(page.getByText("Wallet balances unavailable", { exact: true })).toBeVisible();
-    await expect(page.getByTestId("wallet-balance-amount-cygld")).toHaveText(failure === "http" ? "2.000 CYGLD" : "... CYGLD");
-    await expect(page.getByTestId("buy-wallet-balance")).toHaveText(failure === "http" ? "2 CYGLD" : "... CYGLD");
+    await expect(page.getByTestId("wallet-balance-amount-cygld")).toHaveText("2.000 CYGLD");
+    await expect(page.getByTestId("buy-wallet-balance")).toHaveCount(0);
     await expect(page.getByTestId("wallet-balance-amount-eth")).toHaveText(failure === "http" ? "3.000 ETH" : "4.000 ETH");
     await page.evaluate(account => (window as unknown as { __switchBalanceTestAccount: (account: string) => void }).__switchBalanceTestAccount(account), BOB);
     await expect(page.getByTestId("wallet-balance-amount-cygld")).toHaveText("... CYGLD");
-    await expect(page.getByTestId("buy-wallet-balance")).toHaveText("... CYGLD");
+    await expect(page.getByTestId("sell-wallet-balance")).toHaveCount(0);
+    await expect(page.getByTestId("buy-wallet-balance")).toHaveCount(0);
     await expect(page.getByTestId("wallet-balance-amount-eth")).toHaveText("... ETH");
   } finally { release(); }
   await expect(page.getByTestId("wallet-balance-amount-cygld")).toHaveText("7.000 CYGLD");
-  await expect(page.getByTestId("buy-wallet-balance")).toHaveText("7 CYGLD");
+  await expect(page.getByTestId("buy-wallet-balance")).toHaveCount(0);
 });
 
 test("the balance dialog fits a short mobile viewport and restores keyboard focus", async ({ page }) => {
@@ -635,7 +1104,7 @@ test("desktop wallet docks below the navbar, leaves swap usable, and has a singl
   const swapBox = await page.locator("#swapsection").boundingBox();
   expect(swapBox!.x + swapBox!.width).toBeLessThanOrEqual(box!.x);
 
-  await page.getByRole("switch", { name: "Show only tokens available in wallet" }).uncheck();
+  await expect(page.getByRole("switch", { name: "Show only tokens available in wallet" })).not.toBeChecked();
   await choose(page, "WETH");
   const sell = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first();
   await sell.fill("0.5");
@@ -763,6 +1232,77 @@ test("language changes keep the wallet panel open and translate its contents", a
   await page.getByRole("button", { name: "Open wallet menu", exact: true }).click();
   await expect(panel).toBeVisible();
   await page.reload();
-  await expect(panel).toBeHidden();
-  await expect(page.getByRole("button", { name: "Open wallet menu", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(panel).toBeVisible();
+  await expect(page.getByRole("button", { name: "Close balances", exact: true })).toHaveAttribute("aria-expanded", "true");
+});
+
+
+test("token picker keeps its open search and scroll across reload and native typing reaches the live picker", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await install(page, "ready", "ready");
+  await page.goto("/en");
+  await page.locator("main button[aria-haspopup='dialog']").first().click();
+  const picker = page.getByRole("dialog", { name: "Choose currency", exact: true });
+  await expect(picker.getByRole("textbox")).toBeVisible();
+  await picker.getByRole("textbox").fill("");
+  const list = picker.locator("[data-token-picker-list]");
+  const scrollBefore = await list.evaluate(node => { node.scrollTop = 80; return node.scrollTop; });
+  expect(scrollBefore).toBeGreaterThan(0);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const scripts = await holdWalletReloadJavaScript(page);
+  try {
+    await page.reload({ waitUntil: "commit" });
+    await expect.poll(scripts.requests).toBeGreaterThan(0);
+    await expectWalletReloadPaint(page);
+    await expect(picker).toBeVisible();
+    await expect(picker.getByRole("textbox")).toHaveValue("");
+    await expect.poll(() => picker.locator("[data-token-picker-list]").evaluate(node => node.scrollTop)).toBe(scrollBefore);
+    await picker.getByRole("textbox").fill("USD");
+    await expect(picker.getByRole("button", { name: "USDC USDC USDC", exact: true })).toBeVisible();
+    await expect(picker.getByRole("button", { name: "ETH Ether ETH", exact: true })).toBeHidden();
+    scripts.release();
+    await expect(page.getByTestId("trade-cached-view")).toBeHidden();
+    await expect(picker.getByRole("textbox")).toHaveValue("USD");
+    await expect(picker.getByRole("textbox")).toBeEditable();
+    await picker.getByRole("textbox").fill("ETH");
+    await picker.getByRole("button", { name: "ETH Ether ETH", exact: true }).click();
+    await expect(picker).toBeHidden();
+  } finally { scripts.release(); }
+});
+
+
+test("wallet reload preserves the wrong-network control and removes its cache when the live network is correct", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await install(page, "ready", "ready");
+  await page.goto("/en");
+  await expect(page.locator("nav [data-wallet-connected-button]")).toBeVisible();
+  const switchChain = async (next: string) => page.evaluate(value =>
+    (window as unknown as { __switchBalanceTestChain: (value: string) => void }).__switchBalanceTestChain(value), next);
+  await switchChain("0x1");
+  const control = page.locator("nav [data-wallet-network-switch]:visible");
+  await expect(control).toBeVisible();
+  const before = await control.textContent();
+  const colors = await control.evaluate(node => ({ background: getComputedStyle(node).backgroundColor, color: getComputedStyle(node).color }));
+  await page.evaluate(({ accounts, chainHex }) => {
+    sessionStorage.setItem("balance-test-wallet-reload", JSON.stringify({ accounts, chainHex }));
+  }, { accounts: [ALICE], chainHex: "0x1" });
+  await expect.poll(() => page.evaluate(key => JSON.parse(sessionStorage.getItem(key) ?? "null")?.networkSwitchLabel,
+    `cybergold:wallet-presentation:v1:${chain}:en`)).toBe(before);
+  const scripts = await holdWalletReloadJavaScript(page);
+  try {
+    await page.reload({ waitUntil: "commit" });
+    await expectWalletReloadPaint(page);
+    await expect(control).toHaveText(before!);
+    await expect(control).toBeDisabled();
+    expect(await control.evaluate(node => ({ background: getComputedStyle(node).backgroundColor, color: getComputedStyle(node).color }))).toEqual(colors);
+    scripts.release();
+    await releaseWalletAccount(page);
+    await expect(page.getByTestId("wallet-cached-view")).toBeHidden();
+    await expect(control).toHaveText(before!);
+    await switchChain(chainHex);
+    await expect(control).toHaveCount(0);
+    await expect.poll(() => page.evaluate(key => JSON.parse(sessionStorage.getItem(key) ?? "null")?.networkSwitchLabel,
+      `cybergold:wallet-presentation:v1:${chain}:en`)).toBeUndefined();
+    await expectNoWalletWrites(page);
+  } finally { scripts.release(); await releaseWalletAccount(page).catch(() => {}); }
 });

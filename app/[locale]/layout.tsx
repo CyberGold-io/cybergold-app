@@ -4,6 +4,7 @@ import "../globals.css";
 import "../fonts/ibm-plex-sans/subsets.css";
 import { Footer } from ".././components/footer";
 import { Navbar } from ".././components/navbar";
+import { PageScrollPreference } from "../components/pageScrollPreference";
 import { Web3Providers } from ".././providers";
 import { DEFAULT_THEME, THEME_PREFERENCE_KEY, parseTheme } from "../lib/theme";
 import {NextIntlClientProvider} from 'next-intl';
@@ -51,7 +52,7 @@ export default async function RootLayout({
     parseTheme(cookieStore.get(THEME_PREFERENCE_KEY)?.value) ?? DEFAULT_THEME;
 
   return (
-    <html lang={locale} className={initialTheme === "dark" ? "dark" : ""}>
+    <html lang={locale} className={initialTheme === "dark" ? "dark" : ""} style={{ colorScheme: initialTheme }}>
       <body className={`${ibmPlexSans.className} ${ibmPlexSans.variable} antialiased`}>
         <NextIntlClientProvider>
           <Web3Providers cookie={cookie}>
@@ -59,6 +60,7 @@ export default async function RootLayout({
               <Navbar initialTheme={initialTheme} />
               <main className="flex flex-1 flex-col">{children}</main>
               <Footer />
+              <PageScrollPreference />
             </div>
           </Web3Providers>
         </NextIntlClientProvider>

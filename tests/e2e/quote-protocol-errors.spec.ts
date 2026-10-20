@@ -31,7 +31,7 @@ for (const { locale, code, message } of cases) for (const path of ["token", "bas
     }
     await page.goto(`/${locale}`);
     if (path === "token") {
-      await page.getByRole("button", { name: /^(Select token|BASKET|XAUt XAUt|PAXG PAXG|Sélectionner un token|Token auswählen)$/ }).first().click();
+      await page.locator('main button[aria-haspopup="dialog"]').first().click();
       await page.getByPlaceholder(labels[locale].search).fill("WETH");
       await page.locator("#dropdown-from").getByRole("button").filter({ has: page.getByText("Wrapped Ether", { exact: true }) }).click();
     }

@@ -151,7 +151,7 @@ export async function install(page: Page, unavailable = "", waitForFinalPreview?
 }
 
 export async function choose(page: Page, name: string) {
-  await page.getByRole("button", { name: /^(Select token|BASKET|XAUt XAUt|PAXG PAXG)$/ }).first().click();
+  await page.locator('main button[aria-haspopup="dialog"]').first().click();
   await page.getByPlaceholder("Search currency...").fill(name);
   await page.locator("#dropdown-from").getByRole("button").filter({ has: page.getByText(name === "ETH" ? "Ether" : name === "USDC" ? "USDC" : name === "USDT" ? "Tether USD" : "Wrapped Ether", { exact: true }) }).click();
 }

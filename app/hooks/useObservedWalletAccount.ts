@@ -27,6 +27,8 @@ export function useObservedWalletAccount() {
     status: "unknown",
   });
   const [selectedProviderAddress, setSelectedProviderAddress] = useState<Address | undefined>(undefined);
+  const [observedProviderSource, setObservedProviderSource] = useState<{ connector: typeof connector }>();
+  const hasObservedProviderAccounts = observedProviderSource?.connector === connector && observedProviderSource !== undefined;
 
   // A new connector connection is the user's return from a prior disconnect.
   useEffect(() => {
@@ -82,6 +84,7 @@ export function useObservedWalletAccount() {
       };
 
       const applyProviderAccounts = (accounts: unknown) => {
+        setObservedProviderSource(current => current && current.connector === connector ? current : { connector });
         if (!Array.isArray(accounts)) {
           setProviderObservation({ status: "disconnected" });
           return;
@@ -184,7 +187,8 @@ export function useObservedWalletAccount() {
       address,
       connector,
       isConnected,
+      hasObservedProviderAccounts,
     }),
-    [account, address, connector, isConnected]
+    [account, address, connector, isConnected, hasObservedProviderAccounts]
   );
 }
