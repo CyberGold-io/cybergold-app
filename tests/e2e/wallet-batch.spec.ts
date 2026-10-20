@@ -180,7 +180,7 @@ for (const exactOut of [false]) {
   test(`basket purchase batches its first-use approval: ${exactOut ? "exact-out" : "exact-in"}`, async ({ page }) => {
     const observed = await setup(page, "supported"); await selectBasket(page);
     const amount = exactOut ? page.getByLabel("You Buy CYGLD", { exact: true })
-      : page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first();
+      : page.locator('input[inputmode="decimal"]:not(#execution-tolerance):visible').first();
     await amount.click(); await amount.fill("1");
     const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
     await expect(swap).toBeEnabled(); await swap.click();

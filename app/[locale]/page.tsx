@@ -2612,7 +2612,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
           <div className={swapStyles.basketHeader}><div className="flex items-center gap-2"><FaBasketShopping className="text-gold-cg" /><span className="text-text-input">{t('basket')}</span></div></div>
           <div data-trade-basket-rows="buy">
             {!buyBasketPresentation.length && <div className={swapStyles.basketRow} aria-busy={basket.isLoading}><span>...</span><span>...</span></div>}
-            {buyBasketPresentation.map(row => <TradeBasketPresentationRow key={row.tokenId} row={row} isDarkMode={isDarkMode} />)}
+            {buyBasketPresentation.map(row => <TradeBasketPresentationRow key={row.tokenId} row={row} isDarkMode={isDarkMode} busy={shouldBlockQuotedBuyInput} />)}
           </div>
         </div>
         <div data-trade-basket-template hidden><TradeBasketPresentationRow isDarkMode={isDarkMode}

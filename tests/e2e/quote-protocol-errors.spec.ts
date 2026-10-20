@@ -37,8 +37,8 @@ for (const { locale, code, message } of cases) for (const path of ["token", "bas
     }
     if (path === "basket") await selectBasket(page);
     await page.getByRole("button", { name: labels[locale].reverse }).click();
-    await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().click();
-    await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("3");
+    await page.locator('input[inputmode="decimal"]:not(#execution-tolerance):visible').first().click();
+    await page.locator('input[inputmode="decimal"]:not(#execution-tolerance):visible').first().fill("3");
     await expect(page.getByText(message, { exact: true })).toBeVisible();
     await expect(page.getByText("private diagnostic", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: new RegExp(labels[locale].fees) })).toBeVisible();

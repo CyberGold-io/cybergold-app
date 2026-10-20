@@ -14,7 +14,7 @@ import {
 } from "../utils/tradeDisplaySnapshot";
 
 /** Shared trusted row markup for the live form and the pre-paint presentation. */
-export function TradeBasketPresentationRow({ row, isDarkMode, inputRef, onFocus, onChange, inputClassName, disabled = false }: {
+export function TradeBasketPresentationRow({ row, isDarkMode, inputRef, onFocus, onChange, inputClassName, disabled = false, busy = false }: {
   row: TradeBasketDisplayRow;
   isDarkMode: boolean;
   inputRef?: (element: HTMLInputElement | null) => void;
@@ -22,6 +22,7 @@ export function TradeBasketPresentationRow({ row, isDarkMode, inputRef, onFocus,
   onChange?: (event: ChangeEvent<HTMLInputElement>) => void;
   inputClassName?: string;
   disabled?: boolean;
+  busy?: boolean;
 }) {
   return <div data-trade-basket-row={row.tokenId} className="grid grid-cols-[minmax(0,104px)_minmax(0,1fr)] items-center gap-2 p-2 text-xs sm:grid-cols-[104px_minmax(132px,170px)_minmax(0,1fr)]">
     <div className="flex min-w-0 items-center gap-2">
@@ -36,6 +37,7 @@ export function TradeBasketPresentationRow({ row, isDarkMode, inputRef, onFocus,
         className={inputClassName ?? "block min-w-0 w-full rounded-md border border-swap-container-border bg-background-swap p-2 text-start text-sm tabular-nums editable-caret transition-colors focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring text-text-input focus:border-gold-cg/45 focus:ring-0"}
         type="text" inputMode="decimal" aria-label={row.label} value={row.amount} ref={inputRef} onFocus={onFocus} onChange={onChange} disabled={disabled} readOnly={!onChange} />
       <output hidden={row.side !== "buy"} data-trade-estimate data-trade-basket-output aria-label={row.label} aria-describedby="receive-amount-description"
+        aria-busy={busy || undefined}
         className="block min-w-0 w-full break-words p-2 text-start text-sm tabular-nums select-text cursor-default text-text-input">{row.amount}</output>
     </div>
     <div data-trade-estimate={row.side === "buy" ? true : undefined} data-trade-basket-field="equivalent" className="hidden min-w-0 truncate text-right text-text-input text-xs tabular-nums sm:block" title={row.equivalent}>{row.equivalent}</div>
@@ -215,6 +217,10 @@ function bootstrapTradeDisplay(
         }
       }
     }
+    for (const output of presentation.querySelectorAll<HTMLElement>('[data-trade-basket-output], [data-trade-display="buyAmount"]')) {
+      if (evaluationPanel?.dataset.tradeEvaluation === "pending") output.setAttribute("aria-busy", "true");
+      else output.removeAttribute("aria-busy");
+    }
     const walletVisible = snapshot.values.walletVisible === "true";
     for (const node of presentation.querySelectorAll<HTMLElement>("[data-trade-wallet]")) node.hidden = !walletVisible;
     // The presentation has no transaction handlers. Keep its last appearance
@@ -278,6 +284,10 @@ function bootstrapTradeDisplay(
       snapshot.values.quoteComplete = "false";
       snapshot.values.evaluationStatus = /^(?:0*[.,]?0*)?$/.test(input.value.trim()) ? "empty" : "pending";
       if (evaluationPanel) evaluationPanel.dataset.tradeEvaluation = snapshot.values.evaluationStatus;
+      for (const output of presentation.querySelectorAll<HTMLElement>('[data-trade-basket-output], [data-trade-display="buyAmount"]')) {
+        if (snapshot.values.evaluationStatus === "pending") output.setAttribute("aria-busy", "true");
+        else output.removeAttribute("aria-busy");
+      }
       snapshot.values.purchaseSpendingValue = /^(?:0*[.,]?0*)?$/.test(input.value.trim()) ? `0 ${snapshot.values.sellSymbol ?? ""}`.trim() : "…";
       snapshot.values.purchaseSpendingEquivalent = /^(?:0*[.,]?0*)?$/.test(input.value.trim())
         ? snapshot.values.spendingZeroEquivalent ?? "…" : "…";

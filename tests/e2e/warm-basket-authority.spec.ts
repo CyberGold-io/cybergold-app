@@ -18,11 +18,11 @@ for (const mode of ["issue-exact-in", "redeem-exact-in"]) {
       reference: success("2000000000000000000"), fees: { issuancePpm: success("1000"), helpersPpm: success("1000") }, pause: success(false) } }));
     await page.goto("/en"); await selectBasket(page);
     if (mode.startsWith("redeem")) await page.getByRole("button", { name: "Reverse swap direction" }).click();
-    const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)');
+    const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance):visible');
     const edited = inputs.first();
     await edited.click(); await edited.fill("3");
     const quote = mode === "issue-exact-in" ? page.locator("#buy-amount")
-      : page.getByLabel("Buy amount (PAXG)", { exact: true });
+      : page.getByRole("status", { name: "Buy amount (PAXG)", exact: true });
     await expect(quote).toHaveJSProperty("tagName", "OUTPUT");
     await expect(quote).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
     await expect(quote).toHaveAttribute("aria-busy", "true");
