@@ -176,7 +176,7 @@ export async function install(page: Page, unavailable = "", waitForFinalPreview?
 export async function choose(page: Page, name: string) {
   const search=page.getByPlaceholder("Search currency...");
   await expect(async()=>{
-    if(!await search.isVisible())await page.getByRole("button", { name: /^(Select token|BASKET|XAUt XAUt|PAXG PAXG)$/ }).first().click();
+    if(!await search.isVisible())await page.locator('main button[aria-haspopup="dialog"]').first().click();
     await expect(search).toBeVisible({timeout:300});
   }).toPass();
   await search.fill(name);

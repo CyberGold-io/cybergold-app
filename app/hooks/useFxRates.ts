@@ -34,7 +34,7 @@ const fetcher = async (url: string) => {
 
 export function useFxRates() {
   const fallbackData = usePublicDisplayCache(fxDisplayCacheKey, parseFxMarketDataPayload);
-  const { data, error, isLoading } = useSWR<FxMarketDataPayload>("/api/fx", fetcher, {
+  const { data, error, isLoading, isValidating } = useSWR<FxMarketDataPayload>("/api/fx", fetcher, {
     fallbackData,
     refreshInterval: data => data?.stale ? 10_000 : Math.max(1_000, remainingMarketLifetime(data?.fetchedAt, 300_000)),
     dedupingInterval: 1_000,
@@ -48,6 +48,7 @@ export function useFxRates() {
     fetchedAt: data?.fetchedAt,
     isStale: expired || Boolean(error) || (data?.stale ?? true),
     isLoading: isLoading && !data,
+    isRefreshing: Boolean(isValidating),
     isError: Boolean(error),
   };
 }

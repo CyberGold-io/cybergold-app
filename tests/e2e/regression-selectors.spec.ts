@@ -46,7 +46,7 @@ test("regression basket output remains a read-only estimate when focused or clic
   await selectToken(page, "sell", "CYGLD");
   await selectToken(page, "buy", "BASKET");
   await getMainInput(page, "sell").fill("1");
-  const output = page.getByLabel("Buy amount (PAXG)", { exact: true });
+  const output = page.getByRole("status", { name: "Buy amount (PAXG)", exact: true });
   await expect(output).toHaveText("1");
   await output.focus(); await expect(output).not.toBeFocused(); await output.click();
   await expect(output).toHaveJSProperty("tagName", "OUTPUT");

@@ -56,8 +56,7 @@ export function IssuanceRedemptionSupplyChartEcharts({
         const amountFormatter = new Intl.NumberFormat(locale, { maximumFractionDigits: 6 });
 
         return {
-            animation: true,
-            animationDuration: 350,
+            animation: false,
             animationDurationUpdate: 0,
             grid: {
                 top: 12,
@@ -311,5 +310,5 @@ export function IssuanceRedemptionSupplyChartEcharts({
         []
     );
 
-    return <ReactECharts echarts={dashboardEcharts} option={option} onEvents={onEvents} notMerge lazyUpdate style={{ height: "9rem", width: "100%" }} />;
+    return <ReactECharts echarts={dashboardEcharts} option={option} onEvents={onEvents} notMerge lazyUpdate={false} onChartReady={chart => { chart.getDom().dataset.pageChartReady = "true"; }} style={{ height: "9rem", width: "100%" }} />;
 }

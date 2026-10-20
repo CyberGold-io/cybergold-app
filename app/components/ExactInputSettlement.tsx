@@ -14,14 +14,18 @@ function AssetAmount({ currency, amount }: { currency: string; amount: bigint | 
   return <span className="break-all">{token && token.type !== "basket" ? `${formatMeaningfulDecimalString(formatUnits(BigInt(amount), token.decimals), locale)} ${token.symbol}` : `${amount} (${currency})`}</span>;
 }
 
-export function ExactInputRetentionDisclosure({ charges }: { charges: readonly WireRetainedInputCharge[] }) {
-  const t = useTranslations("Home");
-  return <div data-testid="exact-input-retention-disclosure" className="order-4 mt-3 text-xs text-text-muted">
-    <p>{t("exactInputRetentionDisclosure")}</p>
-    {charges.length > 0 && <dl className="mt-2 space-y-1">{charges.map((row, index) => <div key={index} className="flex justify-between gap-3">
-      <dt>{t("estimatedRetainedCharge")}</dt><dd><AssetAmount currency={row.currency} amount={row.amount} /></dd>
-    </div>)}</dl>}
-  </div>;
+export function ExactInputRetentionDisclosure({ charges, presentation }: { charges: readonly WireRetainedInputCharge[]; presentation?: string }) {
+  const t = useTranslations("Home"), locale = useLocale(), { tokens } = useProtocolConfiguration();
+  const text = presentation ?? [t("exactInputRetentionDisclosure"), ...charges.map(row => {
+    const native = row.currency.toLowerCase() === zeroAddress;
+    const token = tokens.find(token => native ? token.type === "native" : token.type === "erc20" && token.address.toLowerCase() === row.currency.toLowerCase());
+    const amount = token && token.type !== "basket"
+      ? `${formatMeaningfulDecimalString(formatUnits(BigInt(row.amount), token.decimals), locale)} ${token.symbol}`
+      : `${row.amount} (${row.currency})`;
+    return `${t("estimatedRetainedCharge")}: ${amount}`;
+  })].join("\n");
+  return <div data-testid="exact-input-retention-disclosure" data-trade-display="retentionDisclosure"
+    className="order-4 mt-3 whitespace-pre-line text-xs text-text-muted">{text}</div>;
 }
 
 export function ExactInputSettlement({ receipt }: { receipt: TradeReceipt }) {

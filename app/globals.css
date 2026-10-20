@@ -135,6 +135,11 @@
 
 /* Page backgrounds and glass panels */
 @layer components {
+  [data-wallet-live][hidden],
+  [data-wallet-cached][hidden] {
+    display: none !important;
+  }
+
   .wallet-panel {
     position: fixed;
     inset: 0;
@@ -259,6 +264,10 @@
 }
 
 /* Keep quoted swap placeholders lighter than the active editable field */
+[data-trade-evaluation="pending"] [data-trade-estimate] {
+  color: var(--text-input-disabled);
+}
+
 .swap-page-background input:disabled::placeholder {
   color: var(--text-input-disabled);
   opacity: 0.35;

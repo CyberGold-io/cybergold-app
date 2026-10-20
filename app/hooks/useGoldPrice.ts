@@ -28,7 +28,7 @@ const refreshInterval = (data?: GoldMarketDataPayload) => data?.stale ? 10_000 :
 
 export function useGoldPrice() {
   const fallbackData = usePublicDisplayCache(goldDisplayCacheKey, parseGoldMarketDataPayload);
-  const { data, error, isLoading } = useSWR<GoldMarketDataPayload>(
+  const { data, error, isLoading, isValidating } = useSWR<GoldMarketDataPayload>(
     '/api/gold',
     fetcher,
     {
@@ -50,6 +50,7 @@ export function useGoldPrice() {
     // A failed refresh does not expire a previously successful observation early.
     isStale: expired || (data?.stale ?? true),
     isLoading: isLoading && !data,
+    isRefreshing: Boolean(isValidating),
     isError: !!error,
   };
 }

@@ -41,7 +41,7 @@ async function refreshSelectedBasket(page:Page,observed:Awaited<ReturnType<typeo
 
 test('Swap reads its basket, reference, fees and pause from one focused query',async({page})=>{
  const observed=await install(page,'success');await page.goto('/en');
- await expect(page.getByText('You Sell',{exact:true})).toBeVisible();
+ await expect(page.getByText('Your budget',{exact:true})).toBeVisible();
  // Next.js development Strict Mode can cancel the first mount's query.
  // The shared mounted observers must not each initiate their own request.
  await expect.poll(observed.count).toBeGreaterThanOrEqual(1);

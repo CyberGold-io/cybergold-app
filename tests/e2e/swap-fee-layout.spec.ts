@@ -106,8 +106,7 @@ test("zero fee rows, backdrop crop and footer stay stable while a quote replaces
   await expect(fees).toHaveAttribute("aria-busy", "false");
   const disclosure=page.getByTestId("exact-input-retention-disclosure");
   await expect(disclosure).toBeVisible();
-  const disclosureSpace=await disclosure.evaluate(node=>node.getBoundingClientRect().height+parseFloat(getComputedStyle(node).marginTop));
-  expect((await card.boundingBox())!.height-beforeCard!.height).toBe(disclosureSpace);
+  expect((await card.boundingBox())!.height).toBe(beforeCard!.height);
   const afterCard=(await card.boundingBox())!,afterFooter=(await page.locator("footer").boundingBox())!;
   expect(afterFooter.y).toBeGreaterThanOrEqual(afterCard.y+afterCard.height);
   expect(afterFooter.y).toBeGreaterThanOrEqual(beforeFooter!.y);

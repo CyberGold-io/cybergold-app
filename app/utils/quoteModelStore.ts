@@ -1,8 +1,40 @@
 import { modelFamily, type QuoteModelPacket } from "./quoteModels.ts";
 import type { MarketQuoteModelPacket } from "./marketQuote.ts";
+import type { TradeModelRequest, TradeQuoteModelPacket } from "./tradeQuote.ts";
 
 const packets = new Map<string, QuoteModelPacket>();
 const marketPackets = new Map<string, MarketQuoteModelPacket>();
+type TradeBudgetRange = NonNullable<TradeQuoteModelPacket["budgetRange"]>;
+const tradeBudgetRanges = new Map<string, TradeBudgetRange>();
+export const tradeDisplayModelScope = (configuration: string, generation?: string | null) =>
+  JSON.stringify([configuration, generation]);
+const tradeFamily = (input: TradeModelRequest, scope: string) => JSON.stringify([
+  scope, input.side, input.mode, input.counterToken.toLowerCase(), input.native ?? false, input.slippageBps ?? 100,
+]);
+
+/** Apply only the constant budget interval supplied by the Backend estimator. */
+export function getTradeBudgetRange(input: TradeModelRequest, scope: string) {
+  const range = tradeBudgetRanges.get(tradeFamily(input, scope));
+  if (!range) return undefined;
+  try {
+    const amount = BigInt(input.amount);
+    return amount >= BigInt(range.minimumBudget) &&
+      (range.maximumBudget === undefined || amount <= BigInt(range.maximumBudget)) ? range : undefined;
+  } catch { return undefined; }
+}
+
+/** A model packet replaces the Backend's whole family snapshot, including retirement. */
+export function receiveTradeBudgetRange(packet: TradeQuoteModelPacket, scope: string) {
+  const key = tradeFamily(packet.intent, scope);
+  if (JSON.stringify(tradeBudgetRanges.get(key)) === JSON.stringify(packet.budgetRange)) return;
+  tradeBudgetRanges.delete(key);
+  if (packet.budgetRange) {
+    const { minimumBudget, maximumBudget, quotedInput, quotedOutput } = packet.budgetRange;
+    tradeBudgetRanges.set(key, { minimumBudget, maximumBudget, quotedInput, quotedOutput });
+  }
+  while (tradeBudgetRanges.size > 256) tradeBudgetRanges.delete(tradeBudgetRanges.keys().next().value!);
+  listeners.forEach(listener => listener());
+}
 export type ProtocolModel = NonNullable<QuoteModelPacket["protocol"]>;
 const protocols = new Map<string, ProtocolModel>();
 const scopedKey = (scope: string, family: string) => JSON.stringify([scope, family]);
@@ -47,6 +79,7 @@ export function receiveMarketQuoteModel(packet: MarketQuoteModelPacket, scope = 
 export function clearQuoteModels() {
   packets.clear();
   marketPackets.clear();
+  tradeBudgetRanges.clear();
   protocols.clear();
   listeners.forEach(listener => listener());
 }

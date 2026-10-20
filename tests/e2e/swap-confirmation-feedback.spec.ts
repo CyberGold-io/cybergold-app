@@ -208,7 +208,7 @@ for (const mode of ["exact-in"] as const) {
     await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
     await selectBasket(page);
     const amount = mode === "exact-in"
-      ? page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first()
+      ? page.locator('input[inputmode="decimal"]:not(#execution-tolerance):visible').first()
       : page.getByLabel("You Buy CYGLD", { exact: true });
     await amount.click();
     await amount.fill("1");

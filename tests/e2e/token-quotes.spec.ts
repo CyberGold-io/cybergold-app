@@ -67,7 +67,7 @@ test("USDT issuance does not preflight empty routes while execution quotes are p
   const browserPreflights: string[] = [];
   page.on("request", request => { if (new URL(request.url()).pathname === "/api/quotes/token-preview") browserPreflights.push(request.url()); });
   await page.goto("/en");
-  await page.getByRole("button", { name: "Select token", exact: true }).first().click();
+  await page.locator('main button[aria-haspopup="dialog"]').first().click();
   await page.getByRole("button", { name: "USDT Tether USD USDT", exact: true }).click();
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("10");
   await expect.poll(() => observed.previews).toContain("issue-token-exact-in");

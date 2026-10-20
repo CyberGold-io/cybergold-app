@@ -58,7 +58,7 @@ for (const symbol of ["WETH", "USDC"] as const) {
   }
 }
 
-test("balance warning precedes the exact request and survives a quote failure", async ({ page }) => {
+test("a purchase budget above the wallet balance requests qualification and preserves an ordinary quote failure", async ({ page }) => {
   await readOnlyWallet(page);
   const observed = await install(page, "uniswap");
   await routeWalletBalances(page, route => route.fulfill({ json: {
@@ -80,8 +80,10 @@ test("balance warning precedes the exact request and survives a quote failure", 
   await edited.fill("10");
   await expect.poll(() => observed.intents.length).toBe(1); // Indicative quoting continues.
   const warning = page.getByRole("button",{name:"Reduce the swap amount to match your available balance.",exact:true});
-  if (baseline) await expect(warning).toBeHidden();
-  else await expect(warning).toBeVisible();
+  await expect(warning).toBeHidden();
+  const failure = page.getByRole("button", { name: "The quote service could not process this request. Retry.", exact: true });
+  await expect(failure).toBeVisible();
+  await expect(failure).toBeDisabled();
   const measurement = await page.evaluate(() => (window as unknown as {__quoteBalanceMeasurement:unknown}).__quoteBalanceMeasurement);
   await test.info().attach("balance-measurement",{body:JSON.stringify({baseline,measurement,quoteRequests:observed.intents.length}),contentType:"application/json"});
 });

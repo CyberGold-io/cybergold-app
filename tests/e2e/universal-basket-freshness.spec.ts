@@ -9,7 +9,7 @@ for (const intent of [2, 3]) test(`basket intent ${intent} renews complete execu
   if (intent === 3) await page.getByRole("button", { name: "Reverse swap direction" }).click();
   await selectBasket(page, intent === 3 ? "buy" : "sell");
   await page.clock.install();
-  await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
+  await page.locator('input[inputmode="decimal"]:not(#execution-tolerance):visible').first().fill("1");
   await page.clock.runFor(250);
   await expect(page.getByTestId("exact-input-retention-disclosure")).toBeVisible();
   const requests = () => (observed.rawIntents as UniversalExactInputRequest[]).filter(row => row.intent === intent);

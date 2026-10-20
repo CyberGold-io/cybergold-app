@@ -13,6 +13,7 @@ import { QuotePreviewError, quoteErrorMessage } from "@/app/utils/quoteErrors";
 import { fetchTradeQuote, fetchUniversalTradeQuote, normalizedTradeQuote, receiveTradeModel, tradeAdapter, tradeQuoteResult, withTradeProviderEvent,
   type TradeQuoteRequest, type TradeQuoteResult } from "@/app/utils/tradeQuote";
 import { useBoundQuoteState } from "./useBoundQuoteState";
+import { tradeDisplayModelScope } from "@/app/utils/quoteModelStore";
 
 export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retainedPlan">, enabled: boolean) {
   const { addresses, identity: configurationIdentity } = useProtocolConfiguration();
@@ -51,7 +52,8 @@ export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retai
       });
       return fetchTradeQuote(request, signal, event => {
         if (signal.aborted || sequence.current !== attempt) return;
-        if (event.type === "model") receiveTradeModel(event.value, configurationIdentity);
+        if (event.type === "model") receiveTradeModel(event.value, configurationIdentity,
+          tradeDisplayModelScope(configurationIdentity, generation));
         if (event.type === "qualified") publishQualified(tradeQuoteResult(normalizedTradeQuote(event.value, request)), attempt);
         if (event.type === "provider-qualified" || event.type === "provider-assessment") accept(previous => {
           if (previous?.identity !== identity || previous.attempt !== attempt) return previous;

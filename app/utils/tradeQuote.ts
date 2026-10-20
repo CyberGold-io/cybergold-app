@@ -3,7 +3,7 @@ import type { components } from "../contracts/backend/http";
 import type { ProtocolDeployment } from "./protocolConfiguration";
 import { fetchUniversalExactInputQuote, type UniversalExactInputQuote } from "./universalExactInput.ts";
 import { fetchQuoteStream } from "./quoteStream.ts";
-import { receiveMarketQuoteModel, receiveQuoteModel } from "./quoteModelStore.ts";
+import { receiveMarketQuoteModel, receiveQuoteModel, receiveTradeBudgetRange } from "./quoteModelStore.ts";
 import { diagnosticReferences, type DiagnosticReferences } from "./diagnosticReferences.ts";
 
 export type TradeQuoteRequest = components["schemas"]["TradeQuoteRequest"];
@@ -67,11 +67,12 @@ export function retainedTradePlan(value: TradeQuoteResult<TradeQuote>): NonNulla
 }
 
 /** Preserve each producer's model identity; only Backend supplies the winning estimate. */
-export function receiveTradeModel(packet: TradeQuoteModelPacket, scope: string) {
+export function receiveTradeModel(packet: TradeQuoteModelPacket, scope: string, displayScope = scope) {
   for (const model of packet.models) {
     if (model.strategy === "core") receiveQuoteModel(model.value, undefined, scope);
     else receiveMarketQuoteModel(model.value, scope);
   }
+  receiveTradeBudgetRange(packet, displayScope);
 }
 
 export async function fetchTradeQuote(request: TradeQuoteRequest, signal: AbortSignal,

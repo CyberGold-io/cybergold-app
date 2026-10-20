@@ -46,6 +46,7 @@ export function TargetOverlayDonutEcharts({
 
     const option = useMemo(
         () => ({
+            animation: false,
             color: data.map((entry) => entry.color),
             tooltip: {
                 trigger: "item",
@@ -211,7 +212,8 @@ export function TargetOverlayDonutEcharts({
             option={option}
             onEvents={onEvents}
             notMerge
-            lazyUpdate
+            lazyUpdate={false}
+            onChartReady={chart => { chart.getDom().dataset.pageChartReady = "true"; }}
             style={{ height: "100%", width: "100%" }}
         />
     );

@@ -21,8 +21,8 @@ for(const mode of ["redeem-exact-in"]) for(const candidate of [false,true]) for(
   await routeBasketQuote(page,async route=>{requests++;await new Promise(r=>setTimeout(r,250));const result=JSON.parse(JSON.stringify(row.actual).replaceAll("basketAsset1",asset).replaceAll("basketAsset2",other));await route.fulfill({json:{mode,context,helpers:"0x00000000000000000000000000000000000000b2",result}});completed=true;});
   await page.goto("/en");await selectBasket(page);
   if(mode.startsWith("redeem"))await page.getByRole("button",{name:"Reverse swap direction"}).click();
-  const input=page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first();
-  const quoted=page.getByLabel("Buy amount (PAXG)", { exact: true });
+  const input=page.locator('input[inputmode="decimal"]:not(#execution-tolerance):visible').first();
+  const quoted=page.getByRole("status", { name: "Buy amount (PAXG)", exact: true });
   await input.click();const start=Date.now();await input.fill(formatUnits(BigInt(amount),18));
   await expect(quoted).toHaveJSProperty("tagName", "OUTPUT");
   await expect(quoted).toHaveText(/[1-9]/);const firstMs=Date.now()-start,first=(await quoted.textContent())!;

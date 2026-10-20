@@ -6,6 +6,46 @@ type DisplayStorage = Pick<Storage, "getItem" | "setItem">;
 export const tokenDisplayCacheKey = (chainId: number) => `cybergold:display:tokens:v1:${chainId}`;
 export const goldDisplayCacheKey = "cybergold:display:gold:v1";
 export const fxDisplayCacheKey = "cybergold:display:fx:v1";
+export const tokenUsdDisplayCacheKey = (chainId: number) => `cybergold:display:token-usd:v1:${chainId}`;
+export type DisplayTokenUsdPrices = Record<string, number>;
+
+function displayPriceIdentity(token: spendableToken): string {
+  return JSON.stringify([token.id, token.type,
+    token.type === "erc20" ? token.address.toLowerCase() : "native", token.decimals]);
+}
+
+export function parseDisplayTokenUsdPrices(value: unknown): DisplayTokenUsdPrices | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  const entries = Object.entries(value);
+  if (entries.some(([, price]) => typeof price !== "number" || !Number.isFinite(price) || price <= 0)) return;
+  return Object.fromEntries(entries);
+}
+
+/** Persist valuations only; pool state, reference weights and quote inputs stay live. */
+export function projectDisplayTokenUsdPrices(tokens: readonly TokenType[], prices: Record<string, number | undefined>): DisplayTokenUsdPrices {
+  return Object.fromEntries(tokens.flatMap(token => {
+    const price = prices[token.id];
+    return token.type !== "basket" && price !== undefined && Number.isFinite(price) && price > 0
+      ? [[displayPriceIdentity(token), price]] : [];
+  }));
+}
+
+/** A cached approximation never becomes the live price observation used by other consumers. */
+export function displayTokenUsdPrices(tokens: readonly TokenType[], live: Record<string, number | undefined>,
+  cached: DisplayTokenUsdPrices | undefined): Record<string, number | undefined> {
+  const prices = Object.fromEntries(tokens.map(token => [token.id,
+    live[token.id] ?? (token.type === "basket" ? undefined : cached?.[displayPriceIdentity(token)])]));
+  for (const token of tokens) {
+    if (token.type !== "basket" || prices[token.id] !== undefined) continue;
+    prices[token.id] = token.components.reduce<number | undefined>((sum, component) => {
+      if (component.targetWeight === 0n) return sum;
+      const price = prices[component.token.id];
+      return sum === undefined || price === undefined ? undefined
+        : sum + price * Number(component.targetWeight) / 1_000_000;
+    }, 0);
+  }
+  return prices;
+}
 
 /** Selector metadata only. Never serialize the configuration, wallet or quote object. */
 export function projectDisplayTokens(tokens: readonly TokenType[]): spendableToken[] {
