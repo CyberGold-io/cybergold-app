@@ -96,3 +96,18 @@ test("generated modules preserve each diamond's ERC-165 advertisement policy", (
   assert.equal(HELPERS_DIAMOND_ERC165_ADVERTISED, false);
   assert.equal(STAKING_DIAMOND_ERC165_ADVERTISED, true);
 });
+
+
+test("universal Helpers candidate ABI contains 43 base, one Market exact-output and one universal function", async () => {
+  const { HELPERS_EXECUTION_ABI } = await import("../contracts/cybergold-helpers/execution.ts");
+  const { HELPERS_MARKET_FUNCTIONS } = await import("../contracts/generated/helpersMarket.ts");
+  const { HELPERS_TRADE_EXACT_INPUT_FUNCTIONS } = await import("../contracts/generated/helpersTradeExactInput.ts");
+  const { RETIRED_HELPERS_FUNCTION_ABI } = await import("../../tests/fixtures/helpers-execution-legacy.ts");
+  assert.equal(HELPERS_DIAMOND_FUNCTIONS.length,43);
+  assert.equal(HELPERS_MARKET_FUNCTIONS.length,1);
+  assert.equal(Object.keys(HELPERS_TRADE_EXACT_INPUT_FUNCTIONS).length,1);
+  const names=new Set<string>(HELPERS_EXECUTION_ABI.filter(row=>row.type==="function").map(row=>row.name));
+  assert.equal(names.size,45);assert.equal(names.has("executeExactInput"),true);assert.equal(names.has("swapExactOutput"),true);
+  assert.equal(RETIRED_HELPERS_FUNCTION_ABI.length,12);
+  for(const row of RETIRED_HELPERS_FUNCTION_ABI)assert.equal(names.has(row.name),false,row.name);
+});

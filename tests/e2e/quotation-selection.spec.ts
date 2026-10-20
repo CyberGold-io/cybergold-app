@@ -13,7 +13,7 @@ for (const winner of ["core", "market"] as const)
   for (const side of ["buy", "sell"] as const)
     for (const mode of ["exact-in"] as const)
       for (const lateEvidence of [false, true])
-      test(`${winner} wins ${side} ${mode}, ${lateEvidence ? "late alternate and timeout" : "completed search"}: actual UI click binds the submitted family and economics`, async ({ page }) => {
+      test(`${winner} wins ${side} ${mode}, ${lateEvidence ? "delayed complete search" : "completed search"}: actual UI click binds the submitted family and economics`, async ({ page }) => {
         const fixture = await installProviderSelection(page, winner, lateEvidence);
         await page.goto("/en");
         await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible({ timeout: 20_000 });
@@ -25,8 +25,8 @@ for (const winner of ["core", "market"] as const)
         const swap = await getSwapButton(page);
         await expect(swap).toBeEnabled();
         const selected = fixture.selection()!;
-        expect(selected.strategy).toBe(winner);
-        expect(selected.side).toBe(side); expect(selected.mode).toBe(mode);
+        expect(selected.strategy).toBe("universal");
+        expect(selected.routeFamily).toBe(winner); expect(selected.plan.intent).toBe(side === "buy" ? 0 : 1);
         if (winner === "core") {
           expect(mode === "exact-in" ? selected.quotedOutput : selected.quotedInput)
             .toBe(mode === "exact-in" ? "2000000000000000000" : "500000000000000000");
@@ -36,7 +36,7 @@ for (const winner of ["core", "market"] as const)
         const captures = await page.evaluate(() =>
           (window as unknown as { __selectionCaptures: TradeSelectionObservation[] }).__selectionCaptures);
         expect(captures).toHaveLength(1);
-        expect(captures[0].quote).toEqual(selected);
+        expect(captures[0].quote).toMatchObject(selected);
         expect(captures[0].deployment?.helpers?.toLowerCase()).toBe(protocolAddresses.helpers!.toLowerCase());
         expect(captures[0].intent).toMatchObject({ side, mode, amount: "1000000000000000000" });
         const calls = await page.evaluate(() =>
@@ -45,17 +45,11 @@ for (const winner of ["core", "market"] as const)
         expect(sent).toHaveLength(1);
         await assertCapturedTradeInput(captures[0], sent[0].params![0].data as Hex, selectionOwner);
         const decoded = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: sent[0].params![0].data as Hex });
-        expect(decoded.functionName).toBe(winner === "market"
-          ? mode === "exact-in" ? "swapExactInput" : "swapExactOutput"
-          : side === "buy" ? "issueFromTokenExactOut" : "redeemToTokenExactIn");
-        const params = decoded.args![0] as { netCygldOut?: bigint; maximumInputAmount?: bigint; grossCygldIn?: bigint; minimumAmountOut?: bigint; amount?: bigint };
-        if (winner === "core" && side === "buy") {
-          expect(params.netCygldOut).toBe(BigInt(selected.quotedOutput));
-          expect(params.maximumInputAmount).toBe(BigInt(selected.inputMaximum));
-        } else if (winner === "core") {
-          expect(params.grossCygldIn).toBe(BigInt(selected.quotedInput));
-          expect(params.minimumAmountOut).toBe(BigInt(selected.outputMinimum));
-        } else expect(params.amount).toBe(1_000_000_000_000_000_000n);
+        expect(decoded.functionName).toBe("executeExactInput");
+        const params = decoded.args![0] as { intent: number; inputs: readonly {amount:bigint}[]; minimumOutput:bigint; body:Hex };
+        expect(params.inputs[0].amount).toBe(1_000_000_000_000_000_000n);
+        expect(params.minimumOutput).toBe(BigInt(selected.outputMinimum));
+        expect(params.body).toBe(selected.plan.body);
         expect(fixture.preparations.length).toBeGreaterThan(0);
       });
 

@@ -4,6 +4,8 @@ import type { MarketQuote, MarketQuoteRequest, MarketModelRequest, MarketQuoteMo
 import { marketModelFamily } from "../../../app/utils/marketQuote";
 import type { TradeQuote, TradeQuoteRequest, TradeModelRequest, TradeQuoteModelPacket } from "../../../app/utils/tradeQuote";
 import { install, context } from "./token-quotes";
+import { universalFixture, tradeRequestFromUniversal } from "./universal-exact-input";
+import type { UniversalExactInputQuote, UniversalExactInputRequest } from "../../../app/utils/universalExactInput";
 
 const core = protocolAddresses.core!, helpers = protocolAddresses.helpers!;
 const counter = "0x45804880De22913dAFE09f4980848ECE6EcbAf78";
@@ -66,7 +68,7 @@ export function tradeMarketModelFixture(request: TradeModelRequest, adapter: str
     estimate: { strategy: "market", amount: request.mode === "exact-in" ? quote.quotedOutput : quote.quotedInput } };
 }
 
-export async function installMarket(page: Page, waitForQuote?: () => Promise<void>, adapterSource: () => string = () => protocolAddresses.adapter) {
+export async function installLegacyMarket(page: Page, waitForQuote?: () => Promise<void>, adapterSource: () => string = () => protocolAddresses.adapter) {
   const coreObservations = await install(page);
   const requests: TradeQuoteRequest[] = [], models: TradeModelRequest[] = [], quotes: Extract<TradeQuote, { strategy: "market" }>[] = [];
   await page.route("**/api/quotes/trade/**", async route => {
@@ -81,6 +83,37 @@ export async function installMarket(page: Page, waitForQuote?: () => Promise<voi
     const value = marketTradeFixture(request, context, adapterSource()); quotes.push(value);
     await route.fulfill({ contentType: "application/x-ndjson", body:
       JSON.stringify({ type: "complete", value }) + "\n" });
+  });
+  return { requests, models, quotes, coreObservations };
+}
+
+/** Market economics with the canonical universal body; no retired executor bytes. */
+export function marketUniversalFixture(request: UniversalExactInputRequest, current = context,
+  adapter: string = protocolAddresses.adapter): UniversalExactInputQuote {
+  const legacy = marketFixture(marketRequest(tradeRequestFromUniversal(request), adapter));
+  return universalFixture(request, { routeFamily: "market", quotedOutput: legacy.netOutput,
+    outputMinimum: legacy.outputMinimum, marketFeeCygld: legacy.fee.amount, context: current, adapter });
+}
+
+export async function installMarket(page: Page, waitForQuote?: () => Promise<void>,
+  adapterSource: () => string = () => protocolAddresses.adapter) {
+  const coreObservations = await install(page);
+  const requests: UniversalExactInputRequest[] = [], models: TradeModelRequest[] = [], quotes: UniversalExactInputQuote[] = [];
+  await page.route("**/api/quotes/trade/model", async route => {
+    const request = route.request().postDataJSON();
+    if (request.native || request.counterToken.toLowerCase() !== counter.toLowerCase()) { await route.fallback(); return; }
+    models.push(request);
+    await route.fulfill({ json: tradeMarketModelFixture(request, adapterSource()) });
+  });
+  await page.route("**/api/quotes/universal-exact-input", async route => {
+    const request = route.request().postDataJSON() as UniversalExactInputRequest;
+    const currency = request.intent === 0 ? request.inputs[0].currency : request.outputCurrency;
+    if (request.intent > 1 || ![counter.toLowerCase(), `0x${"0".repeat(40)}`].includes(currency.toLowerCase())) {
+      await route.fallback(); return;
+    }
+    requests.push(request); await waitForQuote?.();
+    const value = marketUniversalFixture(request, context, adapterSource()); quotes.push(value);
+    await route.fulfill({ json: value });
   });
   return { requests, models, quotes, coreObservations };
 }

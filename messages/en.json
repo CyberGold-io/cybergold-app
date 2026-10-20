@@ -61,6 +61,10 @@
     "disconnectFailedDescription": "Unable to disconnect wallet. Try again."
   },
   "Home": {
+    "exactInputRetentionDisclosure": "The full input amount is funded. After the planned conversions, any returned input is retained in Helpers as a protocol charge for its owner. You receive all final output, subject to the minimum shown.",
+    "estimatedRetainedCharge": "Estimated retained charge",
+    "retainedProtocolCharge": "Retained protocol charge",
+    "retainedCustodian": "Charge custodian",
     "redeemOutputTooSmall": "Requested output amount is too small for redemption.",
     "reduceAmountToBalance": "Reduce the swap amount to match your available balance.",
     "authorizationUnavailable": "Token authorization is currently unavailable. Try again later.",

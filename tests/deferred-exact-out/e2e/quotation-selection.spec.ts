@@ -1,8 +1,8 @@
 import { decodeFunctionData, type Hex } from "viem";
 import { expect, test } from "../../e2e/fixtures/app-test";
-import { installProviderSelection, selectionOwner } from "../../fixtures/provider-selection";
+import { installProviderSelection, selectionOwner } from "../../fixtures/provider-selection-legacy";
 import { selectToken, showAllSellTokens, getMainInput, getSwapButton } from "../../metamask/token-flows/helpers";
-import { HELPERS_EXECUTION_ABI } from "../../../app/contracts/cybergold-helpers/execution";
+import { HISTORICAL_HELPERS_EXECUTION_ABI as HELPERS_EXECUTION_ABI } from "../../fixtures/helpers-execution-legacy.ts";
 import type { TradeSelectionObservation } from "../../../app/utils/tradeSelectionObservation";
 import { protocolAddresses } from "../../fixtures/protocol-configuration";
 import { assertCapturedTradeInput } from "../../trading/planAssertions";

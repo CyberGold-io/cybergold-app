@@ -6,8 +6,10 @@ import { coreIntentRequest, tradeFixture } from "../e2e/fixtures/trade-core";
 import { intentFixture } from "../e2e/fixtures/quote-intent";
 import { marketTradeFixture } from "../e2e/fixtures/market-quotes";
 import { HELPERS_EXECUTION_ABI } from "../../app/contracts/cybergold-helpers/execution";
-import { HELPERS_MARKET_ABI } from "../../app/contracts/generated/helpersMarket";
-import type { TradeQuote, TradeQuoteRequest } from "../../app/utils/tradeQuote";
+import { universalFixture } from "../e2e/fixtures/universal-exact-input";
+import { marketUniversalFixture } from "../e2e/fixtures/market-quotes";
+import type { UniversalExactInputQuote, UniversalExactInputRequest } from "../../app/utils/universalExactInput";
+import type { TradeQuoteRequest } from "../../app/utils/tradeQuote";
 import type { QuoteIntent } from "../../app/utils/quoteIntent";
 import type { TradeSelectionObservation } from "../../app/utils/tradeSelectionObservation";
 
@@ -52,8 +54,8 @@ type Transaction = { from?: string; to?: string; data?: string; value?: string }
 
 export async function installProviderSelection(page: Page, winner: "core" | "market", lateEvidence = false) {
   await install(page);
-  const requests: TradeQuoteRequest[] = [], preparations: { operation: string; args: unknown[] }[] = [];
-  let selected: TradeQuote | undefined, transaction: Transaction | undefined;
+  const requests: UniversalExactInputRequest[] = [], preparations: { operation: string; args: unknown[] }[] = [];
+  let selected: UniversalExactInputQuote | undefined, transaction: Transaction | undefined;
   await page.addInitScript(({ owner, hash, chain }) => {
     const calls: { method: string; params?: unknown[] }[] = [], selections: TradeSelectionObservation[] = [];
     window.addEventListener("cybergold:trade-selection", event => selections.push((event as CustomEvent<TradeSelectionObservation>).detail));
@@ -77,29 +79,15 @@ export async function installProviderSelection(page: Page, winner: "core" | "mar
   page.on("request", request => {
     if (new URL(request.url()).pathname === "/api/transaction/helpers-execution") preparations.push(request.postDataJSON());
   });
-  await page.route("**/api/quotes/trade/stream", async route => {
-    const request = route.request().postDataJSON() as TradeQuoteRequest;
+  await page.route("**/api/quotes/universal-exact-input", async route => {
+    const request = route.request().postDataJSON() as UniversalExactInputRequest;
     requests.push(request);
-    const values = selectedQuotes(request, winner);
-    selected = values.selected;
-    const loser = winner === "core" ? values.market : values.core;
-    const initial = structuredClone(values.selected);
-    if (lateEvidence) {
-      delete initial.providerCandidates[loser.strategy];
-      initial.providerAssessments[loser.strategy] = { availability: "pending", searchOutcome: "running" };
-      values.selected.providerAssessments[loser.strategy] = { availability: "qualified", searchOutcome: "timeout" };
-    }
-    await route.fulfill({ contentType: "application/x-ndjson", body: [
-      ...(lateEvidence ? [
-        { type: "qualified", value: initial },
-        { type: "provider-qualified", strategy: loser.strategy, value: loser },
-        { type: "provider-assessment", strategy: loser.strategy, value: values.selected.providerAssessments[loser.strategy] },
-        { type: "error", code: "quote-timeout" },
-      ] : [
-        { type: "qualified", value: loser }, { type: "qualified", value: values.selected },
-        { type: "complete", value: values.selected },
-      ]),
-    ].map(frame => JSON.stringify(frame)).join("\n") + "\n" });
+    // Both route families arrive as complete canonical plans. A delayed search
+    // cannot expose executable terms before its atomic response completes.
+    if (lateEvidence) await new Promise(resolve => setTimeout(resolve, 50));
+    selected = winner === "market" ? marketUniversalFixture(request)
+      : universalFixture(request, { quotedOutput: String(BigInt(request.inputs[0].amount) * 2n) });
+    await route.fulfill({ json: selected });
   });
   await page.route("**/api/account/wallet-balances*", route => route.fulfill({ json: {
     holder: selectionOwner, context, native: { status: "success", value: "100000000000000000000" },
@@ -131,19 +119,15 @@ export async function installProviderSelection(page: Page, winner: "core" | "mar
   });
   await page.route("**/api/transaction/wait/receipt*", async route => {
     if (!selected) throw new Error("No controlled selected plan");
-    const name = selected.strategy === "market" ? "MarketSwapExecuted" : selected.side === "buy" ? "Issued" : "Redeemed";
-    const abi = [...HELPERS_EXECUTION_ABI, ...HELPERS_MARKET_ABI].find(row => row.type === "event" && row.name === name);
+    const name = "ExactInputExecuted";
+    const abi = HELPERS_EXECUTION_ABI.find(row => row.type === "event" && row.name === name);
     if (!abi || abi.type !== "event") throw new Error(`Missing event ${name}`);
-    const amounts: Record<string, unknown> = selected.strategy === "market"
-      ? { payer: selectionOwner, recipient: selectionOwner, counterToken: selected.providerQuote.params.counterToken,
-        side: selected.side === "buy" ? 0 : 1, exactInput: selected.mode === "exact-in", swapInput: BigInt(selected.providerQuote.routedAmountIn),
-        amountOut: BigInt(selected.providerQuote.netOutput), inputRefund: BigInt(selected.providerQuote.refundDust),
-        outputRefund: 0n, feeCygld: BigInt(selected.providerQuote.fee.amount), feeRecipient: helpers }
-      : selected.side === "buy"
-        ? { payer: selectionOwner, recipient: selectionOwner, inputToken: selected.tokenIn, inputUsed: BigInt(selected.quotedInput),
-          netCygldOut: BigInt(selected.quotedOutput), protocolFeeCygld: 0n, helperFeeCygld: 0n }
-        : { payer: selectionOwner, recipient: selectionOwner, outputToken: selected.tokenOut, grossCygldIn: BigInt(selected.quotedInput),
-          amountOut: BigInt(selected.quotedOutput), recoveryAssets: [], recoveryShareAmounts: [], protocolFeeCygld: 0n, helperFeeCygld: 0n };
+    const amounts = { payer: selectionOwner, recipient: selectionOwner, intent: selected.plan.intent,
+      result: { acquiredInputs: selected.inputs.map(row => ({ currency: row.currency, amount: BigInt(row.amount) })),
+        recipientOutputs: selected.estimatedRecipientOutputs.map(row => ({ ...row, id: BigInt(row.id), amount: BigInt(row.amount) })),
+        stages: [], retainedInputs: [], recoveryShares: [], coreProtocolFeeCygld: BigInt(selected.fees.coreProtocolFeeCygld),
+        coreHelpersFeeCygld: BigInt(selected.fees.coreHelpersFeeCygld), marketFeeCygld: BigInt(selected.fees.marketFeeCygld),
+        retainedCustodian: helpers, feeBeneficiaryAtSettlement: selectionOwner } };
     const fields = abi.inputs.filter(row => !row.indexed);
     const log = { address: helpers, topics: encodeEventTopics({ abi: [abi], eventName: name, args: amounts as never }),
       data: encodeAbiParameters(fields, fields.map(field => amounts[field.name]) as never),

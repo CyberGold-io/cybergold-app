@@ -1,7 +1,7 @@
 import { decodeFunctionData, type Address, type Hex } from 'viem';
-import { HELPERS_EXECUTION_ABI } from '../../app/contracts/cybergold-helpers/execution.ts';
-import { submitTradeQuote } from '../../app/utils/tradeExecution.ts';
-import { tradeQuoteResult } from '../../app/utils/tradeQuote.ts';
+import { HISTORICAL_HELPERS_EXECUTION_ABI as HELPERS_EXECUTION_ABI } from "../fixtures/helpers-execution-legacy.ts";
+import { exactInputPlan } from "../../app/utils/universalExactInput.ts";
+import { quoteIntentResult } from '../../app/utils/quoteIntent.ts';
 import type { TradeSelectionObservation } from '../../app/utils/tradeSelectionObservation.ts';
 import { requireInvariant } from './regression.ts';
 
@@ -13,34 +13,42 @@ const same = (actual: unknown, expected: unknown, code: string) => requireInvari
 
 /** Bind mined economics and routes to the click snapshot. Authorization
  * signatures are deliberately excluded; they are obtained after that click.
- * Uses the product's existing dispatch, with inert executors and no wallet/API.
+ * Current universal plans are compared directly; historical plans use frozen decoding.
  */
 export async function assertCapturedTradeInput(capture: TradeSelectionObservation, input: Hex, owner: Address) {
+  if (capture.universalQuote) {
+    const decoded = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: input });
+    requireInvariant(decoded.functionName === "executeExactInput", "ui-click-family-mismatch");
+    same(decoded.args[0], exactInputPlan(capture.universalQuote.plan), "ui-click-universal-plan-mismatch");
+    return;
+  }
   requireInvariant(capture.quote, 'ui-click-quote-not-observed');
   const decoded = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: input });
   const args = decoded.args as unknown as unknown[];
   const native = decoded.functionName.includes('Native');
-  await submitTradeQuote({ ...tradeQuoteResult(capture.quote), deployment: capture.deployment },
-    { owner, recipient: owner, inputFundingMode: native ? 'native' : 'erc20' }, {
-      market: async selected => {
-        requireInvariant(decoded.functionName === (capture.quote!.mode === 'exact-in' ? 'swapExactInput' : 'swapExactOutput'), 'ui-click-family-mismatch');
-        same(args[0], selected.value.params, 'ui-click-market-plan-mismatch');
-        return '0x01';
-      },
-      tokenPurchase: async selected => {
-        requireInvariant(native === selected.nativeInput, 'ui-click-funding-mismatch');
-        requireInvariant(decoded.functionName.startsWith(native ? 'issueFromNativeExactOut' : 'issueFromTokenExactOut'), 'ui-click-family-mismatch');
-        same(args[0], native ? { maximumNativeIn: selected.maximumInputAmount, netCygldOut: selected.netCygldOut }
-          : { inputToken: selected.inputToken, maximumInputAmount: selected.maximumInputAmount, netCygldOut: selected.netCygldOut }, 'ui-click-core-plan-mismatch');
-        same(args[1], { recipient: selected.recipient, expectedOrderedCoreAssets: selected.expectedOrderedCoreAssets }, 'ui-click-core-asset-binding-mismatch');
-        same(args.at(-1), selected.quotes.map(leg => ({ adapter: leg.adapter, amountIn: leg.amountIn, minimumAmountOut: leg.minimumAmountOut, data: leg.data })), 'ui-click-route-mismatch');
-        return '0x01';
-      },
-      redemption: async selected => {
-        requireInvariant(decoded.functionName.startsWith(selected.operation), 'ui-click-family-mismatch');
-        same(args[0], selected.request, 'ui-click-core-plan-mismatch');
-        same(args.at(-1), selected.legs, 'ui-click-route-mismatch');
-        return '0x01';
-      },
-    });
+  // Frozen historical receipt assertions remain independent of fresh product
+  // dispatch, which now refreshes old exact-input intents into universal plans.
+  const selected=capture.quote!;
+  if(selected.strategy === "universal") {
+    requireInvariant(decoded.functionName === "executeExactInput","ui-click-family-mismatch");
+    same(args[0],exactInputPlan(selected.plan),"ui-click-universal-plan-mismatch");return;
+  }
+  if(selected.strategy === "market") {
+    requireInvariant(decoded.functionName === (selected.mode === "exact-in" ? "swapExactInput" : "swapExactOutput"),"ui-click-family-mismatch");
+    same(args[0],selected.providerQuote.params,"ui-click-market-plan-mismatch");return;
+  }
+  const request=selected.providerRequest,result=quoteIntentResult(selected.providerQuote,request.slippageBps);
+  if(selected.side === "buy") {
+    requireInvariant(!native || request.native,"ui-click-funding-mismatch");
+    requireInvariant(decoded.functionName.startsWith(native?"issueFromNativeExactOut":"issueFromTokenExactOut"),"ui-click-family-mismatch");
+    same(args[0],native?{maximumNativeIn:BigInt(selected.inputMaximum),netCygldOut:result.executionAmount}
+      :{inputToken:request.native?request.quoteToken:request.token,maximumInputAmount:BigInt(selected.inputMaximum),netCygldOut:result.executionAmount},"ui-click-core-plan-mismatch");
+    same(args[1],{recipient:owner,expectedOrderedCoreAssets:result.orderedCoreAssets},"ui-click-core-asset-binding-mismatch");
+    same(args.at(-1),result.quotes.map(leg=>({adapter:leg.adapter,amountIn:leg.amountIn,minimumAmountOut:leg.minimumAmountOut,data:leg.data})),"ui-click-route-mismatch");
+    return;
+  }
+  requireInvariant(decoded.functionName.startsWith(native?"redeemToNativeExactIn":"redeemToTokenExactIn"),"ui-click-family-mismatch");
+  const redemption={grossCygldIn:result.executionAmount,recipient:owner,minimumAmountOut:BigInt(selected.outputMinimum),expectedCoreOutputs:result.expectedCoreOutputs};
+  same(args[0],native?redemption:{...redemption,outputToken:request.token},"ui-click-core-plan-mismatch");
+  same(args.at(-1),result.redemptionQuotes,"ui-click-route-mismatch");
 }

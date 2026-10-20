@@ -1,7 +1,8 @@
 import { decodeEventLog, decodeFunctionData, encodeFunctionData, erc20Abi, serializeTypedData,
   toHex, zeroAddress, type Address, type Hex } from "viem";
 import { expect, type Page } from "@playwright/test";
-import { HELPERS_EXECUTION_ABI } from "../../app/contracts/cybergold-helpers/execution.ts";
+import { HISTORICAL_HELPERS_EXECUTION_ABI as HELPERS_EXECUTION_ABI } from "../fixtures/helpers-execution-legacy.ts";
+import { exactInputNativeValue, exactInputPlan, type UniversalExactInputQuote } from "../../app/utils/universalExactInput.ts";
 import { tradeReceipt, tradeRefundEvidence } from "../../app/utils/tradeReceipt.ts";
 import { fetchTransactionReceipt } from "../../app/utils/transactionReceipt.ts";
 import { estimateHelpersExecutionGas } from "../../app/utils/helpersExecutionGas.ts";
@@ -262,8 +263,21 @@ export async function executionPlan(observation: QuoteObservation, page: Page, o
   result.executionStage = "execution-plan";
   const maximum = typeof result.bounds?.inputMaximum === "string" ? BigInt(result.bounds.inputMaximum) : 0n,
     minimum = typeof result.bounds?.outputMinimum === "string" ? BigInt(result.bounds.outputMinimum) : 0n;
-  let operation: HelpersExecutionOperation, args: unknown[], nativeValue: bigint | undefined;
+  let operation: HelpersExecutionOperation | "issueFromBasketExactInWithMixedPermits" | "issueFromBasketExactInWithPermit2" | "redeemToBasketExactIn" | "redeemToNativeExactIn" | "redeemToTokenExactIn" | "swapExactInput", args: unknown[], nativeValue: bigint | undefined;
   const auth: string[] = [];
+  if ("strategy" in value && value.strategy === "universal") {
+    const plan = exactInputPlan(value.plan), boundConfig = { ...config, contracts: { ...config.contracts, helpers: value.deployment.helpers } };
+    const authorizations = [];
+    for (const input of plan.inputs) {
+      if (input.currency.toLowerCase() === zeroAddress) auth.push("native");
+      else if (input.amount > 0n) {
+        await allowance(page, input.currency, owner, input.amount, boundConfig, fetcher, result); auth.push("allowance");
+      }
+      authorizations.push({ kind: 0, permit: emptyPermit });
+    }
+    result.authorization = [...new Set(auth)];
+    return { operation: "executeExactInput" as const, args: [plan, { authorizations, permit2: emptyPermit2 }], nativeValue: exactInputNativeValue(plan) };
+  }
   if (scenario.asset === "BASKET") {
     const preview = value as BasketPreview;
     if (preview.mode.startsWith("issue")) {
@@ -350,11 +364,14 @@ export async function executionPlan(observation: QuoteObservation, page: Page, o
 }
 
 export async function executeScenario(observation: QuoteObservation, page: Page, owner: Address, config: ProtocolConfiguration, fetcher: typeof fetch): Promise<ScenarioResult> {
+  const universal = "strategy" in observation.value && observation.value.strategy === "universal" ? observation.value as UniversalExactInputQuote : undefined;
+  if (universal) config = { ...config, contracts: { ...config.contracts, helpers: universal.deployment.helpers } };
   const result = observation.result; result.layer = "execution"; result.status = "unavailable"; result.code = "execution-not-completed";
   try {
   const { operation, args, nativeValue } = await executionPlan(observation, page, owner, config, fetcher);
   result.executionStage = "execution-simulation";
-  const gas = await estimateHelpersExecutionGas(owner, operation, args, nativeValue, fetcher, undefined, config.contracts.helpers as Address);
+  // Historical fixture plans retain their old operation names locally. Fresh producer observations use the canonical API.
+  const gas = await estimateHelpersExecutionGas(owner, operation as HelpersExecutionOperation, args, nativeValue, fetcher, undefined, config.contracts.helpers as Address);
   result.executionStage = "execution-encoding";
   const data = encodeFunctionData({ abi: HELPERS_EXECUTION_ABI, functionName: operation, args: args as never });
   result.executionStage = "execution-submission";
@@ -372,7 +389,28 @@ export async function executeScenario(observation: QuoteObservation, page: Page,
   requireInvariant(decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: observed.transaction!.input }).functionName === operation, "execution-selector-mismatch");
   result.actualOperation = operation;
   let input: QualityAmount[], output: QualityAmount[], maximumTerms: QualityAmount[];
-  if (observation.scenario.asset === "BASKET") {
+  if (universal) {
+    const measured = tradeReceipt(receipt.logs, config.contracts.helpers as Address, owner, "universal", universal.inputs[0].currency as Address);
+    requireInvariant(measured?.strategy === "universal", "operation-event-missing");
+    requireInvariant(measured.acquiredInputs?.length === universal.inputs.length && measured.acquiredInputs.every((row, index) => row.currency.toLowerCase() === universal.inputs[index].currency.toLowerCase() && String(row.amount) === universal.inputs[index].amount), "receipt-exact-acquisition-mismatch");
+    if (universal.plan.intent !== 3) requireInvariant(measured.amountOut >= BigInt(universal.outputMinimum), "receipt-output-minimum-missed");
+    else {
+      const minimum = result.bounds!.outputMinimum as string[];
+      requireInvariant(measured.recipientOutputs?.length === minimum.length, "receipt-basket-output-vector-mismatch");
+      measured.recipientOutputs.forEach((row, index) => requireInvariant(row.amount >= BigInt(minimum[index]), "receipt-basket-output-minimum-missed"));
+    }
+    input = measured.acquiredInputs!.map(row => ({ asset: row.currency.toLowerCase(), amount: String(row.amount) }));
+    output = measured.recipientOutputs!.map(row => ({ asset: row.token.toLowerCase(), amount: String(row.amount), kind: row.kind, id: String(row.id) }));
+    // Direct basket recipientOutputs already includes its recovery vector.
+    if (universal.plan.intent !== 3) output.push(...measured.recoveryAssets.map((asset, index) => ({ asset: asset.toLowerCase(), amount: String(measured.recoveryShareAmounts[index]), kind: 1 })));
+    maximumTerms = input;
+    result.receipt = { ...result.receipt, inputUsed: String(measured.inputUsed), amountOut: String(measured.amountOut),
+      acquiredInputs: input, recipientOutputs: output,
+      retainedInputs: measured.retainedInputs!.map(row => ({ asset: row.currency, amount: String(row.amount) })),
+      stageResults: JSON.stringify(measured.stages, (_key, row) => typeof row === "bigint" ? String(row) : row),
+      protocolFeeCygld: String(measured.protocolFeeCygld), helperFeeCygld: String(measured.helperFeeCygld), marketFeeCygld: String(measured.marketFeeCygld ?? 0n),
+      retainedCustodian: measured.retainedCustodian!, feeBeneficiary: measured.feeRecipient!, refunds: [] };
+  } else if (observation.scenario.asset === "BASKET") {
     const expectedEvent = observation.scenario.side === "buy" ? "IssuedFromBasket" : "RedeemedToBasket";
     const events = receipt.logs.filter(log => log.address.toLowerCase() === config.contracts.helpers!.toLowerCase()).flatMap(log => {
       try { return [decodeEventLog({ abi: HELPERS_EXECUTION_ABI, data: log.data, topics: log.topics as [Hex, ...Hex[]] })]; } catch { return []; }

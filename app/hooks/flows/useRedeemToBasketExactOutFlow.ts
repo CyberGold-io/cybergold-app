@@ -22,7 +22,10 @@ import type {
   FlowNetworkFeeEstimateHandlers,
   SubmitBasketFlowParams,
 } from "./shared/types";
-import { useRedemptionExecution } from "./shared/useRedemptionExecution";
+import { useUniversalExactInputExecution } from "./shared/useUniversalExactInputExecution";
+import { fetchUniversalExactInputQuote, preserveExactInputBasketMinimums } from "@/app/utils/universalExactInput";
+import { zeroAddress } from "viem";
+import { buildQuoteDeadline } from "@/app/utils/swapPolicy";
 
 const EMPTY_MINIMUMS: readonly CoreTokenMinimum[] = [];
 
@@ -162,12 +165,15 @@ export function useRedeemToBasketExactOutFlow({
         t("noQuoteAvailableMessage")
       : undefined;
 
-  const { submitRedemption } = useRedemptionExecution({ onNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange });
+  const { addresses } = useProtocolConfiguration();
+  const { submit: submitUniversal } = useUniversalExactInputExecution({ onNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange });
   const submit = useCallback(async (params: SubmitBasketFlowParams) => {
     if (!grossCygldIn || !expectedCoreOutputs || !canSubmit) throw new Error("RedeemToBasketExactOut is not ready");
-    return submitRedemption({ ...params, operation: "redeemToBasketExactIn", grossCygldIn,
-      request: { grossCygldIn, recipient: params.recipient, expectedCoreOutputs } });
-  }, [canSubmit, submitRedemption, expectedCoreOutputs, grossCygldIn]);
+    const fresh = await fetchUniversalExactInputQuote({ intent: 3,
+      inputs: [{ currency: addresses.core!, amount: String(grossCygldIn) }], outputCurrency: zeroAddress,
+      recipient: params.recipient, deadline: String(buildQuoteDeadline()), slippageBps }, params.feeEstimateSignal);
+    return submitUniversal(preserveExactInputBasketMinimums(fresh, expectedCoreOutputs), params);
+  }, [canSubmit, submitUniversal, expectedCoreOutputs, grossCygldIn, addresses.core, slippageBps]);
 
   return {
     ...preview,

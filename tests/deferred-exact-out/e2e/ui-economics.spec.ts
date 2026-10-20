@@ -8,7 +8,7 @@ import { uiReceiptResult } from "../../trading/uiReceipt";
 import { confirmedTransactionText } from "../../trading/uiDiagnostics";
 import { tradeScenarios } from "../../trading/scenarios";
 import { protocolConfigurationFixture as config, tokenAddresses } from "../../fixtures/protocol-configuration";
-import { HELPERS_EXECUTION_ABI } from "../../../app/contracts/cybergold-helpers/execution";
+import { HISTORICAL_HELPERS_EXECUTION_ABI as HELPERS_EXECUTION_ABI } from "../../fixtures/helpers-execution-legacy.ts";
 
 const owner = "0x0000000000000000000000000000000000000001" as const, hash = `0x${"a".repeat(64)}` as Hex;
 async function installReadOnlyWallet(page: Parameters<typeof installTokens>[0]) {

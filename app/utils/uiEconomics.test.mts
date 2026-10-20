@@ -3,7 +3,7 @@ import test from "node:test";
 import { EventEmitter } from "node:events";
 import type { Page } from "@playwright/test";
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, zeroAddress, type Hex, type Address } from "viem";
-import { HELPERS_EXECUTION_ABI } from "../contracts/cybergold-helpers/execution.ts";
+import { HISTORICAL_HELPERS_EXECUTION_ABI as HELPERS_EXECUTION_ABI } from "../../tests/fixtures/helpers-execution-legacy.ts";
 import { formatMeaningfulDecimalString } from "./formatting.ts";
 import { actualAmount, assertUiEconomics, assertWalletEconomics, displayedAmount, positiveDisplayedAmount, walletDisplayMatches, selectedTolerance, uiAmountLimits,
   walletEvidence, type UiAmount, type UiQuoteSnapshot } from "../../tests/trading/uiEconomics.ts";

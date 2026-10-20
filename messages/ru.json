@@ -61,6 +61,10 @@
     "disconnectFailedDescription": "Не удалось отключить кошелёк. Повторите попытку."
   },
   "Home": {
+    "exactInputRetentionDisclosure": "Вносится вся сумма входного актива. После запланированных обменов остаток входного актива удерживается в Helpers как комиссия протокола в пользу его владельца. Вы получаете весь итоговый выходной актив с учётом указанного минимума.",
+    "estimatedRetainedCharge": "Ожидаемая удержанная комиссия",
+    "retainedProtocolCharge": "Удержанная комиссия протокола",
+    "retainedCustodian": "Хранитель комиссии",
     "cygldAvailableToBuy": "Доступно: {amount} CYGLD",
     "cygldPurchaseCapReached": "Лимит достигнут · Макс. {amount}",
     "cygldPurchaseCapQuoteDetails": "Покупка ограничена лимитом выпуска. Неиспользованная сумма возвращается в ваш кошелёк.",

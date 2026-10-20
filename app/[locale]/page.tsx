@@ -1,10 +1,11 @@
 'use client';
+import type { UniversalExactInputQuote } from "@/app/utils/universalExactInput";
+import { ExactInputRetentionDisclosure, ExactInputSettlement } from "@/app/components/ExactInputSettlement";
 import { useQuoteCacheScope } from "@/app/context/chainHeadContext";
 import { useCachedTradeQuote } from "@/app/hooks/flows/quotes/useCachedTradeQuote";
 import { useTradeModel } from "@/app/hooks/flows/quotes/useTradeModel";
 import { useTradeFlow } from "@/app/hooks/flows/useTradeFlow";
 import { captureTradeQuote, type TradeQuoteResult, type TradeQuoteRequest } from "@/app/utils/tradeQuote";
-import { basketPreviewObservation } from "@/app/utils/basketPreview";
 import { fetchBasketMax, type BasketMax } from "@/app/utils/basketMax";
 import { observeTradeSelection } from "@/app/utils/tradeSelectionObservation";
 import { tradeReceipt, type TradeReceipt } from "@/app/utils/tradeReceipt";
@@ -405,10 +406,11 @@ function TradingScreen() {
   const [displayedQuoteProgressPercent, setDisplayedQuoteProgressPercent] = useState(0);
   const [isSubmittingSwap, setIsSubmittingSwap] = useState(false);
   const [frozenTrade, setFrozenTrade] = useState<TradeQuoteResult>();
+  const [frozenUniversal, setFrozenUniversal] = useState<UniversalExactInputQuote>();
   const [swapFailureReference, setSwapFailureReference] = useState<string>();
   const [isSubmittedSwapCleanupInProgress, setIsSubmittedSwapCleanupInProgress] = useState(false);
   const [transactionNotice, setTransactionNotice] = useState<SwapTransactionNoticeProps>();
-  const [confirmedTrade, setConfirmedTrade] = useState<{ receipt: TradeReceipt; input: spendableToken; output: spendableToken }>();
+  const [confirmedTrade, setConfirmedTrade] = useState<{ receipt: TradeReceipt; input?: spendableToken; output?: spendableToken }>();
   const [walletConfirmationProgress, setWalletConfirmationProgress] =
     useState<WalletConfirmationProgressState | undefined>(undefined);
   const [hasHydratedPersistedSwapForm, setHasHydratedPersistedSwapForm] = useState(false);
@@ -840,6 +842,8 @@ function TradingScreen() {
     : isRedeemToBasketExactIn ? redeemToBasketExactInFlow
     : isRedeemToTokenExactIn ? redeemToTokenExactInFlow
     : undefined;
+  const activeUniversalQuote = isActiveTokenFlow ? (tradeFlow.selected?.value.strategy === "universal" ? tradeFlow.selected.value : undefined)
+    : isIssueFromBasketExactIn ? issueFromBasketExactInFlow.universalQuote : isRedeemToBasketExactIn ? redeemToBasketExactInFlow.universalQuote : undefined;
   const activeQuoteStatus = activeFlow?.quoteStatus;
   const activeQuoteError = activeFlow?.quoteError;
   const purchaseCapacity = cygldPurchaseCapacity(issuanceModel);
@@ -1353,7 +1357,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
 
   const totalFeeUsd = useMemo(() => {
     return computeTotalFeeUsd({
-      activeFees,
+      activeFees, retainedInputCharges: activeUniversalQuote?.estimatedRetainedInputCharges,
       cygldDecimals,
       cygldPriceUsd,
       cygldTokenId,
@@ -1362,7 +1366,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
       prices,
       tokenAddressMap,
     });
-  }, [activeFees, cygldDecimals, cygldPriceUsd, cygldTokenId, networkFeeEstimate?.wei, networkFeeUsd, prices, tokenAddressMap]);
+  }, [activeFees, activeUniversalQuote?.estimatedRetainedInputCharges, cygldDecimals, cygldPriceUsd, cygldTokenId, networkFeeEstimate?.wei, networkFeeUsd, prices, tokenAddressMap]);
 
   // Only the presentation retains previous fees. Submission continues to use
   // the current quote, current balances and existing execution readiness.
@@ -1490,7 +1494,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
       : sellAmountBigInt <= 0n;
 
   const swapActionError = useMemo(() => {
-    if (isProtocolPaused && (!isActiveTokenFlow || tradeFlow.strategy === "core")) {
+    if (isProtocolPaused && (!isActiveTokenFlow || (tradeFlow.strategy === "core" || (tradeFlow.selected?.value.strategy === "universal" && tradeFlow.selected.value.routeFamily !== "market")))) {
       return t("protocolPausedSwapBlocked");
     }
     if (tokenFlowAdapterError) {
@@ -1511,6 +1515,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
     isProtocolPaused,
     isActiveTokenFlow,
     tradeFlow.strategy,
+    tradeFlow.selected,
     tokenFlowAdapterError,
     activeQuoteStatus,
     activeQuoteError,
@@ -1676,7 +1681,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
       activeQuoteReferences.attemptId ?? quoteDiagnostics.current?.id);
     setSwapFailureReference(undefined);
     let executionHelpers: Address;
-    try { executionHelpers = requireProtocolAddress(selectedTrade?.deployment?.helpers ?? HELPERS_DIAMOND_ADDRESS, "Helpers"); }
+    try { executionHelpers = requireProtocolAddress((activeUniversalQuote?.deployment.helpers as Address | undefined) ?? selectedTrade?.deployment?.helpers ?? HELPERS_DIAMOND_ADDRESS, "Helpers"); }
     catch (error) {
       diagnostics.failed(error); setSwapFailureReference(diagnosticReference(error) ?? diagnostics.id);
       toast.error(t("transactionFailed"), { description: t("transactionFailedDescription") }); return;
@@ -1686,19 +1691,21 @@ const computedReceiveQuote = useMemo((): Prefill => {
     setConfirmedTrade(undefined);
     const frozenSelection = selectedTrade && captureTradeQuote(selectedTrade);
     setFrozenTrade(frozenSelection);
+    setFrozenUniversal(activeUniversalQuote && structuredClone(activeUniversalQuote));
     if (frozenSelection) {
       observeTradeSelection({ attemptId: diagnostics.id, quote: frozenSelection.value,
         deployment: frozenSelection.deployment, diagnostics: frozenSelection.diagnostics,
         intent: { ...tradeInput, deadline: frozenSelection.value.providerRequest.deadline } });
-    } else if ("previewRequest" in executionFlow) {
-      observeTradeSelection({ attemptId: diagnostics.id, basketRequest: executionFlow.previewRequest,
-        basketPreview: basketPreviewObservation(executionFlow.quote) });
+    } else if (activeUniversalQuote) {
+      observeTradeSelection({ attemptId: diagnostics.id, universalQuote: structuredClone(activeUniversalQuote),
+        deployment: { core: addresses.core, helpers: activeUniversalQuote.deployment.helpers as Address, adapter: activeUniversalQuote.deployment.adapter as Address } });
+
     }
     const confirmSelectedTransaction = async (hash: Hex) => {
       const receipt = await diagnostics.confirm(() => confirmTransaction(hash));
-      if (selectedTrade && receiptInput && receiptOutput) {
-        const measured = tradeReceipt(receipt.logs, executionHelpers, address, selectedTrade.value.strategy,
-          selectedTrade.value.tokenIn as Address);
+      if (selectedTrade || activeUniversalQuote) {
+        const measured = tradeReceipt(receipt.logs, executionHelpers, address, selectedTrade?.value.strategy ?? "universal",
+          (selectedTrade?.value.tokenIn ?? activeUniversalQuote?.inputs[0]?.currency) as Address);
         if (measured) setConfirmedTrade({ receipt: measured, input: receiptInput, output: receiptOutput });
       }
       return receipt;
@@ -1760,6 +1767,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
       setSwapFailureReference(diagnosticReference(error) ?? diagnostics.id);
       setIsSubmittingSwap(false);
       setFrozenTrade(undefined);
+      setFrozenUniversal(undefined);
       toast.error(t("transactionFailed"), { description: error instanceof QuotePreviewError ? quoteErrorMessage(error, t)
         : error instanceof Error ? error.message : t("swapBalanceRefreshFailed") });
       return;
@@ -1773,6 +1781,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
       setSwapFailureReference(diagnosticReference(error) ?? diagnostics.id);
       setIsSubmittingSwap(false);
       setFrozenTrade(undefined);
+      setFrozenUniversal(undefined);
       toast.error(t("wrongNetwork", { network: targetChainName }));
       return;
     }
@@ -1784,8 +1793,8 @@ const computedReceiveQuote = useMemo((): Prefill => {
     const confirmBatch = async (submission: WalletBatchSubmission) => {
       const result = await diagnostics.confirm(() => submission.wait());
       announceTransactionSuccess(result.transactionHash);
-      if (result.logs && selectedTrade && receiptInput && receiptOutput) {
-        const measured = tradeReceipt(result.logs, executionHelpers, address, selectedTrade.value.strategy, selectedTrade.value.tokenIn as Address);
+      if (result.logs && (selectedTrade || activeUniversalQuote)) {
+        const measured = tradeReceipt(result.logs, executionHelpers, address, selectedTrade?.value.strategy ?? "universal", (selectedTrade?.value.tokenIn ?? activeUniversalQuote?.inputs[0]?.currency) as Address);
         if (measured) setConfirmedTrade({ receipt: measured, input: receiptInput, output: receiptOutput });
       }
       return result;
@@ -1880,6 +1889,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
       }
       setIsSubmittingSwap(false);
       setFrozenTrade(undefined);
+      setFrozenUniversal(undefined);
     }
   };
 
@@ -2603,7 +2613,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
                 <div className="flex justify-between gap-3" data-testid="swap-front-end-fee">
                   <span>{t("applicationFee")}{feeDisplay.strategy === "market" && feeDisplay.helperFeePercent ? ` (${feeDisplay.helperFeePercent})` : ""}:</span>
                   <span className={feeValueClassName}>
-                    {!feeDisplay.fees ? "..." : feeDisplay.strategy !== "market" ? "—" : `${formatMeaningfulDecimalString(formatUnits(feeDisplay.fees.helperFeeCygld, cygldDecimals), locale)} CYGLD (${feeDisplay.helpersFeeUsd !== undefined ? formatApproxFiatValue(feeDisplay.helpersFeeUsd) : "..."})`}
+                    {!feeDisplay.fees ? "..." : feeDisplay.strategy === "universal" ? `${formatMeaningfulDecimalString(formatUnits("marketFeeCygld" in feeDisplay.fees ? feeDisplay.fees.marketFeeCygld as bigint : 0n, cygldDecimals), locale)} CYGLD` : feeDisplay.strategy !== "market" ? "—" : `${formatMeaningfulDecimalString(formatUnits(feeDisplay.fees.helperFeeCygld, cygldDecimals), locale)} CYGLD (${feeDisplay.helpersFeeUsd !== undefined ? formatApproxFiatValue(feeDisplay.helpersFeeUsd) : "..."})`}
                   </span>
                 </div>
 
@@ -2630,16 +2640,19 @@ const computedReceiveQuote = useMemo((): Prefill => {
             )}
           </div>
 
+        {(frozenUniversal ?? activeUniversalQuote) && <ExactInputRetentionDisclosure charges={(frozenUniversal ?? activeUniversalQuote)!.estimatedRetainedInputCharges} />}
         {confirmedTrade && <section data-testid="trade-receipt" role="status" className="order-5 my-3 rounded-xl border border-swap-container-border p-3 text-sm">
           <p className="font-semibold">{confirmedTrade.receipt.strategy === "market" ? marketT("confirmed") : t("transactionConfirmed")}</p>
+          {confirmedTrade.receipt.strategy === "universal" && <ExactInputSettlement receipt={confirmedTrade.receipt} />}
           <dl className="mt-2 space-y-1">
-            {([["actualInput", confirmedTrade.receipt.inputUsed, confirmedTrade.input],
+            {confirmedTrade.input && confirmedTrade.output && confirmedTrade.receipt.strategy !== "universal" && ([["actualInput", confirmedTrade.receipt.inputUsed, confirmedTrade.input],
               ["actualOutput", confirmedTrade.receipt.amountOut, confirmedTrade.output],
               ["inputRefund", confirmedTrade.receipt.inputRefund, confirmedTrade.input],
               ["outputRefund", confirmedTrade.receipt.outputRefund, confirmedTrade.output]] as const).map(([label, amount, token]) =>
               <div key={label} className="flex justify-between gap-3"><dt>{label === "actualInput" || label === "actualOutput" ? t(label === "actualInput" ? "tradeActualInput" : "tradeActualOutput") : marketT(label)}</dt><dd>{formatMeaningfulDecimalString(formatUnits(amount, token.decimals), locale)} {token.symbol}</dd></div>)}
-            {confirmedTrade.receipt.strategy === "core" && <div className="flex justify-between gap-3"><dt>{t("protocolFee")}</dt><dd>{formatMeaningfulDecimalString(formatUnits(confirmedTrade.receipt.protocolFeeCygld, cygldDecimals), locale)} CYGLD</dd></div>}
+            {confirmedTrade.receipt.strategy !== "market" && <div className="flex justify-between gap-3"><dt>{t("protocolFee")}</dt><dd>{formatMeaningfulDecimalString(formatUnits(confirmedTrade.receipt.protocolFeeCygld, cygldDecimals), locale)} CYGLD</dd></div>}
             <div className="flex justify-between gap-3"><dt>{t(confirmedTrade.receipt.strategy === "market" ? "applicationFee" : "helpersFee")}</dt><dd>{formatMeaningfulDecimalString(formatUnits(confirmedTrade.receipt.helperFeeCygld, cygldDecimals), locale)} CYGLD</dd></div>
+            {confirmedTrade.receipt.strategy === "universal" && <div className="flex justify-between gap-3"><dt>{t("applicationFee")}</dt><dd>{formatMeaningfulDecimalString(formatUnits(confirmedTrade.receipt.marketFeeCygld ?? 0n, cygldDecimals), locale)} CYGLD</dd></div>}
           {confirmedTrade.receipt.feeRecipient && <div className="flex justify-between gap-3"><dt>{marketT("feeRecipient")}</dt><dd className="break-all text-xs">{confirmedTrade.receipt.feeRecipient}</dd></div>}
           </dl>
           {confirmedTrade.receipt.recoveryAssets.map((asset, index) => <RecoveryShareAmount key={asset}

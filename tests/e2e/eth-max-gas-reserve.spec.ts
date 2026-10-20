@@ -90,6 +90,9 @@ test("ETH MAX uses refreshed fees while the previous gas presentation is retaine
     await choose(page, "ETH");
     await sell(page).fill("1");
     await expect(page.getByRole("status", { name: "You Buy CYGLD", exact: true })).toHaveText("1");
+    await expect(page.getByTestId("exact-input-retention-disclosure")).toBeVisible();
+    await expect(page.getByRole("button",{name:"Swap currencies",exact:true})).toBeEnabled();
+    await expect(page.locator("#buy-amount")).not.toHaveAttribute("aria-busy", "true");
     await page.getByRole("button", { name: /Total fee/ }).click();
     const gas = page.getByText("Transaction fee (gas):", { exact: true }).locator("..");
     const gasValue = gas.locator("span").last();

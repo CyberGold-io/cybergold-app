@@ -3,6 +3,7 @@ import test from "node:test";
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, decodeFunctionData, parseAbiParameters, type Address, type Hex } from "viem";
 import { HELPERS_MARKET_ABI, HELPERS_MARKET_FUNCTIONS } from "../contracts/generated/helpersMarket.ts";
 import { HELPERS_DIAMOND_FUNCTIONS } from "../contracts/generated/helpersDiamond.ts";
+import { HISTORICAL_HELPERS_EXECUTION_ABI } from "../../tests/fixtures/helpers-execution-legacy.ts";
 import { marketSwapReceipt } from "./marketSwap.ts";
 
 const payer = `0x${"a".repeat(40)}` as Address, recipient = `0x${"b".repeat(40)}` as Address;
@@ -14,7 +15,7 @@ const data = encodeAbiParameters(parseAbiParameters("uint8,bool,uint256,uint256,
   [1, true, 1000n, 2000n, 1n, 0n, 1n, beneficiary]);
 
 test("scoped market ABI keeps the historical Diamond interface separate", () => {
-  assert.equal(HELPERS_MARKET_FUNCTIONS.length, 2);
+  assert.equal(HELPERS_MARKET_FUNCTIONS.length, 1);
   assert.equal(HELPERS_DIAMOND_FUNCTIONS.some(entry => entry.signature.startsWith("swapExact")), false);
   const wide = 2n ** 200n;
   const params = { side: 1, counterToken: token, amount: wide + 2n, bound: 9n, routedInput: wide,
@@ -22,8 +23,8 @@ test("scoped market ABI keeps the historical Diamond interface separate", () => 
   const empty = `0x${"0".repeat(64)}` as const;
   const authorization = { mode: 1, nativePermit: { value: wide + 2n, deadline: 1900000000n, v: 27, r: empty, s: empty },
     permit2: { permit: { permitted: { token, amount: 0n }, nonce: 0n, deadline: 0n }, signature: "0x" as const } };
-  const call = encodeFunctionData({ abi: HELPERS_MARKET_ABI, functionName: "swapExactInput", args: [params, authorization] });
-  const decoded = decodeFunctionData({ abi: HELPERS_MARKET_ABI, data: call });
+  const call = encodeFunctionData({ abi: HISTORICAL_HELPERS_EXECUTION_ABI, functionName: "swapExactInput", args: [params, authorization] });
+  const decoded = decodeFunctionData({ abi: HISTORICAL_HELPERS_EXECUTION_ABI, data: call });
   assert.equal(decoded.functionName, "swapExactInput");
   assert.equal(decoded.args[0].amount, wide + 2n); assert.equal(decoded.args[0].routedInput, wide);
   assert.equal(decoded.args[1].nativePermit.value, wide + 2n);

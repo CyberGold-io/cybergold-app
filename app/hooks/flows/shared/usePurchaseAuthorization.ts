@@ -33,9 +33,9 @@ export function usePurchaseAuthorization() {
   const { preparePermit2Authorization } = usePermit2Transfer();
 
   const preparePurchaseAuthorization = useCallback(async ({ owner, permitted, nativePermitsInstalled,
-    singlePermit2 = false, walletBatch, walletConfirmationTracker, spender = requireProtocolAddress(HELPERS_DIAMOND_ADDRESS, "Helpers"),
+    singlePermit2 = false, exactApproval = false, walletBatch, walletConfirmationTracker, spender = requireProtocolAddress(HELPERS_DIAMOND_ADDRESS, "Helpers"),
   }: { owner: Address; permitted: readonly TokenPermissions[]; nativePermitsInstalled: boolean | (() => Promise<boolean>);
-    singlePermit2?: boolean; spender?: Address; walletBatch?: WalletSwapBatch; walletConfirmationTracker?: WalletConfirmationTracker }) => {
+    singlePermit2?: boolean; exactApproval?: boolean; spender?: Address; walletBatch?: WalletSwapBatch; walletConfirmationTracker?: WalletConfirmationTracker }) => {
     const allowances: bigint[] = [];
     let installed = typeof nativePermitsInstalled === "boolean" ? nativePermitsInstalled : undefined;
     const inputs: BasketIssueInput[] = [];
@@ -62,7 +62,7 @@ export function usePurchaseAuthorization() {
     }
     const beforeApprovals = walletBatch?.approvals.length ?? 0;
     const p2 = p2Permissions.length ? await preparePermit2Authorization({ owner, permitted: p2Permissions,
-      single: singlePermit2, spender, walletBatch, walletConfirmationTracker, signatureCount: native.length + 1 }) : undefined;
+      single: singlePermit2, spender, walletBatch, walletConfirmationTracker, signatureCount: native.length + 1, exactApproval }) : undefined;
     if (!p2) await assertWalletOnExpectedChain(walletClient);
     const deadline = buildDeadline(PERMIT_DEADLINE_TTL_SEC);
     const requests: WalletTypedData[] = native.map(({ index, domain, nonce }) => tokenPermitTypedData(owner,

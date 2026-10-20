@@ -61,6 +61,10 @@
     "disconnectFailedDescription": "Wallet konnte nicht getrennt werden. Versuchen Sie es erneut."
   },
   "Home": {
+    "exactInputRetentionDisclosure": "Der gesamte Eingabebetrag wird bereitgestellt. Nach den geplanten Konvertierungen verbleibende Eingaben behält Helpers als Protokollgebühr für seinen Eigentümer. Sie erhalten die gesamte endgültige Ausgabe unter Einhaltung des angezeigten Mindestbetrags.",
+    "estimatedRetainedCharge": "Geschätzte einbehaltene Gebühr",
+    "retainedProtocolCharge": "Einbehaltene Protokollgebühr",
+    "retainedCustodian": "Verwahrer der Gebühr",
     "redeemOutputTooSmall": "Der gewünschte Auszahlungsbetrag ist für eine Einlösung zu klein.",
     "reduceAmountToBalance": "Verringern Sie den Tauschbetrag auf Ihr verfügbares Guthaben.",
     "authorizationUnavailable": "Die Token-Freigabe ist derzeit nicht verfügbar. Versuchen Sie es später erneut.",

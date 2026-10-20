@@ -19,5 +19,6 @@ export const tokens: TokenType[] = [
 export const protocolConfigurationFixture: ProtocolConfiguration = { chainId: 31337,
   contracts: { core: protocolAddresses.core, helpers: protocolAddresses.helpers, uniswapAdapter: protocolAddresses.adapter, governance: null, staking: null, safe: null },
   tokens: tokens.filter(token => token.type !== "basket").map(token => ({ ...token, chainId: 31337 })),
+  universalExactInput: { adapter: null, encoding: null, settlementPolicy: "protocol-retained-input" },
   sandboxForkGeneration: null, adapter: { status: "success", encoding: "uniswap-multi-protocol-v1", observation: null } };
 export const configuredFixtureAddresses: Record<keyof typeof protocolAddresses, Address> = protocolAddresses;

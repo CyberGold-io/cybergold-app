@@ -1,4 +1,4 @@
-import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, type Address, type Hex } from "viem";
+import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, zeroHash, type Address, type Hex } from "viem";
 import { expect, test } from "./fixtures/app-test";
 import { install as installTokens } from "./fixtures/token-quotes";
 import { getMainInput, getSwapButton, openFeeDetails, selectToken, showAllSellTokens } from "../metamask/token-flows/helpers";
@@ -6,9 +6,14 @@ import { armUiQuoteCapture, capturedUiQuote, quoteAssets } from "../trading/uiQu
 import { uiReceiptResult } from "../trading/uiReceipt";
 import { confirmedTransactionText } from "../trading/uiDiagnostics";
 import { tradeScenarios } from "../trading/scenarios";
-import { protocolConfigurationFixture as config, tokenAddresses } from "../fixtures/protocol-configuration";
+import { protocolConfigurationFixture as config } from "../fixtures/protocol-configuration";
+import { exactInputPlan } from "../../app/utils/universalExactInput";
+import { universalFixture } from "./fixtures/universal-exact-input";
+import type { UniversalExactInputRequest } from "../../app/utils/universalExactInput";
 import { HELPERS_EXECUTION_ABI } from "../../app/contracts/cybergold-helpers/execution";
 
+const emptyTokenPermit={value:0n,deadline:0n,v:0,r:zeroHash,s:zeroHash};
+const emptyPermit2={permit:{permitted:[],nonce:0n,deadline:0n},signature:"0x" as Hex};
 const owner = "0x0000000000000000000000000000000000000001" as const, hash = `0x${"a".repeat(64)}` as Hex;
 async function installReadOnlyWallet(page: Parameters<typeof installTokens>[0]) {
   await page.addInitScript(({ owner, chain }) => {
@@ -31,7 +36,7 @@ async function installReadOnlyWallet(page: Parameters<typeof installTokens>[0]) 
       .map(token => ({ id: token.id, address: token.address, balance: { status: "success", value: "100000000000000000000" } })),
   } }));
 }
-function event(name: "Issued" | "RedeemedToBasket", args: Record<string, unknown>) {
+function event(name: "ExactInputExecuted", args: Record<string, unknown>) {
   const abi = HELPERS_EXECUTION_ABI.find(row => row.type === "event" && row.name === name)!;
   if (abi.type !== "event") throw new Error("Fixture event missing");
   const fields = abi.inputs.filter(row => !row.indexed);
@@ -43,7 +48,7 @@ function receipt(log: ReturnType<typeof event>) {
 }
 
 test("actual App click captures refreshed displayed amounts and committed tolerance before receipt comparison", async ({ page }) => {
-  await installTokens(page); await installReadOnlyWallet(page); await page.goto("/en");
+  const observed=await installTokens(page); await installReadOnlyWallet(page); await page.goto("/en");
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible(); await showAllSellTokens(page);
   await selectToken(page, "sell", "USDC"); await selectToken(page, "buy", "CYGLD");
   await getMainInput(page, "sell").fill("1"); await expect(getMainInput(page, "buy")).toHaveText("1");
@@ -55,21 +60,24 @@ test("actual App click captures refreshed displayed amounts and committed tolera
   // The observer is armed before the quote changes, but must capture only the
   // displayed values at the real click, not this earlier ready preview.
   await getMainInput(page, "sell").fill("2"); await expect(getMainInput(page, "buy")).toHaveText("2");
-  await expect(page.getByTestId("swap-minimum-output")).toContainText("2 CYGLD");
+  await expect(page.getByTestId("swap-minimum-output")).toContainText("1.995 CYGLD");
   await page.locator("#execution-tolerance").fill("invalid draft");
   await button.click(); // The fixture wallet rejects writes; no real wallet or chain is used.
   const quote = await capturedUiQuote(page, assets, "exact-in");
   expect(quote.toleranceBps).toBe(25); expect(quote.input[0].amount).toBe("2000000"); expect(quote.output[0].amount).toBe("2000000000000000000");
-  const minimum = BigInt(quote.executionBound.amounts[0].amount);
-  const data = encodeFunctionData({ abi: HELPERS_EXECUTION_ABI, functionName: "issueFromTokenExactOut", args: [
-    { inputToken: tokenAddresses.USDC, maximumInputAmount: 2000000n, netCygldOut: minimum }, { recipient: owner, expectedOrderedCoreAssets: [tokenAddresses.PAXG] }, [],
-  ] });
-  const result = uiReceiptResult(scenario, config, owner, data, receipt(event("Issued", { payer: owner, recipient: owner, inputToken: tokenAddresses.USDC,
-    inputUsed: 2000000n, netCygldOut: 2000000000000000000n, protocolFeeCygld: 2000000000000000n, helperFeeCygld: 0n })), 2000000n, [], quote);
-  expect(result.status).toBe("pass"); expect(result.receipt!.netPaid).toEqual(["2000000"]);
-  const wrong = structuredClone(quote); wrong.output[0].amount = "3000000000000000000";
-  expect(() => uiReceiptResult(scenario, config, owner, data, receipt(event("Issued", { payer: owner, recipient: owner, inputToken: tokenAddresses.USDC,
-    inputUsed: 2000000n, netCygldOut: 2000000000000000000n, protocolFeeCygld: 2000000000000000n, helperFeeCygld: 0n })), 2000000n, [], wrong)).toThrow(/ui-calldata-output-tolerance-missed/);
+  const wire=universalFixture(observed.rawIntents.at(-1) as UniversalExactInputRequest);
+  const plan=exactInputPlan(wire.plan);
+  const data=encodeFunctionData({abi:HELPERS_EXECUTION_ABI,functionName:"executeExactInput",args:[plan,{
+    authorizations:plan.inputs.map(()=>({kind:0,permit:emptyTokenPermit})),permit2:emptyPermit2}]});
+  const settlement=receipt(event("ExactInputExecuted",{payer:owner,recipient:owner,intent:0,result:{
+    acquiredInputs:plan.inputs,recipientOutputs:[{kind:0,token:config.contracts.core,id:0n,amount:2000000000000000000n}],
+    recoveryShares:[],stages:[],retainedInputs:[],coreProtocolFeeCygld:2000000000000000n,coreHelpersFeeCygld:0n,
+    marketFeeCygld:0n,retainedCustodian:config.contracts.helpers,feeBeneficiaryAtSettlement:owner}}));
+  const result=uiReceiptResult(scenario,config,owner,data,settlement,2000000n,[],quote);
+  expect(result.status).toBe("pass");expect(result.receipt!.netPaid).toEqual(["2000000"]);
+  const wrong=structuredClone(quote);wrong.output[0].amount="3000000000000000000";
+  expect(()=>uiReceiptResult(scenario,config,owner,data,settlement,2000000n,[],wrong)).toThrow(/ui-calldata-output-tolerance-missed/);
+
 });
 
 test("confirmation observer accepts either visible existing Core card/toast despite duplicate hidden text", async ({ page }) => {

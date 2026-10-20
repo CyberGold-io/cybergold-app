@@ -3,7 +3,7 @@ import { protocolAddresses } from "../fixtures/protocol-configuration";
 import { routeWalletBalances } from "./fixtures/wallet-balances";
 import { expect, test } from "./fixtures/app-test";
 import { decodeFunctionData, erc20Abi, getAddress, maxUint256 } from "viem";
-import { HELPERS_ABI_ISSUE_FROM_TOKEN } from "../../app/contracts/cybergold-helpers/issueFacet";
+import { HELPERS_EXECUTION_ABI } from "../../app/contracts/cybergold-helpers/execution";
 import { choose, context, install } from "./fixtures/token-quotes";
 import { intentFixture } from "./fixtures/quote-intent";
 
@@ -144,7 +144,8 @@ for (const operation of ["purchase", "redemption"] as const) {
       const transactions = () => page.evaluate(() => (window as unknown as {
         __purchaseTransactions: { data: `0x${string}`; value?: string }[];
       }).__purchaseTransactions);
-      await expect.poll(() => balanceStarted && adapterStarted).toBe(true);
+      await expect.poll(() => balanceStarted).toBe(true);
+      expect(adapterStarted).toBe(false);
       const walletRequests = await page.evaluate(() => (window as unknown as {
         __purchaseWalletRequests: string[];
       }).__purchaseWalletRequests);
@@ -156,7 +157,7 @@ for (const operation of ["purchase", "redemption"] as const) {
         if (firstUse) {
           const approval = decodeFunctionData({ abi: erc20Abi, data: (await transactions())[0].data });
           expect(approval.functionName).toBe("approve");
-          expect(approval.args).toEqual([getAddress(permit2), maxUint256]);
+          expect(approval.args).toEqual([getAddress(permit2),input]);
         }
       } else {
         expect((await transactions()).length).toBe(0);
@@ -164,20 +165,14 @@ for (const operation of ["purchase", "redemption"] as const) {
       finishEstimate();
       await expect.poll(async () => (await transactions()).length).toBe(firstUse ? 2 : 1);
       const submitted = (await transactions()).at(-1)!;
-      const decoded = decodeFunctionData({ abi: HELPERS_ABI_ISSUE_FROM_TOKEN, data: submitted.data });
-      if (operation === "purchase") {
-        expect(decoded.functionName).toBe(symbol === "ETH" ? "issueFromNativeExactOut" : firstUse ? "issueFromTokenExactOutWithPermit2" : "issueFromTokenExactOut");
-        const params = decoded.args![0] as { netCygldOut: bigint; maximumInputAmount?: bigint; maximumNativeIn?: bigint };
-        expect(params.netCygldOut).toBe(net);
-        expect(params.maximumInputAmount ?? params.maximumNativeIn).toBe(input);
-        if (symbol === "ETH") expect(BigInt(submitted.value!)).toBe(input);
-        expect(simulations[0].args[0].netCygldOut).toBe(String(net));
-      } else {
-        expect(decoded.functionName).toBe(symbol === "ETH" ? "redeemToNativeExactIn" : "redeemToTokenExactIn");
-        const params = decoded.args![0] as { minimumAmountOut: bigint; grossCygldIn: bigint };
-        expect(params.grossCygldIn).toBe(input);
-        expect(params.minimumAmountOut).toBe(net * 99n / 100n);
-      }
+      const decoded = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: submitted.data });
+      expect(decoded.functionName).toBe("executeExactInput");
+      const plan=decoded.args![0] as {inputs:readonly {currency:string;amount:bigint}[];minimumOutput:bigint;intent:number};
+      expect(plan.intent).toBe(operation==="purchase"?0:1);expect(plan.inputs[0].amount).toBe(input);
+      expect(plan.minimumOutput).toBe(net*99n/100n);
+      if(operation==="purchase"&&symbol==="ETH")expect(BigInt(submitted.value!)).toBe(input);
+      expect(simulations[0].operation).toBe("executeExactInput");
+      expect((simulations[0].args[0] as unknown as {minimumOutput:string}).minimumOutput).toBe(String(net*99n/100n));
       expect(simulations).toHaveLength(1);
       if (operation === "purchase" && symbol === "WETH") expect(tokenContextStarted).toBe(true);
       if (firstUse) expect(approvalGasStarted).toBe(true);

@@ -33,7 +33,8 @@ async function readyRedeem(page: Page) {
 
 async function installSigningWallet(page: Page) {
   await page.route("**/api/account/token-permit*", route => route.fulfill({ json: {
-    spender: protocolAddresses.helpers, allowance: { status: "success", value: "0" },
+    spender: protocolAddresses.helpers, allowance: { status: "success", value: "0" },nonce:{status:"success",value:"0"},
+    authorization:{kind:"erc2612",confidence:"qualified",domain:{name:"CyberGold",version:"1",chainId:chain,verifyingContract:protocolAddresses.core}},
   } }));
   await page.addInitScript(({ owner, hash, chain }) => {
     const requests: string[] = [];

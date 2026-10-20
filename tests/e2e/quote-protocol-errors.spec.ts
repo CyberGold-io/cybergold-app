@@ -1,3 +1,4 @@
+import { routeBasketQuote } from "./fixtures/universal-exact-input";
 import { routeCoreIntent } from "./fixtures/trade-core";
 import { selectBasket } from "./fixtures/swap-selection";
 import { expect, test } from "./fixtures/app-test";
@@ -26,7 +27,7 @@ for (const { locale, code, message } of cases) for (const path of ["token", "bas
         JSON.stringify({ type: "error", code, error: "private diagnostic", correlationId: "fixture" }) + "\n" }));
     } else {
       await basketInstall(page);
-      await page.route("**/api/quotes/basket-preview", route => route.fulfill({ status: 503, json: {
+      await routeBasketQuote(page, route => route.fulfill({ status: 503, json: {
         code, error: "private diagnostic", correlationId: "fixture" } }));
     }
     await page.goto(`/${locale}`);

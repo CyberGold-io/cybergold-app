@@ -2,7 +2,7 @@ import { protocolAddresses, tokens } from "../../fixtures/protocol-configuration
 import { expect, test, type Page } from "../../e2e/fixtures/app-test";
 import { encodeAbiParameters, encodeEventTopics, parseAbiParameters, type Address } from "viem";
 import { HELPERS_MARKET_ABI } from "../../../app/contracts/generated/helpersMarket";
-import { installMarket, marketTradeFixture } from "../../e2e/fixtures/market-quotes";
+import { installLegacyMarket as installMarket, marketTradeFixture } from "../../e2e/fixtures/market-quotes";
 import { coreIntentRequest, tradeFixture } from "../../e2e/fixtures/trade-core";
 import { intentFixture } from "../../e2e/fixtures/quote-intent";
 import { context } from "../../e2e/fixtures/token-quotes";

@@ -172,7 +172,8 @@ export function enrichResultQuality(result: ScenarioResult, valuation: Valuation
       return unavailable;
     }
   };
-  result.quoteTerms ??= result.providers?.[result.selectedProvider ?? (result.asset === 'BASKET' ? 'core' : result.actualStrategy === 'unknown' ? 'core' : result.actualStrategy)]?.quoteTerms;
+  const provider = result.selectedProvider ?? (result.asset === 'BASKET' ? 'core' : result.actualStrategy);
+  if (provider === 'core' || provider === 'market') result.quoteTerms ??= result.providers?.[provider]?.quoteTerms;
   if (result.quoteTerms) result.quoteQuality = measured(result.quoteTerms, 'quoted');
   for (const provider of Object.values(result.providers ?? {})) if (provider.quoteTerms)
     provider.quoteQuality = measured(provider.quoteTerms, 'quoted');

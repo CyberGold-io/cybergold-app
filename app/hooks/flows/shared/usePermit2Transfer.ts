@@ -102,12 +102,14 @@ export function usePermit2Transfer() {
       walletConfirmationTracker,
       trailingConfirmationCount = 0,
       walletBatch,
+      exactApproval = false,
     }: {
       owner: Address;
       permitted: readonly TokenPermissions[];
       walletConfirmationTracker?: WalletConfirmationTracker;
       trailingConfirmationCount?: number;
       walletBatch?: WalletSwapBatch;
+      exactApproval?: boolean;
     }) => {
       if (!publicClient) {
         throw new Error("Public client is unavailable");
@@ -119,7 +121,8 @@ export function usePermit2Transfer() {
         permitted: [...permitted],
       });
       const approvals = tokensNeedingPermit2.flatMap(({ token, amount, allowance }) =>
-        tokenPurchaseApprovalAmounts(token, allowance, amount, tokenAddresses.USDT).map(value => ({ token, amount: value === 0n ? 0n : maxUint256 })));
+        tokenPurchaseApprovalAmounts(token, allowance, amount, tokenAddresses.USDT).map(value => ({ token,
+          amount: value === 0n ? 0n : exactApproval ? amount : maxUint256 })));
 
       walletConfirmationTracker?.setTotal(
         (walletBatch && walletBatch.mode !== "requests" ? 0 : approvals.length) + trailingConfirmationCount
@@ -152,12 +155,13 @@ export function usePermit2Transfer() {
 
   const preparePermit2Authorization = useCallback(async ({
     owner, permitted, spender = requireProtocolAddress(HELPERS_DIAMOND_ADDRESS, "Helpers"), deadline,
-    walletConfirmationTracker, walletBatch, single = false, signatureCount = 1,
+    walletConfirmationTracker, walletBatch, single = false, signatureCount = 1, exactApproval = false,
   }: { owner: Address; permitted: readonly TokenPermissions[]; spender?: Address; deadline?: bigint;
-    walletConfirmationTracker?: WalletConfirmationTracker; walletBatch?: WalletSwapBatch; single?: boolean; signatureCount?: number }) => {
+    walletConfirmationTracker?: WalletConfirmationTracker; walletBatch?: WalletSwapBatch; single?: boolean; signatureCount?: number;
+    exactApproval?: boolean }) => {
     if (!permitted.length) throw new Error("Permit2 batch requires at least one permitted token");
     const { confirmation } = await approvePermittedTokens({ owner, permitted, walletConfirmationTracker,
-      walletBatch, trailingConfirmationCount: signatureCount + 1 });
+      walletBatch, trailingConfirmationCount: signatureCount + 1, exactApproval });
     const [nonce, verifiedPermit2Address] = await Promise.all([reservePermit2Nonce(owner), verifyPermit2Address()]);
     await assertWalletOnExpectedChain(walletClient);
     const permitDeadline = deadline ?? buildDeadline(PERMIT_DEADLINE_TTL_SEC);
