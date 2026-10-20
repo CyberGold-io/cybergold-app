@@ -13,6 +13,7 @@ import { QuotePreviewError, quoteErrorMessage } from "@/app/utils/quoteErrors";
 import { fetchTradeQuote, receiveTradeModel, tradeAdapter, tradeQuoteResult, withTradeProviderEvent,
   type TradeQuoteRequest, type TradeQuoteResult } from "@/app/utils/tradeQuote";
 import { useBoundQuoteState } from "./useBoundQuoteState";
+import { tradeDisplayModelScope } from "@/app/utils/quoteModelStore";
 
 export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retainedPlan">, enabled: boolean) {
   const { addresses, identity: configurationIdentity } = useProtocolConfiguration();
@@ -46,7 +47,8 @@ export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retai
       // Ordinary head refresh competes again; explicit retained-plan revalidation is a separate operation.
       return fetchTradeQuote(request, signal, event => {
         if (signal.aborted || sequence.current !== attempt) return;
-        if (event.type === "model") receiveTradeModel(event.value, configurationIdentity);
+        if (event.type === "model") receiveTradeModel(event.value, configurationIdentity,
+          tradeDisplayModelScope(configurationIdentity, generation));
         if (event.type === "qualified") publishQualified(tradeQuoteResult(event.value), attempt);
         if (event.type === "provider-qualified" || event.type === "provider-assessment") accept(previous => {
           if (previous?.identity !== identity || previous.attempt !== attempt) return previous;

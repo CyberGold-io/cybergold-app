@@ -128,7 +128,7 @@ export function FlowSupplyPanel({
                             <span>{t("axisMintRedeemShort")} (CYGLD)</span>
                             <span>{t("axisSupplyShort")} (CYGLD)</span>
                         </div>
-                        <IssuanceRedemptionSupplyChartEcharts series={activeFlowSeries} locale={locale} />
+                        <div data-page-chart-slot><IssuanceRedemptionSupplyChartEcharts series={activeFlowSeries} locale={locale} /></div>
                         <div className="mt-2 flex items-center justify-between pl-[56px] pr-[72px] text-[10px] text-[var(--text-muted)]">
                             <span>{activeFlowAxisLabels[0]}</span>
                             <span>{activeFlowAxisLabels[Math.floor((activeFlowAxisLabels.length - 1) / 2)]}</span>

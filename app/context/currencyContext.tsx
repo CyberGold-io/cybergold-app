@@ -37,6 +37,7 @@ type CurrencyContextValue = {
   fxFetchedAt?: string;
   isFxStale: boolean;
   isFxLoading: boolean;
+  isFxRefreshing: boolean;
   isFxError: boolean;
 };
 
@@ -110,7 +111,7 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
     readStoredPriceDisplayMode,
     () => "fiat"
   );
-  const { rates, fetchedAt, isStale, isLoading, isError } = useFxRates();
+  const { rates, fetchedAt, isStale, isLoading, isRefreshing, isError } = useFxRates();
 
   const setSelectedCurrency = useCallback((currency: DisplayCurrency) => {
     if (typeof window === "undefined") return;
@@ -164,6 +165,7 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
       fxFetchedAt: fetchedAt,
       isFxStale: isStale,
       isFxLoading: isLoading,
+      isFxRefreshing: isRefreshing,
       isFxError: isError,
     }),
     [
@@ -172,6 +174,7 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
       fetchedAt,
       isError,
       isLoading,
+      isRefreshing,
       isStale,
       selectedCurrency,
       selectedGoldUnit,

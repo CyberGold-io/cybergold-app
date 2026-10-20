@@ -2,20 +2,24 @@ import { routeCoreIntent } from "./fixtures/trade-core";
 import { expect, test } from "./fixtures/app-test";
 import { choose, install } from "./fixtures/token-quotes";
 
-test("a fresh disconnected form asks for a sell token and exposes all receive assets", async ({ page }) => {
+test("a fresh disconnected form defaults to native ETH and preserves later currency selections", async ({ page }) => {
   const observed = await install(page);
   await page.goto("/en");
   const pickers = page.locator("main button[aria-haspopup='dialog']");
-  await expect(pickers.first()).toHaveText("Select token");
+  await expect(pickers.first()).toHaveText("ETH");
   await expect(pickers.last()).toHaveText("CYGLD");
   await expect(page.getByRole("switch")).toHaveCount(0);
   await expect(page.getByTestId("market-data-stale-notice")).toHaveCount(0);
   expect(observed.intents).toHaveLength(0);
+  await expect(page.locator("#sell-amount")).toBeFocused();
+  await page.keyboard.type("1");
+  await expect.poll(() => observed.intents.at(-1)).toMatchObject({ mode: "issue-exact-in", native: true });
+  await page.locator("#sell-amount").clear();
   await page.getByRole("button", { name: "Reverse swap direction", exact: true }).click();
   await expect(pickers.first()).toHaveText("CYGLD");
-  await expect(pickers.last()).toHaveText("Select token");
+  await expect(pickers.last()).toHaveText("ETH");
   await page.getByRole("button", { name: "Reverse swap direction", exact: true }).click();
-  await expect(pickers.first()).toHaveText("Select token");
+  await expect(pickers.first()).toHaveText("ETH");
   await choose(page, "WETH");
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
   await expect(page.locator("#buy-amount")).toHaveText("1");
@@ -49,7 +53,7 @@ for (const code of ["rpc-rate-limit", "rpc-timeout", "rpc-access-denied"] as con
       body: JSON.stringify({ type: "error", code, error: "private provider failure", correlationId: "fixture" }) + "\n",
     }));
     await page.goto("/fr");
-    await page.getByRole("button", { name: "Sélectionner un token", exact: true }).first().click();
+    await page.locator('main button[aria-haspopup="dialog"]').first().click();
     await page.getByPlaceholder("Rechercher une devise...").fill("WETH");
     await page.locator("#dropdown-from").getByRole("button", { name: "WETH Wrapped Ether WETH", exact: true }).click();
     await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");

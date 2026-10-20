@@ -94,16 +94,16 @@ test("imported balance and MAX retain token precision and appear in the wallet p
     if (purpose !== "balance") discoveries++;
     return route.fulfill({ json: { ...metadata, holder, balance: success("1234567") } });
   });
-  await page.goto("/en"); await expect(page.getByRole("switch", { name: "Show only tokens available in wallet" })).toBeChecked();
+  await page.goto("/en"); await expect(page.getByRole("switch", { name: "Show only tokens available in wallet" })).not.toBeChecked();
   await importSelected(page);
   await expect(page.getByTestId("sell-wallet-balance")).toHaveText("1.23457 NEW");
   await page.getByRole("button", { name: "Use maximum sell amount", exact: true }).click();
-  await expect(page.getByRole("textbox", { name: "You Sell NEW", exact: true })).toHaveValue("1.234");
+  await expect(page.getByRole("textbox", { name: "Your budget NEW", exact: true })).toHaveValue("1.234");
   await expect.poll(() => observed.intents.at(-1)?.amount).toBe("1234567");
   await page.getByRole("button", { name: "Open wallet menu" }).click();
   await expect(page.getByTestId(`wallet-balance-amount-${chainId}:${token}`)).toHaveText("1.235 NEW");
   const count = reads; await page.getByRole("button", { name: "Close balances", exact: true }).click();
-  await page.getByRole("textbox", { name: "You Sell NEW", exact: true }).fill("0.5");
+  await page.getByRole("textbox", { name: "Your budget NEW", exact: true }).fill("0.5");
   expect(reads).toBe(count);
   expect(discoveries).toBe(1);
 });
@@ -111,7 +111,7 @@ test("imported balance and MAX retain token precision and appear in the wallet p
 test("wallet-only import filtering retains unknown balances without presenting zero", async ({ page }) => {
   await install(page); const holder = await observeWallet(page);
   await page.route("**/api/tokens/metadata*", route => route.fulfill({ json: { ...metadata, holder, balance: { status: "failure", error: "contract-read-failed" } } }));
-  await page.goto("/en"); await expect(page.getByRole("switch", { name: "Show only tokens available in wallet" })).toBeChecked();
+  await page.goto("/en"); await page.getByRole("switch", { name: "Show only tokens available in wallet" }).check();
   await page.locator('main button[aria-haspopup="dialog"]').first().click();
   const picker = page.getByRole("dialog"); await picker.getByRole("textbox").fill(token);
   await expect(picker.getByRole("status")).toHaveText("Token balance is temporarily unavailable. Try again.");
@@ -120,5 +120,6 @@ test("wallet-only import filtering retains unknown balances without presenting z
   await page.getByRole("switch", { name: "Show only tokens available in wallet" }).uncheck();
   await page.locator('main button[aria-haspopup="dialog"]').first().click();
   await page.getByRole("dialog").getByRole("button", { name: "NEW Imported sample NEW", exact: true }).click();
-  await expect(page.getByTestId("sell-wallet-balance")).toHaveText("... NEW");
+  await expect(page.getByTestId("sell-wallet-balance")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Use maximum sell amount", exact: true })).toBeDisabled();
 });

@@ -91,6 +91,8 @@ import {
 } from "@/app/utils/expectedChain";
 import { useCoreControllerConfig } from "../_hooks/useCoreControllerConfig";
 import { GovernanceAccessGate } from "./GovernanceAccessGate";
+import { RetainedPageDisplay } from "@/app/components/retainedPageDisplay";
+import { useSessionPagePreference } from "@/app/hooks/useSessionPagePreference";
 import { GovernanceSurfaceNav } from "./GovernanceSurfaceNav";
 import { useSandboxForkGeneration } from "@/app/context/sandboxForkContext";
 import { canPersistForkExecution } from "@/app/utils/sandboxForkState";
@@ -212,13 +214,15 @@ export function GovernanceClient() {
   const { signMessageAsync } = useSignMessage();
   const { signTypedDataAsync } = useSignTypedData();
   const { writeContractAsync } = useWriteContract();
-  const { address, isConnected } = useObservedWalletAccount();
-  const { addresses } = useProtocolConfiguration();
-  const [activeTab, setActiveTab] = useState<GovernanceTabId>("pending-confirm");
+  const { address, isConnected, hasObservedProviderAccounts, status: walletStatus } = useObservedWalletAccount();
+  const { addresses, configuration, error: configurationError } = useProtocolConfiguration();
+  const [activeTab, setActiveTab] = useSessionPagePreference<GovernanceTabId>(`cg:governance-tab:v1:${EXPECTED_CHAIN_ID}:${address?.toLowerCase() ?? "disconnected"}`, "pending-confirm", ["pending-confirm", "pending-execute", "history"]);
   const [busyActionKey, setBusyActionKey] = useState<string | null>(null);
   const [localSafeExecutions, setLocalSafeExecutions] = useState<LocalSafeExecution[]>([]);
-  const [aliasEditorOwner, setAliasEditorOwner] = useState<Address | null>(null);
-  const [aliasDraft, setAliasDraft] = useState("");
+  const [savedAliasEditor, saveAliasEditor] = useSessionPagePreference<string>(`cg:governance-alias-owner:v1:${EXPECTED_CHAIN_ID}:${address?.toLowerCase() ?? "disconnected"}`, "");
+  const aliasEditorOwner = isAddress(savedAliasEditor) ? savedAliasEditor as Address : null;
+  const setAliasEditorOwner = (owner: Address | null) => saveAliasEditor(owner ?? "");
+  const [aliasDraft, setAliasDraft] = useSessionPagePreference<string>(`cg:governance-alias-draft:v1:${EXPECTED_CHAIN_ID}:${address?.toLowerCase() ?? "disconnected"}`, "");
   const [aliasActionOwner, setAliasActionOwner] = useState<Address | null>(null);
   const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
   const [lastSeenSafeNonce, setLastSeenSafeNonce] = useState<number | undefined>(undefined);
@@ -1620,7 +1624,17 @@ export function GovernanceClient() {
     );
   };
 
+  const observedDisconnect = hasObservedProviderAccounts && !isConnected && walletStatus !== "connecting" && walletStatus !== "reconnecting";
+  const deniedAccess = !!configuration && hasObservedProviderAccounts && !isLoading && !error && !hasAccess;
+  const restoredContent = hasAccess && !isLoading && !safeServiceInfoQuery.isLoading && !safeNonceQuery.isLoading
+    && !ownerAliasesQuery.isLoading && !safePendingQuery.isLoading && !safeExecutedQuery.isLoading
+    && !localExecutionReceiptsQuery.isLoading && !safeExecutionReceiptsQuery.isLoading
+    && !safeExecutionStatusesQuery.isLoading && !pendingExecutionStatusesQuery.isLoading && !governanceTargetCodeQuery.isLoading;
+
   return (
+    <RetainedPageDisplay page="governance-safe" privatePage account={address ?? null}
+      ready={restoredContent || !!busyActionKey || observedDisconnect || deniedAccess || !!configurationError}
+      discard={observedDisconnect || deniedAccess}>
     <div className="flex flex-1 flex-col items-center bg-background font-sans">
       <div className="flex flex-col max-w-6xl w-full mx-auto p-3">
         <section className="flex max-w-6xl w-full justify-between pt-4 mt-4 items-center text-[var(--text-input)]">
@@ -1709,6 +1723,7 @@ export function GovernanceClient() {
                               {isEditingAlias ? (
                                 <div className="flex items-center gap-1 flex-wrap justify-end">
                                   <input
+                                    data-page-draft-key={`owner-alias:${owner.toLowerCase()}`}
                                     value={aliasDraft}
                                     onChange={(event) => setAliasDraft(event.target.value)}
                                     placeholder={t("ownerAliasPlaceholder")}
@@ -2019,5 +2034,6 @@ export function GovernanceClient() {
         </section>
       </div>
     </div>
+    </RetainedPageDisplay>
   );
 }

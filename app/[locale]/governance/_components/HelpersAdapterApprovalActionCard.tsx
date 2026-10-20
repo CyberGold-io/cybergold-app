@@ -1,5 +1,7 @@
 "use client";
 
+import { useGovernanceObservationText } from "../_hooks/useGovernanceObservationText";
+
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
@@ -30,13 +32,22 @@ export function HelpersAdapterApprovalActionCard({
     const trimmed = adapterInput.trim();
     return isAddress(trimmed) && trimmed !== zeroAddress ? getAddress(trimmed) : undefined;
   }, [adapterInput]);
-  const approvedAdapters = helpersConfig.data?.approvedAdapters ?? [];
+  const adapterList = useGovernanceObservationText(action.id, { adapters: helpersConfig.data ? JSON.stringify(helpersConfig.data.approvedAdapters) : undefined });
+  const approvedAdapters = useMemo(() => {
+    try {
+      const parsed = JSON.parse(adapterList.adapters ?? "[]");
+      return Array.isArray(parsed) && parsed.every(entry => typeof entry === "string" && isAddress(entry)) ? parsed as Address[] : [];
+    } catch { return []; }
+  }, [adapterList.adapters]);
   const approvalQuery = useIsAdapterApproved(normalizedAdapter);
   const validationError = normalizedAdapter ? undefined : t("helpersAdapterFormInvalidAddressError");
   const hasCurrentApproval = typeof approvalQuery.data === "boolean";
   const currentApprovalUnavailable =
     !!normalizedAdapter &&
     (approvalQuery.isLoading || approvalQuery.isError || !hasCurrentApproval);
+  const display = useGovernanceObservationText(`${action.id}:${normalizedAdapter?.toLowerCase() ?? "none"}`, {
+    approval: typeof approvalQuery.data === "boolean" ? approvalQuery.data ? t("helpersAdapterFormApprovedValue") : t("helpersAdapterFormRejectedValue") : undefined,
+  });
   const directBusy = governanceActions.busyActionKey === governanceActions.directBusyKey(action.id);
   const hasSubmitOption = eligibility.canDirectCall || eligibility.eligibleSafes.length > 0;
 
@@ -93,8 +104,8 @@ export function HelpersAdapterApprovalActionCard({
         </p>
         <div className="mt-2">
           <p className="text-xs text-[var(--text-muted)]">{t("helpersAdapterFormApprovedListLabel")}</p>
-          {helpersConfig.isLoading ? (
-            <p className="mt-1 text-xs text-[var(--text-muted)]">{t("helpersAdapterFormLoadingApprovedList")}</p>
+          {helpersConfig.isLoading && adapterList.adapters === undefined ? (
+            <p data-page-display-pending="true" className="mt-1 text-xs text-[var(--text-muted)]">{t("helpersAdapterFormLoadingApprovedList")}</p>
           ) : approvedAdapters.length > 0 ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {approvedAdapters.map((adapterAddress) => {
@@ -122,9 +133,9 @@ export function HelpersAdapterApprovalActionCard({
         </div>
         {!normalizedAdapter ? (
           <p className="mt-2 text-xs text-[var(--text-muted)]">{t("helpersAdapterFormLookupHint")}</p>
-        ) : approvalQuery.isLoading ? (
-          <p className="mt-2 text-xs text-[var(--text-muted)]">{t("helpersAdapterFormLoadingCurrent")}</p>
-        ) : approvalQuery.isError || !hasCurrentApproval ? (
+        ) : approvalQuery.isLoading && display.approval === undefined ? (
+          <p data-page-display-pending="true" className="mt-2 text-xs text-[var(--text-muted)]">{t("helpersAdapterFormLoadingCurrent")}</p>
+        ) : (approvalQuery.isError || !hasCurrentApproval) && display.approval === undefined ? (
           <p className="mt-2 text-xs text-rose-700 dark:text-rose-300">
             {t("helpersAdapterFormCurrentReadError")}
           </p>
@@ -137,10 +148,13 @@ export function HelpersAdapterApprovalActionCard({
             <p>
               {t("helpersAdapterFormCurrentApprovalLabel")}:{" "}
               <span className="font-semibold text-[var(--text-input)]">
-                {approvalQuery.data ? t("helpersAdapterFormApprovedValue") : t("helpersAdapterFormRejectedValue")}
+                {display.approval}
               </span>
             </p>
           </div>
+        )}
+        {display.approval !== undefined && approvalQuery.isError && (
+          <p className="mt-2 text-xs text-rose-700 dark:text-rose-300">{t("helpersAdapterFormCurrentReadError")}</p>
         )}
       </div>
 
@@ -148,7 +162,7 @@ export function HelpersAdapterApprovalActionCard({
         <p className="text-sm font-semibold text-[var(--text-input)]">{t("helpersAdapterFormEditTitle")}</p>
         <label className="mt-3 block text-xs text-[var(--text-muted)]">
           <span className="mb-1 block">{t("helpersAdapterFormAddressLabel")}</span>
-          <input
+          <input data-page-draft-key={`${action.id}:adapter`}
             type="text"
             value={adapterInput}
             onChange={(event) => setAdapterInput(event.target.value)}
@@ -157,7 +171,7 @@ export function HelpersAdapterApprovalActionCard({
           />
         </label>
         <label className="mt-3 flex items-center gap-2 text-xs text-[var(--text-input)]">
-          <input
+          <input data-page-draft-key={`${action.id}:approved`}
             type="checkbox"
             checked={approved}
             onChange={(event) => setApproved(event.target.checked)}

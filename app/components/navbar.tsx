@@ -3,7 +3,7 @@
 import Image from "next/image";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useLocale, useTranslations } from "next-intl";
 import { FaBars, FaChevronDown, FaMoon, FaSun, FaTimes } from "react-icons/fa";
 import { usePathname, useRouter } from "@/i18n/navigation";
@@ -18,6 +18,22 @@ import {
 } from "../utils/governanceAuthority";
 import { WalletConnectButton } from "./walletConnectButton";
 import { THEME_PREFERENCE_KEY, type Theme } from "../lib/theme";
+import { useTabFlag } from "../hooks/useTabFlag";
+import { useWalletDisplayCache } from "../hooks/useWalletDisplayCache";
+import { useWalletPresentationAddress } from "../hooks/useWalletPresentationRestoring";
+import { targetChainId } from "../config/chain";
+
+const subscribeHydration = () => () => undefined;
+const clientHydrated = () => true;
+const serverHydrated = () => false;
+
+type NavigationDisplay = { address: string; visible: boolean };
+function parseNavigationDisplay(value: unknown): NavigationDisplay | undefined {
+  if (value && typeof value === "object" && "address" in value && "visible" in value
+    && typeof value.address === "string" && typeof value.visible === "boolean") {
+    return { address: value.address, visible: value.visible };
+  }
+}
 
 // Shared desktop and mobile presentation; colors come from globals.css.
 const navbarStyles = {
@@ -46,6 +62,7 @@ const navbarStyles = {
 } as const;
 
 export function Navbar({ initialTheme }: { initialTheme: Theme }) {
+  const navbarId = useId();
   const t = useTranslations("Navbar");
   const router = useRouter();
   const pathname = usePathname();
@@ -54,23 +71,36 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
   const isGovernanceActive = pathname.startsWith("/governance");
   const currentLocale = useLocale() as SupportedLocale;
   const { address, isConnected } = useObservedWalletAccount();
-  const { owners: coreGovernanceOwners } = useGovernanceSafe({
+  const coreGovernance = useGovernanceSafe({
     enabled: isConnected,
   });
   const helpersOwnerQuery = useHelpersRouterFacts(facts => facts.configuration.owner.status === "success"
     ? facts.configuration.owner.value : undefined, { enabled: isConnected });
   const helpersOwner = normalizeGovernanceAddress(helpersOwnerQuery.data);
-  const { owners: helpersGovernanceOwners } = useGovernanceSafe({
+  const helpersGovernance = useGovernanceSafe({
     authorityAddress: helpersOwner,
     authorityKind: "owner",
     enabled: isConnected && helpersOwner !== undefined,
   });
-  const canViewGovernance =
+  const liveGovernanceVisible =
     isConnected &&
     hasGovernanceNavigationAccess(address, [
-      coreGovernanceOwners,
-      helpersGovernanceOwners,
+      coreGovernance.owners,
+      helpersGovernance.owners,
     ]);
+  const navigationKey = `cg:navbar-governance:v1:${targetChainId}`;
+  const observedNavigation = useMemo<NavigationDisplay | undefined>(() => {
+    const complete = coreGovernance.source !== "unknown" && helpersGovernance.source !== "unknown"
+      && !coreGovernance.isLoading && !helpersGovernance.isLoading && !coreGovernance.error && !helpersGovernance.error;
+    return address && isConnected && (liveGovernanceVisible || complete)
+      ? { address: address.toLowerCase(), visible: liveGovernanceVisible } : undefined;
+  }, [address, isConnected, liveGovernanceVisible, coreGovernance.source, coreGovernance.isLoading, coreGovernance.error,
+    helpersGovernance.source, helpersGovernance.isLoading, helpersGovernance.error]);
+  const navigation = useWalletDisplayCache(navigationKey, parseNavigationDisplay, observedNavigation);
+  const restoringAddress = useWalletPresentationAddress();
+  const displayedAddress = address?.toLowerCase() ?? restoringAddress;
+  const canViewGovernance = liveGovernanceVisible || Boolean(navigation?.visible
+    && displayedAddress === navigation.address && !observedNavigation);
   const {
     selectedCurrency,
     setSelectedCurrency,
@@ -81,10 +111,12 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
     setSelectedPriceDisplayMode,
   } = useCurrency();
   const [theme, setTheme] = useState<Theme>(initialTheme);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isLocaleOpen, setIsLocaleOpen] = useState(false);
-  const [isCurrencyOpen, setIsCurrencyOpen] = useState(false);
-  const [isGoldUnitOpen, setIsGoldUnitOpen] = useState(false);
+  const menuKey = `cg:navbar-ui:v1:${currentLocale}:${pathname}:`;
+  const [isMenuOpen, setIsMenuOpen] = useTabFlag(`${menuKey}mobile`);
+  const [isLocaleOpen, setIsLocaleOpen] = useTabFlag(`${menuKey}locale`);
+  const [isCurrencyOpen, setIsCurrencyOpen] = useTabFlag(`${menuKey}currency`);
+  const [isGoldUnitOpen, setIsGoldUnitOpen] = useTabFlag(`${menuKey}goldUnit`);
+  const hydrated = useSyncExternalStore(subscribeHydration, clientHydrated, serverHydrated);
   const menuRef = useRef<HTMLDivElement | null>(null);
   const toggleRef = useRef<HTMLButtonElement | null>(null);
   const localeMenuRef = useRef<HTMLDivElement | null>(null);
@@ -94,8 +126,17 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
   const goldUnitMenuRef = useRef<HTMLDivElement | null>(null);
   const goldUnitToggleRef = useRef<HTMLButtonElement | null>(null);
 
+  useLayoutEffect(() => {
+    if (!isMenuOpen || !menuRef.current) return;
+    try {
+      const position = Number(window.sessionStorage.getItem(`${menuKey}mobileScroll`) ?? 0);
+      if (Number.isFinite(position) && position >= 0) menuRef.current.scrollTop = position;
+    } catch { /* Optional UI position. */ }
+  }, [isMenuOpen, menuKey]);
+
   useEffect(() => {
     const root = document.documentElement;
+    root.style.colorScheme = theme;
     if (theme === "dark") {
       root.classList.add("dark");
     } else {
@@ -156,7 +197,7 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
     return () => {
       document.removeEventListener("mousedown", handleClickOutside);
     };
-  }, [isCurrencyOpen, isGoldUnitOpen, isLocaleOpen, isMenuOpen]);
+  }, [isCurrencyOpen, isGoldUnitOpen, isLocaleOpen, isMenuOpen, setIsCurrencyOpen, setIsGoldUnitOpen, setIsLocaleOpen, setIsMenuOpen]);
 
   const closeDesktopDropdowns = () => {
     setIsLocaleOpen(false);
@@ -211,13 +252,15 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
 
 
   return (
-    <nav className="relative z-30 w-full border-b border-navbar-border bg-navbar text-base text-text-minor-data">
+    <nav id={navbarId} data-navbar-ready={hydrated || undefined} className="relative z-30 w-full border-b border-navbar-border bg-navbar text-base text-text-minor-data">
       <div className="relative mx-auto flex h-16 items-center justify-between gap-2 px-2 sm:px-4">
         <div className="flex items-center gap-2">
           <button
             ref={toggleRef}
             type="button"
             aria-expanded={isMenuOpen}
+            data-navbar-toggle="mobile"
+            suppressHydrationWarning
             aria-controls="mobile-navigation"
             className={cn(navbarStyles.mobileOnly, "flex size-11 shrink-0 items-center justify-center rounded-lg border border-swap-container-border text-text-input hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring")}
             aria-label="Toggle navigation menu"
@@ -226,7 +269,8 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
               closeDesktopDropdowns();
             }}
           >
-            {isMenuOpen ? <FaTimes aria-hidden="true" /> : <FaBars aria-hidden="true" />}
+            <span data-navbar-icon="open" hidden={!isMenuOpen} suppressHydrationWarning><FaTimes aria-hidden="true" /></span>
+            <span data-navbar-icon="closed" hidden={isMenuOpen} suppressHydrationWarning><FaBars aria-hidden="true" /></span>
           </button>
           <div className="flex items-center gap-2">
             <Image
@@ -254,9 +298,12 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
             >
               {t("dashboard")}
             </Link>
-            {canViewGovernance && (
+            {(canViewGovernance || !hydrated) && (
               <Link
                 href="/governance"
+                data-navbar-governance
+                hidden={!canViewGovernance}
+                suppressHydrationWarning
                 className={cn(navbarStyles.link, isGovernanceActive && navbarStyles.activeLink)}
               >
                 {t("governance")}
@@ -287,6 +334,9 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
               <button
                 type="button"
                 ref={localeToggleRef}
+                data-navbar-toggle="locale"
+                aria-expanded={isLocaleOpen}
+                suppressHydrationWarning
                 aria-label={t("language")}
                 className={navbarStyles.dropdownTrigger}
                 onClick={() => {
@@ -296,11 +346,14 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
                 }}
               >
                 <span>{currentLocale.toUpperCase()}</span>
-                <FaChevronDown className={cn("transition-transform", isLocaleOpen && "rotate-180")} />
+                <FaChevronDown suppressHydrationWarning className={cn("transition-transform", isLocaleOpen && "rotate-180")} />
               </button>
-              {isLocaleOpen && (
+              {(isLocaleOpen || !hydrated) && (
                 <div
                   ref={localeMenuRef}
+                  data-navbar-menu="locale"
+                  hidden={!isLocaleOpen}
+                  suppressHydrationWarning
                   className={cn(navbarStyles.dropdown, "w-32")}
                 >
                   {routing.locales.map((locale) => (
@@ -320,6 +373,10 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
               <button
                 type="button"
                 ref={currencyToggleRef}
+                data-navbar-toggle="currency"
+                aria-expanded={isCurrencyOpen}
+                suppressHydrationWarning
+                data-testid="display-currency-control"
                 aria-label={t("selectCurrency")}
                 className={navbarStyles.dropdownTrigger}
                 onClick={() => {
@@ -328,12 +385,15 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
                   setIsGoldUnitOpen(false);
                 }}
               >
-                <span>{selectedCurrency}</span>
-                <FaChevronDown className={cn("transition-transform", isCurrencyOpen && "rotate-180")} />
+                <span data-display-preference="currency" suppressHydrationWarning>{selectedCurrency}</span>
+                <FaChevronDown suppressHydrationWarning className={cn("transition-transform", isCurrencyOpen && "rotate-180")} />
               </button>
-              {isCurrencyOpen && (
+              {(isCurrencyOpen || !hydrated) && (
                 <div
                   ref={currencyMenuRef}
+                  data-navbar-menu="currency"
+                  hidden={!isCurrencyOpen}
+                  suppressHydrationWarning
                   className={cn(navbarStyles.dropdown, "w-24")}
                 >
                   {supportedCurrencies.map((currency) => (
@@ -353,6 +413,10 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
               <button
                 type="button"
                 ref={goldUnitToggleRef}
+                data-navbar-toggle="goldUnit"
+                aria-expanded={isGoldUnitOpen}
+                suppressHydrationWarning
+                data-testid="display-gold-unit-control"
                 aria-label={t("selectGoldUnit")}
                 className={navbarStyles.dropdownTrigger}
                 onClick={() => {
@@ -361,12 +425,15 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
                   setIsCurrencyOpen(false);
                 }}
               >
-                <span>{goldUnitLabel}</span>
-                <FaChevronDown className={cn("transition-transform", isGoldUnitOpen && "rotate-180")} />
+                <span data-display-preference="gold-unit" suppressHydrationWarning>{goldUnitLabel}</span>
+                <FaChevronDown suppressHydrationWarning className={cn("transition-transform", isGoldUnitOpen && "rotate-180")} />
               </button>
-              {isGoldUnitOpen && (
+              {(isGoldUnitOpen || !hydrated) && (
                 <div
                   ref={goldUnitMenuRef}
+                  data-navbar-menu="goldUnit"
+                  hidden={!isGoldUnitOpen}
+                  suppressHydrationWarning
                   className={cn(navbarStyles.dropdown, "w-36")}
                 >
                   {supportedGoldUnits.map((unit) => (
@@ -395,10 +462,17 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
           <WalletConnectButton />
         </div>
 
-        {isMenuOpen && (
+        {(isMenuOpen || !hydrated) && (
           <div
             ref={menuRef}
+            data-navbar-menu="mobile"
+            hidden={!isMenuOpen}
+            suppressHydrationWarning
             id="mobile-navigation"
+            onScroll={event => {
+              try { window.sessionStorage.setItem(`${menuKey}mobileScroll`, String(event.currentTarget.scrollTop)); }
+              catch { /* Optional UI position. */ }
+            }}
             onKeyDown={(event) => {
               if (event.key === "Escape") {
                 setIsMenuOpen(false);
@@ -422,9 +496,12 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
               >
                 {t("dashboard")}
               </Link>
-              {canViewGovernance && (
+              {(canViewGovernance || !hydrated) && (
                 <Link
                   href="/governance"
+                  data-navbar-governance
+                  hidden={!canViewGovernance}
+                  suppressHydrationWarning
                   className={cn(navbarStyles.link, isGovernanceActive && navbarStyles.activeLink)}
                   onClick={() => setIsMenuOpen(false)}
                 >
@@ -469,6 +546,8 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
                       key={currency}
                       type="button"
                       aria-pressed={currency === selectedCurrency}
+                      data-navbar-currency-option={currency}
+                      suppressHydrationWarning
                       className={cn(navbarStyles.option, currency === selectedCurrency ? navbarStyles.activeOption : navbarStyles.inactiveOption)}
                       onClick={() => handleCurrencySelect(currency)}
                     >
@@ -482,6 +561,8 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
                       key={unit}
                       type="button"
                       aria-pressed={unit === selectedGoldUnit}
+                      data-navbar-gold-unit-option={unit}
+                      suppressHydrationWarning
                       className={cn(navbarStyles.option, unit === selectedGoldUnit ? navbarStyles.activeOption : navbarStyles.inactiveOption)}
                       onClick={() => handleGoldUnitSelect(unit)}
                     >
@@ -507,6 +588,78 @@ export function Navbar({ initialTheme }: { initialTheme: Theme }) {
           </div>
         )}
       </div>
+      <script
+        type={typeof window === "undefined" ? "text/javascript" : "text/plain"}
+        suppressHydrationWarning
+        dangerouslySetInnerHTML={{
+          __html: `(${restoreDisplayPreferenceLabels.toString()})(${JSON.stringify(navbarId)},${JSON.stringify(supportedCurrencies)},${JSON.stringify({ imperial: t("weightSystemImperialShort"), metric: t("weightSystemMetricShort") })},${JSON.stringify(menuKey)},${JSON.stringify({ active: cn(navbarStyles.option, navbarStyles.activeOption), inactive: cn(navbarStyles.option, navbarStyles.inactiveOption) })},${JSON.stringify(navigationKey)});`,
+        }}
+      />
     </nav>
   );
+}
+
+// The server cannot read the browser's preferences. Correct these two text
+// leaves before first paint; the currency context takes over after hydration.
+function restoreDisplayPreferenceLabels(
+  navbarId: string,
+  currencies: readonly string[],
+  goldUnitLabels: { imperial: string; metric: string },
+  menuKey: string,
+  optionClasses: { active: string; inactive: string },
+  navigationKey: string,
+) {
+  try {
+    const navbar = document.getElementById(navbarId);
+    const currency = window.localStorage.getItem("display-currency");
+    const goldUnit = window.localStorage.getItem("display-gold-unit");
+    const currencyLabel = navbar?.querySelector('[data-display-preference="currency"]');
+    const goldUnitLabel = navbar?.querySelector('[data-display-preference="gold-unit"]');
+    if (currencyLabel && currency && currencies.includes(currency)) {
+      currencyLabel.textContent = currency;
+    }
+    if (goldUnitLabel && (goldUnit === "imperial" || goldUnit === "metric")) {
+      goldUnitLabel.textContent = goldUnitLabels[goldUnit];
+    }
+    for (const name of ["mobile", "locale", "currency", "goldUnit"]) {
+      const open = window.sessionStorage.getItem(`${menuKey}${name}`) === "true";
+      const menu = navbar?.querySelector<HTMLElement>(`[data-navbar-menu="${name}"]`);
+      const trigger = navbar?.querySelector<HTMLElement>(`[data-navbar-toggle="${name}"]`);
+      if (menu) {
+        menu.hidden = !open;
+        if (name === "mobile") {
+          const position = Number(window.sessionStorage.getItem(`${menuKey}mobileScroll`) ?? 0);
+          if (Number.isFinite(position) && position >= 0) menu.scrollTop = position;
+          menu.addEventListener("scroll", () => {
+            try { window.sessionStorage.setItem(`${menuKey}mobileScroll`, String(menu.scrollTop)); } catch { /* Optional UI position. */ }
+          }, { passive: true });
+        }
+      }
+      trigger?.setAttribute("aria-expanded", String(open));
+      trigger?.querySelector(".transition-transform")?.classList.toggle("rotate-180", open);
+      if (name === "mobile") {
+        const opened = trigger?.querySelector<HTMLElement>('[data-navbar-icon="open"]');
+        const closed = trigger?.querySelector<HTMLElement>('[data-navbar-icon="closed"]');
+        if (opened) opened.hidden = !open;
+        if (closed) closed.hidden = open;
+      }
+    }
+    for (const [selector, selected] of [["data-navbar-currency-option", currency ?? "USD"], ["data-navbar-gold-unit-option", goldUnit ?? "metric"]]) {
+      for (const option of navbar?.querySelectorAll<HTMLElement>(`[${selector}]`) ?? []) {
+        const active = option.getAttribute(selector) === selected;
+        option.setAttribute("aria-pressed", String(active));
+        option.className = active ? optionClasses.active : optionClasses.inactive;
+      }
+    }
+    try {
+      const navigation = JSON.parse(window.sessionStorage.getItem(navigationKey) ?? "null");
+      const wallet = navbar?.querySelector<HTMLElement>("[data-wallet-cached]:not([hidden])");
+      if (navigation?.visible === true && typeof navigation.address === "string"
+        && navigation.address === wallet?.dataset.walletAddress?.toLowerCase()) {
+        for (const link of navbar?.querySelectorAll<HTMLElement>("[data-navbar-governance]") ?? []) link.hidden = false;
+      }
+    } catch { /* Optional navigation presentation never grants access. */ }
+  } catch {
+    // Browser storage can be unavailable; keep the ordinary default labels.
+  }
 }

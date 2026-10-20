@@ -428,7 +428,7 @@ test("an exhausted Core model does not block a qualified market winner", async (
     ].join("\n") });
   });
   await page.goto("/en");
-  await page.getByRole("button", { name: "Select token", exact: true }).first().click();
+  await page.locator('main button[aria-haspopup="dialog"]').first().click();
   await page.getByPlaceholder("Search currency...").fill("PAXG");
   await page.locator("#dropdown-from").getByRole("button").filter({ has: page.getByText("PAXG", { exact: true }) }).click();
   await page.locator("#sell-amount").fill("300");
@@ -437,6 +437,55 @@ test("an exhausted Core model does not block a qualified market winner", async (
   await expect(page.getByTestId("cygld-purchase-capacity")).toHaveCount(0);
   await expect(page.locator("#purchase-cap-warning")).toHaveCount(0);
   await expect(page.locator("#buy-amount")).not.toHaveAttribute("aria-invalid", "true");
+});
+
+for (const path of ["token", "basket"]) for (const exhausted of [true, false]) test(exhausted
+  ? `fresh ${path} cap exhaustion overrides stale available-capacity facts`
+  : `fresh ${path} positive cap capacity overrides stale exhausted-capacity facts`, async ({ page }) => {
+  await installCapacity(page, exhausted ? 50n : 250n, false);
+  await installReadOnlyWallet(page);
+  const failure = { code: "issuance-cap-exceeded", error: "Private cap diagnostic", constraint: {
+    kind: "issuance-cap", quantity: "gross-cygld-mint", availableRaw: exhausted ? "0" : String(50n * unit),
+    currentSupplyRaw: String((exhausted ? 250n : 200n) * unit), limitRaw: String(250n * unit), limitKind: "effective-supply-cap",
+  } };
+  if (path === "token") await routeCoreIntent(page, route => route.fulfill({ contentType: "application/x-ndjson",
+    body: JSON.stringify({ type: "error", ...failure }) + "\n" }));
+  else await page.route("**/api/quotes/basket-preview", route => route.fulfill({ status: 422, json: failure }));
+  await page.goto("/en");
+  await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
+  if (path === "basket") {
+    await page.getByRole("switch", { name: "Show only tokens available in wallet", exact: true }).uncheck();
+    await selectBasket(page);
+    await page.getByRole("textbox", { name: "Sell amount (PAXG)", exact: true }).fill("1");
+  } else {
+    await choose(page, "WETH");
+    await page.locator("#sell-amount").fill("1");
+  }
+  const label = exhausted ? "Supply cap reached" : "Reduce the amount";
+  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveText(label);
+  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveAttribute("title", new RegExp(`In circulation: ${exhausted ? 250 : 200} CYGLD`));
+  await expect(page.getByRole("button", { name: label, exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: exhausted ? "Reduce the amount" : "Supply cap reached", exact: true })).toHaveCount(0);
+  await expect(page.getByText("Private cap diagnostic", { exact: true })).toHaveCount(0);
+  if (path === "basket") await expect(page.locator("#purchase-cap-warning"))
+    .toHaveText(exhausted ? "The CYGLD issuance cap has been reached. No additional CYGLD can currently be minted."
+      : "This purchase exceeds the remaining issuance capacity. Reduce the purchase amount.");
+});
+
+test("insufficient market liquidity remains explicit when Core capacity is exhausted", async ({ page }) => {
+  await installCapacity(page, 250n);
+  await installReadOnlyWallet(page);
+  await page.route("**/api/quotes/trade/stream", route => route.fulfill({ contentType: "application/x-ndjson", body: [
+    JSON.stringify({ type: "provider-error", strategy: "core", code: "issuance-cap-exceeded", error: "Private Core diagnostic" }),
+    JSON.stringify({ type: "error", code: "quote-insufficient-liquidity", error: "Private Market diagnostic" }), "",
+  ].join("\n") }));
+  await page.goto("/en");
+  await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
+  await choose(page, "WETH");
+  await page.locator("#sell-amount").fill("1");
+  await expect(page.getByRole("button", { name: "There is not enough market liquidity for this amount. Reduce the amount.", exact: true })).toBeDisabled();
+  await expect(page.getByTestId("cygld-purchase-capacity")).toHaveCount(0);
+  await expect(page.getByText(/Private (Core|Market) diagnostic/)).toHaveCount(0);
 });
 
 test("fresh Core model capacity remains advisory without a separate supply request", async ({ page }) => {
@@ -486,7 +535,7 @@ for (const width of [1280, 390]) {
     await installCapacity(page); await installReadOnlyWallet(page); await routeCapQuotes(page);
     await page.goto("/fr");
     await expect(page.getByRole("button", { name: "Ouvrir le menu du portefeuille" })).toBeVisible();
-    await page.getByRole("button", { name: "Sélectionner un token", exact: true }).first().click();
+    await page.locator('main button[aria-haspopup="dialog"]').first().click();
     await page.getByPlaceholder("Rechercher une devise...").fill("WETH");
     await page.locator("#dropdown-from").getByRole("button", { name: "WETH Wrapped Ether WETH", exact: true }).click();
     await page.locator("#sell-amount").fill("200");

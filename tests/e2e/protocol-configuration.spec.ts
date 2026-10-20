@@ -4,7 +4,7 @@ import { installMarket } from "./fixtures/market-quotes";
 import { context } from "./fixtures/token-quotes";
 
 async function selectPaxg(page: import("@playwright/test").Page) {
-  await page.getByRole("button", { name: "Select token", exact: true }).first().click();
+  await page.locator('main button[aria-haspopup="dialog"]').first().click();
   await page.getByPlaceholder("Search currency...").fill("PAXG");
   await page.locator("#dropdown-from").getByRole("button").filter({ has: page.getByText("PAXG", { exact: true }) }).click();
 }
@@ -19,7 +19,7 @@ test("one configuration bootstrap supplies Core, market and the token catalog wi
     configurations++; return route.fulfill({ json: protocolConfigurationFixture });
   });
   await page.goto("/en");
-  await expect(page.getByText("You Sell", { exact: true })).toBeVisible();
+  await expect(page.getByText("Your budget", { exact: true })).toBeVisible();
   await expect.poll(() => configurations).toBeGreaterThan(0);
   const bootstrapCalls = configurations;
   await selectPaxg(page);
@@ -41,8 +41,8 @@ test("configuration failure leaves the shell interactive and reconnect restores 
   const failedBootstrap = page.waitForResponse("**/api/protocol/config");
   await page.goto("/en");
   expect((await failedBootstrap).status()).toBe(503);
-  await expect(page.getByRole("button", { name: "Select token", exact: true }).first()).not.toHaveAttribute("aria-busy", "true");
-  await expect(page.getByText("You Sell", { exact: true })).toBeVisible();
+  await expect(page.locator('main button[aria-haspopup="dialog"]').first()).not.toHaveAttribute("aria-busy", "true");
+  await expect(page.getByText("Your budget", { exact: true })).toBeVisible();
   await expect(page.getByTestId("trade-mechanism")).toHaveCount(0);
   available = true;
   await page.evaluate(() => { window.dispatchEvent(new Event("offline")); window.dispatchEvent(new Event("online")); });

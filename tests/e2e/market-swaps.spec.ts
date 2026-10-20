@@ -37,7 +37,7 @@ async function wallet(page: Page, rejected = false, pauseSignature = false) {
 }
 
 async function selectPaxg(page: Page) {
-  await page.getByRole("button", { name: "Select token", exact: true }).first().click();
+  await page.locator('main button[aria-haspopup="dialog"]').first().click();
   await page.getByPlaceholder("Search currency...").fill("PAXG");
   await page.locator("#dropdown-from").getByRole("button").filter({ has: page.getByText("PAXG", { exact: true }) }).click();
 }

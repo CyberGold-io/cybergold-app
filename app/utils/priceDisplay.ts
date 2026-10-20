@@ -44,6 +44,10 @@ export function formatDisplayValueFromUsd({
   }
 
   if (priceDisplayMode === "gold") {
+    if (amountUsd === 0) {
+      return formatGoldAmount(0);
+    }
+
     if (
       goldSpotUsdPerOzt === undefined ||
       !Number.isFinite(goldSpotUsdPerOzt) ||
@@ -89,6 +93,10 @@ export function formatCombinedDisplayValueFromUsd({
     return undefined;
   }
 
+  if (amountUsd === 0) {
+    return `${formatGoldAmount(0)} • ${formatFiat(0, options)}`;
+  }
+
   if (
     goldSpotUsdPerOzt === undefined ||
     !Number.isFinite(goldSpotUsdPerOzt) ||
@@ -124,7 +132,15 @@ export function buildCombinedDisplayValuePlaceholder({
   locale = "en",
 }: BuildCombinedDisplayValuePlaceholderParams) {
   const goldUnitLabel = getGoldUnitLabel(selectedGoldUnit, locale);
-  return `${zeroAmountPlaceholder} ${goldUnitLabel} • ${zeroAmountPlaceholder} ${selectedCurrency}`;
+  const fiatPlaceholder = new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: selectedCurrency,
+  }).formatToParts(0).map((part) => {
+    if (part.type === "integer") return zeroAmountPlaceholder;
+    if (part.type === "decimal" || part.type === "fraction") return "";
+    return part.value;
+  }).join("");
+  return `${zeroAmountPlaceholder} ${goldUnitLabel} • ${fiatPlaceholder}`;
 }
 
 export function getPriceDisplayLabel(

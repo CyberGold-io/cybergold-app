@@ -1,5 +1,7 @@
 "use client";
 
+import { useGovernanceObservationText } from "../_hooks/useGovernanceObservationText";
+
 import { useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import { toast } from "sonner";
@@ -60,12 +62,12 @@ export function CoreFeesActionCard({
   const [isDirty, setIsDirty] = useState(false);
 
   const config = isFeeActionId(action.id) ? ACTION_CONFIG[action.id] : undefined;
-  const currentIssuance = controllerConfig.data?.issuanceFeePpm?.toString() ?? "";
-  const currentRedemption = controllerConfig.data?.redemptionFeePpm?.toString() ?? "";
   const currentFee = config ? controllerConfig.data?.[config.currentField] : undefined;
   const draftFee = isDirty ? feeInput : currentFee?.toString() ?? feeInput;
   const maxFeePpm = controllerConfig.data?.maxFeePpm ?? DEFAULT_MAX_FEE_PPM;
   const parsedFee = parsePpmInput(draftFee);
+  const display = useGovernanceObservationText(action.id, { issuance: controllerConfig.data?.issuanceFeePpm?.toString(),
+    redemption: controllerConfig.data?.redemptionFeePpm?.toString(), maximum: controllerConfig.data?.maxFeePpm?.toString() });
 
   const validationErrors = useMemo(() => {
     const errors: string[] = [];
@@ -136,21 +138,21 @@ export function CoreFeesActionCard({
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
           {t("feesFormCurrentTitle")}
         </p>
-        {controllerConfig.isLoading ? (
-          <p className="mt-2 text-xs text-[var(--text-muted)]">{t("feesFormLoadingCurrent")}</p>
-        ) : controllerConfig.data ? (
+        {controllerConfig.isLoading && display.issuance === undefined ? (
+          <p data-page-display-pending="true" className="mt-2 text-xs text-[var(--text-muted)]">{t("feesFormLoadingCurrent")}</p>
+        ) : display.issuance !== undefined || display.redemption !== undefined ? (
           <div className="mt-2 space-y-1 text-xs text-[var(--text-muted)]">
             <p>
               {t("feesFormCurrentIssuanceLabel")}:{" "}
-              <span className="font-mono text-[var(--text-input)]">{currentIssuance || t("notAvailable")}</span>
+              <span className="font-mono text-[var(--text-input)]">{display.issuance ?? t("notAvailable")}</span>
             </p>
             <p>
               {t("feesFormCurrentRedemptionLabel")}:{" "}
-              <span className="font-mono text-[var(--text-input)]">{currentRedemption || t("notAvailable")}</span>
+              <span className="font-mono text-[var(--text-input)]">{display.redemption ?? t("notAvailable")}</span>
             </p>
             <p>
               {t("feesFormMaxLabel")}:{" "}
-              <span className="font-mono text-[var(--text-input)]">{maxFeePpm.toString()}</span>
+              <span className="font-mono text-[var(--text-input)]">{display.maximum ?? t("notAvailable")}</span>
             </p>
           </div>
         ) : (
@@ -164,7 +166,7 @@ export function CoreFeesActionCard({
         <div className="mt-3">
           <label className="text-xs text-[var(--text-muted)]">
             <span className="mb-1 block">{t(config.inputLabel)}</span>
-            <input
+            <input data-page-draft-key={`${action.id}:fee`}
               type="text"
               inputMode="numeric"
               value={draftFee}

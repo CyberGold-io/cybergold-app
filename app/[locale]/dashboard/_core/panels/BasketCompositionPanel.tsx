@@ -152,7 +152,7 @@ export function BasketCompositionPanel({
             </div>
             <p className="text-xs mt-1">{t("targetVsActual")}</p>
             {hasBasketData ? (
-                <div className="mt-3 h-[300px]">
+                <div data-page-chart-slot className="mt-3 h-[300px]">
                     <TargetOverlayDonutEcharts
                         data={basketComparisonSeries.map((entry) => ({
                             id: entry.symbol,

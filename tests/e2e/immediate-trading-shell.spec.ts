@@ -69,18 +69,19 @@ test("cold configuration leaves the entire trading shell and searchable picker v
   try {
     await page.goto("/en");
     await expect.poll(configuration.requests).toBeGreaterThan(0);
-    await expect(page.getByText("You Sell", { exact: true })).toBeVisible();
+    await expect(page.getByText("Your budget", { exact: true })).toBeVisible();
     await expect(page.getByText("You Buy", { exact: true })).toBeVisible();
     await expect(page.locator("#sell-amount")).toBeVisible();
     await expect(page.locator("#buy-amount")).toBeVisible();
+    await expect(page.locator("#sell-amount")).toBeFocused();
     const pickers = page.locator('main button[aria-haspopup="dialog"]');
     await expect(pickers).toHaveCount(2);
     await expect(pickers.first()).toBeVisible(); await expect(pickers.last()).toBeVisible();
     await openFees(page);
     await expect(page.getByTestId("swap-fees").getByRole("button", { name: /^Total fee/ })).toContainText("...");
     await expect(page.getByTestId("swap-minimum-output")).toContainText("...");
-    await expect(page.getByTestId("sell-amount-equivalents").filter({ visible: true })).toContainText("...");
-    await expect(page.getByTestId("buy-amount-equivalents").filter({ visible: true })).toContainText("...");
+    await expect(page.getByTestId("sell-amount-equivalents").filter({ visible: true })).toHaveText("~ 0.00 g of gold • $0.00");
+    await expect(page.getByTestId("buy-amount-equivalents").filter({ visible: true })).toHaveText("~ 0.00 g of gold • $0.00");
     await expect(page.locator("#swapsection").getByRole("button", { name: "Please connect your wallet", exact: true })).toBeVisible();
     await pickers.first().click();
     const picker = page.getByRole("dialog", { name: "Choose currency", exact: true });
@@ -156,12 +157,12 @@ test("connected MAX and balance slots render before configuration and remain dis
     const buyMax = page.getByRole("button", { name: "Use maximum purchase amount", exact: true });
     await expect(sellMax).toBeVisible(); await expect(sellMax).toBeDisabled();
     await expect(buyMax).toHaveCount(0);
-    await expect(page.getByTestId("sell-wallet-balance")).toContainText("...");
-    await expect(page.getByTestId("buy-wallet-balance")).toContainText("...");
+    await expect(page.getByTestId("sell-wallet-balance")).toBeHidden();
+    await expect(page.getByTestId("buy-wallet-balance")).toBeHidden();
     const before = await sellMax.boundingBox();
     configuration.release();
     await expect.poll(balances.requests).toBeGreaterThan(0);
-    await expect(page.getByTestId("sell-wallet-balance")).toContainText("... PAXG");
+    await expect(page.getByTestId("sell-wallet-balance")).toBeHidden();
     await expect(sellMax).toBeDisabled(); await expect(buyMax).toHaveCount(0);
     balances.release();
     await expect(page.getByTestId("sell-wallet-balance")).toContainText("20 PAXG");
@@ -193,7 +194,7 @@ test("a restored Basket renders before facts arrive and an amount cannot enable 
     await expect(page.getByTestId("swap-minimum-output")).toContainText("...");
     const pendingSwap = page.locator("#swapsection").getByRole("button", { name: /^Quote processing/ });
     await expect(pendingSwap).toBeVisible(); await expect(pendingSwap).toBeDisabled();
-    await expect(pendingSwap.locator("svg")).toBeVisible();
+    await expect(pendingSwap.locator("svg")).toHaveCount(0);
     await expect(page.locator("#swapsection").getByRole("button", { name: "Swap currencies", exact: true })).toHaveCount(0);
     expect(await page.evaluate(() => (window as unknown as { __shellWalletMethods: string[] }).__shellWalletMethods)
       .then(methods => methods.some(method => method.startsWith("eth_sign") || method === "eth_sendTransaction"))).toBe(false);
