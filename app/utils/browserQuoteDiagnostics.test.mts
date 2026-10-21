@@ -6,6 +6,8 @@ import { tradeScenarios } from "../../tests/trading/scenarios.ts";
 import { tokenRequest } from "../../tests/trading/regression.ts";
 import { protocolConfigurationFixture } from "../../tests/fixtures/protocol-configuration.ts";
 import type { ScenarioResult } from "../../tests/trading/regression.ts";
+import type { UniversalExactInputQuote, UniversalExactInputRequest } from "./universalExactInput.ts";
+import { zeroHash } from "viem";
 
 type Action = "navigation" | "wallet" | "tokens" | "amount" | "fill" | "observation" | "display";
 
@@ -21,10 +23,24 @@ async function firstBrowserCase(t: TestContext, failure?: { action: Action; name
     });
   };
   const requestId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e";
-  const request = tokenRequest(tradeScenarios[0], protocolConfigurationFixture, protocolConfigurationFixture.contracts.helpers!);
-  const quote = { mode: "exact-in", side: "buy", strategy: "core", quotedInput: request.amount,
-    inputMaximum: request.amount, quotedOutput: "100", outputMinimum: "99" };
-  const observation = { path: "/api/quotes/trade/stream", status: 200, request, requestId,
+  const scalar = tokenRequest(tradeScenarios[0], protocolConfigurationFixture, protocolConfigurationFixture.contracts.helpers!);
+  const request: UniversalExactInputRequest = { intent: 0,
+    inputs: [{ currency: scalar.counterToken, amount: scalar.amount }],
+    outputCurrency: protocolConfigurationFixture.contracts.core!,
+    recipient: protocolConfigurationFixture.contracts.helpers!, deadline: "2000000000", slippageBps: 100 };
+  const quote: UniversalExactInputQuote = { strategy: "universal", operation: "executeExactInput", routeFamily: "core",
+    settlementPolicy: "protocol-retained-input", inputs: [...request.inputs],
+    plan: { ...request, minimumOutput: "99", body: "0x" }, quotedInput: scalar.amount,
+    inputMaximum: scalar.amount, quotedOutput: "100", outputMinimum: "99",
+    fees: { coreProtocolFeeCygld: "0", coreHelpersFeeCygld: "0", marketFeeCygld: "0" },
+    estimatedRecipientOutputs: [{ kind: 0, token: request.outputCurrency, id: "0", amount: "100" }],
+    estimatedRetainedInputCharges: [], recoveryShares: [],
+    deployment: { helpers: request.recipient, adapter: protocolConfigurationFixture.contracts.uniswapAdapter!, encoding: "uniswap-routing-v1" },
+    context: { chainId: 31337, blockNumber: "1", blockHash: zeroHash, observedAt: "2026-10-21" }, planDescription: {},
+    retentionDisclosure: { custodian: request.recipient, beneficiary: "helpers-owner-at-settlement" },
+    searchCoverage: { coreSharesPercent: [0, 25, 50, 75, 100], orders: ["core-first", "market-first"],
+      maxCoreInvocations: 1, maxAmmHops: 3, scope: "selected-inventory" } };
+  const observation = { path: "/api/quotes/universal-exact-input", status: 200, request, requestId,
     terminal: terminalError ? { type: "error", code: "quote-timeout", requestId, error: "private-terminal-error" }
       : { type: "complete", value: quote } };
   const locator = (kind: "wallet" | "tokens" | "amount" | "filter" = "tokens"): unknown => {
@@ -97,7 +113,11 @@ test("quotes-only success preserves original UI actions and quote bounds", async
   assert.equal(first.status, "pass"); assert.equal(first.code, undefined);
   assert.equal(first.executionStage, "complete"); assert.equal(first.actualStrategy, "core");
   assert.equal(first.errorClass, undefined); assert.equal(first.refs?.requestId, requestId);
-  assert.equal(first.bounds?.quotedOutput, "100");
+  assert.equal(first.bounds?.inputMaximum, tokenRequest(tradeScenarios[0], protocolConfigurationFixture,
+    protocolConfigurationFixture.contracts.helpers!).amount);
+  assert.equal(first.bounds?.outputMinimum, "99");
+  assert.equal(first.quotedOperation, "executeExactInput");
+  assert.equal(first.quoteTerms?.netOutput?.[0].amount, "100");
   assert.deepEqual(actions, ["default-timeout:20000", "install-observer", "navigation", "wallet",
     "tokens", "tokens", "tokens", "tokens", "amount", "observation", "fill", "observation", "display", "page-close", "browser-close"]);
 });

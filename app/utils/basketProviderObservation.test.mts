@@ -7,6 +7,7 @@ import { tokenAddresses } from '../../tests/fixtures/protocol-configuration.ts';
 import { protocolConfigurationFixture } from '../../tests/fixtures/protocol-configuration.ts';
 import { chromium, expect, type Browser } from '@playwright/test';
 import { observeBrowserQuotes } from '../../tests/trading/browserQuotes.ts';
+import { zeroAddress } from 'viem';
 
 const scenario = { id: 'core-issue-basket-exact-in-medium', family: 'issue-basket', requestedStrategy: 'core',
   asset: 'BASKET', side: 'buy', inputMode: 'exact-in', size: 'medium', nominalUsd: '100', displayAmount: '0.01',
@@ -48,16 +49,16 @@ test('unfinished and cancelled basket searches stay distinct from completed quot
   assert.deepEqual(observedBasketProviderEvidence([row], scenario).core, { availability: 'unavailable', searchOutcome: 'cancelled', refs: {} });
 });
 
-for (const inputMode of ['exact-in', 'exact-out'] as const) test(`quote-only basket ${inputMode} keeps provider evidence for a supply-limit failure`, async t => {
+for (const inputMode of ['exact-in', 'exact-out'] as const) test(`quote-only basket ${inputMode} keeps producer evidence for a supply-limit failure`, async t => {
   const sale = { ...scenario, id: `core-redeem-basket-${inputMode}-large`, side: 'sell' as const,
     family: 'redeem-basket' as const, inputMode, size: 'large' as const, nominalUsd: '10000' };
-  const request = inputMode === 'exact-in' ? { mode: 'redeem-exact-in', grossCygldIn: sale.amountRaw }
+  const request = inputMode === 'exact-in' ? { intent: 3, inputs: [{ currency: protocolConfigurationFixture.contracts.core!, amount: sale.amountRaw }], outputCurrency: zeroAddress }
     : { mode: 'redeem-exact-out', minimumOutputs: sale.basketAmounts.map((amount, i) => ({
       kind: 0, token: sale.basketAssets[i], id: '0', minimumAmount: amount })) };
   const requestId = 'e9eb96b2-8ecf-429d-9e08-244f43257e8e';
   const quoteDiagnostics = { providerQualifications: { provider: 'core', attempts: 1, rejected: 1, pending: 0,
     rows: [{ attempt: 1, stage: 'basket-preview', outcome: 'rejected', code: 'insufficient-protocol-supply' }] } };
-  const observation: QuoteObservation = { path: '/api/quotes/basket-preview', request, status: 422, requestId,
+  const observation: QuoteObservation = { path: inputMode === 'exact-in' ? '/api/quotes/universal-exact-input' : '/api/quotes/basket-preview', request, status: 422, requestId,
     terminal: { type: 'error', code: 'insufficient-protocol-supply', requestId, error: 'private-provider-detail',
       quoteDiagnostics: { ...quoteDiagnostics, seed: 'private-seed' } } };
   let filled = false;
@@ -78,9 +79,15 @@ for (const inputMode of ['exact-in', 'exact-out'] as const) test(`quote-only bas
     basket: { assets: { status: 'success', value: sale.basketAssets }, targetsPpm: { status: 'success', value: ['500000', '500000'] } },
   } as never, [sale]);
   assert.equal(result.status, 'fail'); assert.equal(result.code, 'insufficient-protocol-supply');
-  assert.deepEqual(result.providers?.core, { availability: 'unavailable', searchOutcome: 'error',
-    code: 'insufficient-protocol-supply', refs: { requestId }, quoteDiagnostics });
-  assert.deepEqual(result.providers?.market, { availability: 'unsupported', searchOutcome: 'not-run' });
+  if (inputMode === 'exact-in') {
+    assert.equal(result.providers, undefined);
+    assert.equal(result.refs?.requestId, requestId);
+    assert.deepEqual(result.quoteDiagnostics, quoteDiagnostics);
+  } else {
+    assert.deepEqual(result.providers?.core, { availability: 'unavailable', searchOutcome: 'error',
+      code: 'insufficient-protocol-supply', refs: { requestId }, quoteDiagnostics });
+    assert.deepEqual(result.providers?.market, { availability: 'unsupported', searchOutcome: 'not-run' });
+  }
   assert.doesNotMatch(JSON.stringify(result), /private-provider-detail|private-seed/);
 });
 

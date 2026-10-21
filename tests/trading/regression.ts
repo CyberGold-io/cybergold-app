@@ -5,7 +5,8 @@ import type { BasketPreview, BasketPreviewRequest } from "../../app/utils/basket
 import type { QuoteIntent } from "../../app/utils/quoteIntent.ts";
 import type { MarketQuote } from "../../app/utils/marketQuote.ts";
 import { preserveExactInputMinimum, preserveExactInputBasketMinimums } from "../../app/utils/universalExactInput.ts";
-import type { UniversalExactInputQuote } from "../../app/utils/universalExactInput.ts";
+import type { UniversalExactInputQuote, WireExactInputAsset } from "../../app/utils/universalExactInput.ts";
+import { semanticDigest } from "./matrix.ts";
 import type { TradeQuote, TradeQuoteRequest } from "../../app/utils/tradeQuote.ts";
 import { fetchQuoteStream } from "../../app/utils/quoteStream.ts";
 import { QuotePreviewError, quoteResponseError, safeQuoteConstraint, type QuoteConstraint } from "../../app/utils/quoteErrors.ts";
@@ -158,6 +159,26 @@ export function validateTrade(value: Pick<TradeQuote, "mode" | "side" | "quotedI
   return { quotedInput: value.quotedInput, quotedOutput: value.quotedOutput, inputMaximum: value.inputMaximum, outputMinimum: value.outputMinimum };
 }
 
+/** Shared API/browser qualification of the canonical exact-input producer. */
+export function applyUniversalExactInputQuote(result: ScenarioResult, value: UniversalExactInputQuote, inputs: readonly WireExactInputAsset[]) {
+  requireInvariant(value.operation === "executeExactInput", "universal-operation-mismatch");
+  requireInvariant(value.plan.inputs.length === inputs.length && value.plan.inputs.every((row, index) => row.currency.toLowerCase() === inputs[index].currency.toLowerCase() && row.amount === inputs[index].amount), "universal-exact-input-mismatch");
+  let outputMinimum: string | string[] = value.outputMinimum;
+  if (value.plan.intent === 3) {
+    const [body] = decodeAbiParameters(parseAbiParameters("((uint8 kind,address token,uint256 id,uint256 minimumAmount)[] expectedOutputs)"), value.plan.body as `0x${string}`);
+    outputMinimum = body.expectedOutputs.map(row => String(row.minimumAmount));
+  }
+  result.bounds = { inputMaximum: inputs.length === 1 ? inputs[0].amount : inputs.map(row => row.amount), outputMinimum,
+    protocolFeeCygld: value.fees.coreProtocolFeeCygld, helperFeeCygld: value.fees.coreHelpersFeeCygld, marketFeeCygld: value.fees.marketFeeCygld };
+  const inputTerms = inputs.map(row => ({ asset: row.currency.toLowerCase(), amount: row.amount }));
+  result.quoteTerms = { inputSpent: inputTerms, requestedInput: inputTerms, inputMaximum: inputTerms,
+    netOutput: value.estimatedRecipientOutputs?.map(row => ({ asset: row.token.toLowerCase(), amount: row.amount, kind: row.kind, id: row.id })), refundCoverage: "not-disclosed" };
+  result.quotedOperation = "executeExactInput"; result.selectedProvider = "universal"; result.actualStrategy = value.routeFamily;
+  result.planDigest = semanticDigest({ plan: value.plan, deployment: value.deployment });
+  result.selectedPlan = { provider: "universal", intent: value.plan.intent, routeFamily: value.routeFamily, quotedOutput: value.quotedOutput };
+  result.context = value.context;
+}
+
 /** Match the edited basket amount, rather than an earlier empty warm request. */
 export function matchesBasketIntent(request: unknown, scenario: Scenario, amount: string, assets: readonly string[]) {
   if (!request || typeof request !== "object") return false;
@@ -242,21 +263,9 @@ export async function observeScenario(scenario: Scenario, config: ProtocolConfig
     const value = await readJson<UniversalExactInputQuote>(fetcher, "/api/quotes/universal-exact-input", {
       intent: scenario.asset === "BASKET" ? scenario.side === "buy" ? 2 : 3 : scenario.side === "buy" ? 0 : 1,
       inputs, outputCurrency, recipient, deadline: "deadline" in request ? request.deadline : String(Math.floor(Date.now() / 1000) + 1200), slippageBps: 100 });
-    requireInvariant(value.operation === "executeExactInput", "universal-operation-mismatch");
-    requireInvariant(value.plan.inputs.length === inputs.length && value.plan.inputs.every((row, index) => row.currency.toLowerCase() === inputs[index].currency.toLowerCase() && row.amount === inputs[index].amount), "universal-exact-input-mismatch");
-    let outputMinimum: string | string[] = value.outputMinimum;
-    if (value.plan.intent === 3) {
-      const [body] = decodeAbiParameters(parseAbiParameters("((uint8 kind,address token,uint256 id,uint256 minimumAmount)[] expectedOutputs)"), value.plan.body as `0x${string}`);
-      outputMinimum = body.expectedOutputs.map(row => String(row.minimumAmount));
-    }
-    result.bounds = { inputMaximum: inputs.length === 1 ? inputs[0].amount : inputs.map(row => row.amount), outputMinimum,
-      protocolFeeCygld: value.fees.coreProtocolFeeCygld, helperFeeCygld: value.fees.coreHelpersFeeCygld, marketFeeCygld: value.fees.marketFeeCygld };
-    const inputTerms = inputs.map(row => ({ asset: row.currency.toLowerCase(), amount: row.amount }));
-    result.quoteTerms = { inputSpent: inputTerms, requestedInput: inputTerms, inputMaximum: inputTerms,
-      netOutput: value.estimatedRecipientOutputs?.map(row => ({ asset: row.token.toLowerCase(), amount: row.amount, kind: row.kind, id: row.id })), refundCoverage: "not-disclosed" };
-    result.quotedOperation = "executeExactInput"; result.selectedProvider = "universal"; result.actualStrategy = value.routeFamily;
+    applyUniversalExactInputQuote(result, value, inputs);
     result.deployment = { core: config.contracts.core as `0x${string}`, helpers: value.deployment.helpers as `0x${string}`, adapter: value.deployment.adapter as `0x${string}` };
-    result.status = "pass"; delete result.code; result.context = value.context; result.durationMs = Math.round(performance.now() - started);
+    result.status = "pass"; delete result.code; result.durationMs = Math.round(performance.now() - started);
     return { scenario, request, value, result };
   }
   let request: TradeQuoteRequest | BasketPreviewRequest, value: QuoteObservation["value"];
