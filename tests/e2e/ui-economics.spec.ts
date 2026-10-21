@@ -11,6 +11,8 @@ import { exactInputPlan } from "../../app/utils/universalExactInput";
 import { universalFixture } from "./fixtures/universal-exact-input";
 import type { UniversalExactInputRequest } from "../../app/utils/universalExactInput";
 import { HELPERS_EXECUTION_ABI } from "../../app/contracts/cybergold-helpers/execution";
+import { installQuoteObservation, quoteObservations } from "../trading/quoteObservation";
+import { waitForUiSwapReady } from "../trading/uiQuotePreparation";
 
 const emptyTokenPermit={value:0n,deadline:0n,v:0,r:zeroHash,s:zeroHash};
 const emptyPermit2={permit:{permitted:[],nonce:0n,deadline:0n},signature:"0x" as Hex};
@@ -46,6 +48,19 @@ function event(name: "ExactInputExecuted", args: Record<string, unknown>) {
 function receipt(log: ReturnType<typeof event>) {
   return { transactionHash: hash, blockHash: hash, blockNumber: 100n, status: "success" as const, logs: [log] };
 }
+
+test("MetaMask matrix preparation accepts the real UI universal quote without opening a wallet request", async ({ page }) => {
+  await page.addInitScript(installQuoteObservation as () => void);
+  await installTokens(page); await installReadOnlyWallet(page); await page.goto("/en");
+  await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible(); await showAllSellTokens(page);
+  await selectToken(page, "sell", "USDC"); await selectToken(page, "buy", "CYGLD");
+  await getMainInput(page, "sell").fill("1");
+  const scenario = { ...tradeScenarios.find(row => row.id === "core-issue-usdc-exact-in")!, amountRaw: "1000000" };
+  await waitForUiSwapReady(page, config, scenario);
+  expect((await quoteObservations(page)).some(row => row.path === "/api/quotes/universal-exact-input" && row.terminal?.type === "complete")).toBe(true);
+  expect((await quoteObservations(page)).some(row => row.path === "/api/quotes/trade/stream")).toBe(false);
+  await expect(await getSwapButton(page)).toBeEnabled();
+});
 
 test("actual App click captures refreshed displayed amounts and committed tolerance before receipt comparison", async ({ page }) => {
   const observed=await installTokens(page); await installReadOnlyWallet(page); await page.goto("/en");

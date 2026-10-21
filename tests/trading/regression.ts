@@ -5,7 +5,8 @@ import type { BasketPreview, BasketPreviewRequest } from "../../app/utils/basket
 import type { QuoteIntent } from "../../app/utils/quoteIntent.ts";
 import type { MarketQuote } from "../../app/utils/marketQuote.ts";
 import { preserveExactInputMinimum, preserveExactInputBasketMinimums } from "../../app/utils/universalExactInput.ts";
-import type { UniversalExactInputQuote } from "../../app/utils/universalExactInput.ts";
+import type { UniversalExactInputQuote, WireExactInputAsset } from "../../app/utils/universalExactInput.ts";
+import { semanticDigest } from "./matrix.ts";
 import type { TradeQuote, TradeQuoteRequest } from "../../app/utils/tradeQuote.ts";
 import { fetchQuoteStream } from "../../app/utils/quoteStream.ts";
 import { QuotePreviewError, quoteResponseError, safeQuoteConstraint, type QuoteConstraint } from "../../app/utils/quoteErrors.ts";
@@ -15,6 +16,7 @@ import type { UiQuoteSnapshot, UiWalletEvidence } from "./uiEconomics.ts";
 import type { WalletRequestDiagnostic } from "./runnerDiagnostics.ts";
 import type { QualityTerms, QualityMeasurement } from "./quoteQuality.ts";
 import { tradeQualityTerms, basketQualityTerms } from "./quoteQuality.ts";
+import { SandboxFundingError } from "./sandboxFunding.ts";
 
 export type UiObservationPhase = "ui-prepare" | "ui-facts" | "ui-balances" | "ui-submit" | "ui-confirmation"
   | "ui-hash" | "ui-receipt-read" | "ui-transaction-read" | "ui-receipt-assertions" | "ui-balance-postchecks";
@@ -41,7 +43,7 @@ export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "ass
   requestedStrategy: "core" | "market" | "auto";
   status: "pass" | "fail" | "unavailable" | "skipped"; actualStrategy: "core" | "market" | "mixed" | "universal" | "unknown";
   actualOperation?: string; quotedOperation?: string; layer: "api" | "browser" | "execution"; durationMs?: number; firstExecutableMs?: number;
-  code?: string; reason?: QuotePreviewError["code"] | UiObservationPhase | "unsupported" | "no-qualified-plan" | "quote-observation-unavailable" | "predecessor-submission-unknown"; refs?: DiagnosticReferences; transactionHash?: string;
+  code?: string; reason?: QuotePreviewError["code"] | SandboxFundingError["reason"] | UiObservationPhase | "unsupported" | "no-qualified-plan" | "quote-observation-unavailable" | "predecessor-submission-unknown"; refs?: DiagnosticReferences; transactionHash?: string;
   quoteDiagnostics?: QuoteDiagnostics; selectedPlan?: import("./selectedPlan.ts").SelectedPlan;
   constraint?: QuoteConstraint;
   context?: { chainId: number; blockNumber: string; blockHash: string }; bounds?: Record<string, string | string[]>;
@@ -100,6 +102,7 @@ export function failureResult(result: ScenarioResult, error: unknown) {
   return { ...result, status: unavailable ? "unavailable" as const : "fail" as const,
     code: timedOut && code === "unexpected-error" ? "service-unavailable" : code,
     quoteDiagnostics: work,
+    ...(error instanceof SandboxFundingError ? { reason: error.reason } : {}),
     ...(constraint ? { constraint } : {}),
     refs: { ...result.refs, ...diagnosticReferences(error) } };
 }
@@ -156,6 +159,26 @@ export function validateTrade(value: Pick<TradeQuote, "mode" | "side" | "quotedI
   if (request.mode === "exact-in") requireInvariant(maximum <= BigInt(request.amount), "input-budget-exceeded");
   else requireInvariant(minimum >= BigInt(request.amount), "output-target-not-protected");
   return { quotedInput: value.quotedInput, quotedOutput: value.quotedOutput, inputMaximum: value.inputMaximum, outputMinimum: value.outputMinimum };
+}
+
+/** Shared API/browser qualification of the canonical exact-input producer. */
+export function applyUniversalExactInputQuote(result: ScenarioResult, value: UniversalExactInputQuote, inputs: readonly WireExactInputAsset[]) {
+  requireInvariant(value.operation === "executeExactInput", "universal-operation-mismatch");
+  requireInvariant(value.plan.inputs.length === inputs.length && value.plan.inputs.every((row, index) => row.currency.toLowerCase() === inputs[index].currency.toLowerCase() && row.amount === inputs[index].amount), "universal-exact-input-mismatch");
+  let outputMinimum: string | string[] = value.outputMinimum;
+  if (value.plan.intent === 3) {
+    const [body] = decodeAbiParameters(parseAbiParameters("((uint8 kind,address token,uint256 id,uint256 minimumAmount)[] expectedOutputs)"), value.plan.body as `0x${string}`);
+    outputMinimum = body.expectedOutputs.map(row => String(row.minimumAmount));
+  }
+  result.bounds = { inputMaximum: inputs.length === 1 ? inputs[0].amount : inputs.map(row => row.amount), outputMinimum,
+    protocolFeeCygld: value.fees.coreProtocolFeeCygld, helperFeeCygld: value.fees.coreHelpersFeeCygld, marketFeeCygld: value.fees.marketFeeCygld };
+  const inputTerms = inputs.map(row => ({ asset: row.currency.toLowerCase(), amount: row.amount }));
+  result.quoteTerms = { inputSpent: inputTerms, requestedInput: inputTerms, inputMaximum: inputTerms,
+    netOutput: value.estimatedRecipientOutputs?.map(row => ({ asset: row.token.toLowerCase(), amount: row.amount, kind: row.kind, id: row.id })), refundCoverage: "not-disclosed" };
+  result.quotedOperation = "executeExactInput"; result.selectedProvider = "universal"; result.actualStrategy = value.routeFamily;
+  result.planDigest = semanticDigest({ plan: value.plan, deployment: value.deployment });
+  result.selectedPlan = { provider: "universal", intent: value.plan.intent, routeFamily: value.routeFamily, quotedOutput: value.quotedOutput };
+  result.context = value.context;
 }
 
 /** Match the edited basket amount, rather than an earlier empty warm request. */
@@ -242,21 +265,9 @@ export async function observeScenario(scenario: Scenario, config: ProtocolConfig
     const value = await readJson<UniversalExactInputQuote>(fetcher, "/api/quotes/universal-exact-input", {
       intent: scenario.asset === "BASKET" ? scenario.side === "buy" ? 2 : 3 : scenario.side === "buy" ? 0 : 1,
       inputs, outputCurrency, recipient, deadline: "deadline" in request ? request.deadline : String(Math.floor(Date.now() / 1000) + 1200), slippageBps: 100 });
-    requireInvariant(value.operation === "executeExactInput", "universal-operation-mismatch");
-    requireInvariant(value.plan.inputs.length === inputs.length && value.plan.inputs.every((row, index) => row.currency.toLowerCase() === inputs[index].currency.toLowerCase() && row.amount === inputs[index].amount), "universal-exact-input-mismatch");
-    let outputMinimum: string | string[] = value.outputMinimum;
-    if (value.plan.intent === 3) {
-      const [body] = decodeAbiParameters(parseAbiParameters("((uint8 kind,address token,uint256 id,uint256 minimumAmount)[] expectedOutputs)"), value.plan.body as `0x${string}`);
-      outputMinimum = body.expectedOutputs.map(row => String(row.minimumAmount));
-    }
-    result.bounds = { inputMaximum: inputs.length === 1 ? inputs[0].amount : inputs.map(row => row.amount), outputMinimum,
-      protocolFeeCygld: value.fees.coreProtocolFeeCygld, helperFeeCygld: value.fees.coreHelpersFeeCygld, marketFeeCygld: value.fees.marketFeeCygld };
-    const inputTerms = inputs.map(row => ({ asset: row.currency.toLowerCase(), amount: row.amount }));
-    result.quoteTerms = { inputSpent: inputTerms, requestedInput: inputTerms, inputMaximum: inputTerms,
-      netOutput: value.estimatedRecipientOutputs?.map(row => ({ asset: row.token.toLowerCase(), amount: row.amount, kind: row.kind, id: row.id })), refundCoverage: "not-disclosed" };
-    result.quotedOperation = "executeExactInput"; result.selectedProvider = "universal"; result.actualStrategy = value.routeFamily;
+    applyUniversalExactInputQuote(result, value, inputs);
     result.deployment = { core: config.contracts.core as `0x${string}`, helpers: value.deployment.helpers as `0x${string}`, adapter: value.deployment.adapter as `0x${string}` };
-    result.status = "pass"; delete result.code; result.context = value.context; result.durationMs = Math.round(performance.now() - started);
+    result.status = "pass"; delete result.code; result.durationMs = Math.round(performance.now() - started);
     return { scenario, request, value, result };
   }
   let request: TradeQuoteRequest | BasketPreviewRequest, value: QuoteObservation["value"];

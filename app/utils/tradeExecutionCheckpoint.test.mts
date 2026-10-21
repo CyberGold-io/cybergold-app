@@ -117,6 +117,8 @@ globalThis.fetch = async url => {
         builder.onResolve({ filter: /^(?:@playwright\/test|\.\/testWithMetaMask)$/ }, () => ({ path: "test", namespace: "inert" }));
         builder.onResolve({ filter: /^\.\/wallet-ui$/ }, () => ({ path: "wallet", namespace: "inert" }));
         builder.onResolve({ filter: /^\.\/token-flows\/helpers$/ }, () => ({ path: "helpers", namespace: "inert" }));
+        builder.onResolve({ filter: /^\.\.\/metamask\/token-flows\/helpers\.ts$/ }, args =>
+          args.importer.endsWith("/uiQuotePreparation.ts") ? { path: "helpers", namespace: "inert" } : undefined);
         builder.onLoad({ filter: /.*/, namespace: "inert" }, args => ({ contents: args.path === "test" ? stubTest : args.path === "wallet" ? stubWallet : stubHelpers, loader: "js" }));
       } }] });
     writeFileSync(script, result.outputFiles[0].text);

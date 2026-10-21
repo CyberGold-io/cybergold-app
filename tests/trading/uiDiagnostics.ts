@@ -1,10 +1,12 @@
-import type { Page } from "@playwright/test";
+import { errors, type Page } from "@playwright/test";
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
 import { quoteDiagnostics, safeDiagnosticReferences, safeQuoteDiagnostics, type QuoteDiagnostics } from "../../app/utils/diagnosticReferences.ts";
 import { knownQuoteError, type QuotePreviewError } from "../../app/utils/quoteErrors.ts";
 import { failureResult, RegressionAssertionError, tokenRequest, type ScenarioResult, type UiObservationPhase } from "./regression.ts";
 import { ScenarioUnavailableError, type Scenario } from "./scenarios.ts";
 import type { UiSwapObservation } from "./uiSwapObservation.ts";
+import { browserQuoteMatcher } from "./browserQuoteObservation.ts";
+import { safeRunnerError } from "./runnerDiagnostics.ts";
 
 /** Core confirmation appears in both the receipt card and its existing toast. */
 export function confirmedTransactionText(page: Page) {
@@ -14,6 +16,7 @@ export function confirmedTransactionText(page: Page) {
 /** Scope optional UI evidence to the latest original request for this case. */
 export function createUiQuoteDiagnostics(scenario: Scenario, config: ProtocolConfiguration) {
   const expected = scenario.asset === "BASKET" ? undefined : tokenRequest(scenario, config, config.contracts.helpers!);
+  const universalMatches = browserQuoteMatcher(scenario, config, scenario.amountRaw ?? "0", scenario.basketAssets ?? []);
   let refs = {} as ReturnType<typeof safeDiagnosticReferences>;
   let reason: QuotePreviewError["code"] | undefined;
   let work: QuoteDiagnostics | undefined;
@@ -21,7 +24,9 @@ export function createUiQuoteDiagnostics(scenario: Scenario, config: ProtocolCon
     request(path: string, body: unknown, attempt: unknown) {
       if (!body || typeof body !== "object") return false;
       const value = body as Record<string, unknown>;
-      if (expected) {
+      if (path === "/api/quotes/universal-exact-input") {
+        if (!universalMatches({ path, request: value, status: 0 })) return false;
+      } else if (expected) {
         if (path !== "/api/quotes/trade/stream" || value.mode !== expected.mode || value.side !== expected.side
           || value.amount !== expected.amount || value.native !== expected.native
           || typeof value.counterToken !== "string" || value.counterToken.toLowerCase() !== expected.counterToken.toLowerCase()) return false;
@@ -84,4 +89,11 @@ export function uiSwapTerminalFailure(observation: UiSwapObservation | undefined
 export function uiObservationFailure(result: ScenarioResult, error: unknown, phase: UiObservationPhase) {
   const failed = failureResult(result, error);
   return (failed.code === "unexpected-error" || failed.code === "service-unavailable") && !failed.reason ? { ...failed, reason: phase } : failed;
+}
+
+/** Keep the existing setup failure classification with only projected diagnostics. */
+export function uiSetupFailure(result: ScenarioResult, error: unknown,
+  evidence: Pick<ScenarioResult, "refs" | "reason" | "quoteDiagnostics">) {
+  return { ...safeRunnerError(error), ...failureResult({ ...result, ...evidence }, error),
+    code: error instanceof errors.TimeoutError ? "ui-setup-timeout" : "ui-setup-failed" };
 }
