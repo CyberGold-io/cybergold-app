@@ -1,7 +1,7 @@
 import { protocolConfigurationFixture, protocolAddresses } from "../../fixtures/protocol-configuration";
 import { expect, test, type Page } from "../../e2e/fixtures/app-test";
 import { decodeAbiParameters, decodeFunctionData, maxUint256, parseAbiParameters } from "viem";
-import { HELPERS_ABI_ISSUE_FROM_TOKEN } from "../../../app/contracts/cybergold-helpers/issueFacet";
+import { HISTORICAL_HELPERS_EXECUTION_ABI as HELPERS_ABI_ISSUE_FROM_TOKEN } from "../../fixtures/helpers-execution-legacy";
 import { choose, context, install } from "../../e2e/fixtures/token-quotes";
 import { routeWalletBalances } from "../../e2e/fixtures/wallet-balances";
 

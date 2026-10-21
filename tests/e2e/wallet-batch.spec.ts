@@ -3,7 +3,7 @@ import { routeWalletBalances } from "./fixtures/wallet-balances";
 import { expect, test, type Page } from "./fixtures/app-test";
 import { decodeFunctionData, maxUint256 } from "viem";
 import { erc20Abi } from "../../app/contracts/erc20";
-import { HELPERS_DIAMOND_ABI } from "../../app/contracts/generated/helpersDiamond";
+import { HELPERS_EXECUTION_ABI } from "../../app/contracts/cybergold-helpers/execution";
 import { choose, context, install } from "./fixtures/token-quotes";
 import { selectBasket } from "./fixtures/swap-selection";
 import { installUiSwapObservation, uiSwapObservation } from "../trading/uiSwapObservation";
@@ -166,10 +166,10 @@ for (const mode of ["supported", "unsupported", "ready", "unavailable", "other-c
       expect(bundle.atomicRequired).toBe(true); expect(bundle.chainId).toBe(`0x${chain.toString(16)}`);
       expect(bundle.calls.map(call => call.to.toLowerCase())).toEqual([weth, protocolAddresses.helpers!.toLowerCase()]);
       const approval = decodeFunctionData({ abi: erc20Abi, data: bundle.calls[0].data });
-      expect(approval.args).toEqual([permit2, maxUint256]);
-      const swap = decodeFunctionData({ abi: HELPERS_DIAMOND_ABI, data: bundle.calls[1].data });
-      expect(swap.functionName).toBe("issueFromTokenExactOutWithPermit2");
-      expect(swap.args![0]).toMatchObject({ maximumInputAmount: 10n ** 18n, netCygldOut: 10n ** 18n });
+      expect(approval.args).toEqual([permit2, 10n ** 18n]);
+      const swap = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: bundle.calls[1].data });
+      expect(swap.functionName).toBe("executeExactInput");
+      expect(swap.args![0]).toMatchObject({ inputs: [{ amount:10n**18n }], minimumOutput:99n*10n**16n });
     } else {
       expect(state.bundles).toHaveLength(0); expect(state.transactions).toHaveLength(2);
     }
@@ -179,15 +179,15 @@ for (const mode of ["supported", "unsupported", "ready", "unavailable", "other-c
 for (const exactOut of [false]) {
   test(`basket purchase batches its first-use approval: ${exactOut ? "exact-out" : "exact-in"}`, async ({ page }) => {
     const observed = await setup(page, "supported"); await selectBasket(page);
-    const amount = exactOut ? page.getByRole("textbox", { name: "You Buy CYGLD", exact: true })
-      : page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first();
+    const amount = exactOut ? page.getByLabel("You Buy CYGLD", { exact: true })
+      : page.locator('input[inputmode="decimal"]:not(#execution-tolerance):visible').first();
     await amount.click(); await amount.fill("1");
     const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
     await expect(swap).toBeEnabled(); await swap.click();
     await expect(page.getByText("Transaction confirmed", { exact: true })).toBeVisible();
     const state = await observed(); expect(state.bundles).toHaveLength(1); expect(state.transactions).toHaveLength(0);
-    const decoded = decodeFunctionData({ abi: HELPERS_DIAMOND_ABI, data: state.bundles[0].calls.at(-1)!.data });
-    expect(decoded.functionName).toBe(exactOut ? "issueFromBasketExactOutWithPermit2" : "issueFromBasketExactInWithPermit2");
+    const decoded = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: state.bundles[0].calls.at(-1)!.data });
+    expect(decoded.functionName).toBe(exactOut ? "issueFromBasketExactOutWithPermit2" : "executeExactInput");
   });
 }
 
@@ -242,8 +242,8 @@ for (const receiptOutcome of ["confirmed", "unavailable"] as const) {
         await expect(page.getByText("Transaction confirmed", { exact: true })).toBeVisible();
         const state = await observed();
         expect(state.transactions).toHaveLength(2);
-        expect(decodeFunctionData({ abi: HELPERS_DIAMOND_ABI, data: state.transactions[1].data }).functionName)
-          .toBe("issueFromBasketExactInWithPermit2");
+        expect(decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: state.transactions[1].data }).functionName)
+          .toBe("executeExactInput");
       } else {
         await expect(page.getByText("Transaction failed", { exact: true })).toBeVisible({ timeout: 30_000 });
         await expect(page.getByRole("textbox", { name: "Sell amount (PAXG)", exact: true })).toHaveValue("1");
@@ -288,8 +288,8 @@ test("installed MetaMask SDK queues approval then swap after Permit2 signing whi
     expect(pending.requests.filter(method => ["eth_signTypedData_v4", "eth_sendTransaction"].includes(method)))
       .toEqual(["eth_signTypedData_v4", "eth_sendTransaction", "eth_sendTransaction"]);
     expect(decodeFunctionData({ abi: erc20Abi, data: pending.transactions[0].data }).functionName).toBe("approve");
-    expect(decodeFunctionData({ abi: HELPERS_DIAMOND_ABI, data: pending.transactions[1].data }).functionName)
-      .toBe("issueFromBasketExactInWithPermit2");
+    expect(decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: pending.transactions[1].data }).functionName)
+      .toBe("executeExactInput");
     expect(pending.bundles).toHaveLength(0);
     expect(pending.sdkGroups).toEqual([["eth_signTypedData_v4"], ["eth_sendTransaction", "eth_sendTransaction"]]);
     await expect(page.getByText("Transaction confirmed", { exact: true })).toHaveCount(0);
@@ -309,7 +309,7 @@ for (const outcome of ["reverted", "outage", "rejected"] as const) {
     await page.locator("#sell-amount").fill("1");
     const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
     await expect(swap).toBeEnabled(); await swap.click();
-    const notice = page.locator("main").getByRole("status");
+    const notice = page.locator('main [role="status"]');
     if (outcome === "rejected") {
       await expect(page.getByText("Wallet request cancelled", { exact: true })).toBeVisible();
       await expect(page.locator("#sell-amount")).toHaveValue("1");
@@ -351,11 +351,11 @@ for (const exactOut of [false]) {
     const state = await observed();
     expect(state.signatures).toHaveLength(1); expect(state.transactions).toHaveLength(1); expect(state.bundles).toHaveLength(0);
     expect(state.sdkGroups).toEqual([["eth_signTypedData_v4"], ["eth_sendTransaction"]]);
-    const decoded = decodeFunctionData({ abi: HELPERS_DIAMOND_ABI, data: state.transactions[0].data });
-    expect(decoded.functionName).toBe("issueFromTokenExactOutWithPermit");
-    const ceiling = (decoded.args![0] as { maximumInputAmount: bigint }).maximumInputAmount;
+    const decoded = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: state.transactions[0].data });
+    expect(decoded.functionName).toBe("executeExactInput");
+    const ceiling = (decoded.args![0] as { inputs: readonly {amount:bigint}[] }).inputs[0].amount;
     expect(BigInt(state.signatures[0].message.value)).toBe(ceiling);
-    expect((decoded.args![2] as { value: bigint }).value).toBe(ceiling);
+    expect((decoded.args![1] as { authorizations:readonly {permit:{value:bigint}}[] }).authorizations[0].permit.value).toBe(ceiling);
     expect(state.signatures[0].message.spender.toLowerCase()).toBe(protocolAddresses.helpers!.toLowerCase());
     expect(state.signatures[0].domain.version).toBe("2");
   });
@@ -380,14 +380,14 @@ test("wallet typed-data unavailability retains ordinary exact approval", async (
   const state = await observed(); expect(state.signatures).toHaveLength(1); expect(state.transactions).toHaveLength(2);
   expect(decodeFunctionData({ abi: erc20Abi, data: state.transactions[0].data }).args)
     .toEqual([protocolAddresses.helpers, 10n ** 18n]);
-  expect(decodeFunctionData({ abi: HELPERS_DIAMOND_ABI, data: state.transactions[1].data }).functionName).toBe("issueFromTokenExactOut");
+  expect(decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: state.transactions[1].data }).functionName).toBe("executeExactInput");
 });
 
 for (const mode of ["unsupported", "supported"] as const) for (const exactOut of [false]) {
   test(`all-native basket groups signatures and retains ${mode} transaction transport: ${exactOut ? "exact-out" : "exact-in"}`, async ({ page }) => {
     const observed = await setup(page, mode, "success", false, "metamask", "standard", [paxg, xaut]);
     await selectBasket(page);
-    const amount = exactOut ? page.getByRole("textbox", { name: "You Buy CYGLD", exact: true })
+    const amount = exactOut ? page.getByLabel("You Buy CYGLD", { exact: true })
       : page.getByRole("textbox", { name: "Sell amount (PAXG)", exact: true });
     await amount.click(); await amount.fill("1");
     const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
@@ -397,14 +397,15 @@ for (const mode of ["unsupported", "supported"] as const) for (const exactOut of
     expect(state.sdkGroups).toEqual(mode === "supported" ? [["eth_signTypedData_v4", "eth_signTypedData_v4"]]
       : [["eth_signTypedData_v4", "eth_signTypedData_v4"], ["eth_sendTransaction"]]);
     const data = mode === "supported" ? state.bundles[0].calls[0].data : state.transactions[0].data;
-    const decoded = decodeFunctionData({ abi: HELPERS_DIAMOND_ABI, data });
-    expect(decoded.functionName).toBe(exactOut ? "issueFromBasketExactOutWithMixedPermits" : "issueFromBasketExactInWithMixedPermits");
-    const inputs = decoded.args![1] as readonly { token: string; authorization: number; maximumInputAmount: bigint; permit: { value: bigint } }[];
-    expect(inputs.map(input => input.token.toLowerCase())).toEqual([paxg, xaut]);
-    expect(inputs.map(input => input.authorization)).toEqual([1, 1]);
-    expect(inputs.map(input => input.permit.value)).toEqual(inputs.map(input => input.maximumInputAmount));
-    expect(inputs.map(input => input.permit.value)).toEqual(state.signatures.map(sig => BigInt(sig.message.value)));
-    expect((decoded.args![2] as { permit: { permitted: readonly unknown[] } }).permit.permitted).toEqual([]);
+    const decoded = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data });
+    expect(decoded.functionName).toBe(exactOut ? "issueFromBasketExactOutWithMixedPermits" : "executeExactInput");
+    const inputs = (decoded.args![0] as { inputs: readonly { currency: string; amount: bigint }[] }).inputs;
+    const authorizations = (decoded.args![1] as { authorizations: readonly { kind: number; permit: { value: bigint } }[] }).authorizations;
+    expect(inputs.map(input => input.currency.toLowerCase())).toEqual([paxg, xaut]);
+    expect(authorizations.map(input => input.kind)).toEqual([1, 1]);
+    expect(authorizations.map(input => input.permit.value)).toEqual(inputs.map(input => input.amount));
+    expect(authorizations.map(input => input.permit.value)).toEqual(state.signatures.map(sig => BigInt(sig.message.value)));
+    expect((decoded.args![1] as { permit2: { permit: { permitted: readonly unknown[] } } }).permit2.permit.permitted).toEqual([]);
   });
 }
 
@@ -415,13 +416,14 @@ test("mixed native and unsupported basket groups two token permits plus one comp
   await expect(swap).toBeEnabled(); await swap.click(); await expect(page.getByText("Transaction confirmed", { exact: true })).toBeVisible();
   const state = await observed();
   expect(state.sdkGroups).toEqual([["eth_signTypedData_v4", "eth_signTypedData_v4", "eth_signTypedData_v4"], ["eth_sendTransaction", "eth_sendTransaction"]]);
-  expect(decodeFunctionData({ abi: erc20Abi, data: state.transactions[0].data }).args).toEqual([permit2, maxUint256]);
-  const decoded = decodeFunctionData({ abi: HELPERS_DIAMOND_ABI, data: state.transactions[1].data });
-  expect(decoded.functionName).toBe("issueFromBasketExactInWithMixedPermits");
-  const inputs = decoded.args![1] as readonly { token: string; authorization: number; maximumInputAmount: bigint }[];
-  expect(inputs.map(input => input.authorization)).toEqual([1, 1, 2]);
-  const subset = (decoded.args![2] as { permit: { permitted: readonly { token: string; amount: bigint }[] } }).permit.permitted;
-  expect(subset).toHaveLength(1); expect(subset[0].token.toLowerCase()).toBe(weth); expect(subset[0].amount).toBe(inputs[2].maximumInputAmount);
+  const decoded = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: state.transactions[1].data });
+  expect(decoded.functionName).toBe("executeExactInput");
+  const inputs = (decoded.args![0] as {inputs:readonly {currency:string;amount:bigint}[]}).inputs;
+  expect(decodeFunctionData({ abi: erc20Abi, data: state.transactions[0].data }).args).toEqual([permit2, inputs[2].amount]);
+  const authorizations = (decoded.args![1] as {authorizations:readonly {kind:number}[]}).authorizations;
+  expect(authorizations.map(input => input.kind)).toEqual([1, 1, 2]);
+  const subset = (decoded.args![1] as { permit2: { permit: { permitted: readonly { token: string; amount: bigint }[] } } }).permit2.permit.permitted;
+  expect(subset).toHaveLength(1); expect(subset[0].token.toLowerCase()).toBe(weth); expect(subset[0].amount).toBe(inputs[2].amount);
 });
 
 test("a later SDK native signature format error stops without alternate approvals or execution", async ({ page }) => {
@@ -444,10 +446,10 @@ for (const output of ["WETH", "ETH", "basket"] as const) for (const preapproved 
   await expect(swap).toBeEnabled(); await swap.click(); await expect(page.getByText("Transaction confirmed", { exact: true })).toBeVisible();
   const state = await observed();
   expect(state.sdkGroups).toEqual(preapproved ? [["eth_sendTransaction"]] : [["eth_signTypedData_v4"], ["eth_sendTransaction"]]);
-  const decoded = decodeFunctionData({ abi: HELPERS_DIAMOND_ABI, data: state.transactions[0].data });
-  const base = output === "basket" ? "redeemToBasketExactIn" : output === "ETH" ? "redeemToNativeExactIn" : "redeemToTokenExactIn";
-  expect(decoded.functionName).toBe(preapproved ? base : `${base}WithPermit`);
-  if (!preapproved) expect(BigInt(state.signatures[0].message.value)).toBe((decoded.args![0] as { grossCygldIn: bigint }).grossCygldIn);
+  const decoded = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: state.transactions[0].data });
+  expect(decoded.functionName).toBe("executeExactInput");
+  expect((decoded.args![1] as {authorizations:readonly {kind:number}[]}).authorizations[0].kind).toBe(preapproved?0:1);
+  if (!preapproved) expect(BigInt(state.signatures[0].message.value)).toBe((decoded.args![0] as {inputs:readonly {amount:bigint}[]}).inputs[0].amount);
 });
 
 test("native ETH purchase has no typed signature group and one SDK transaction group", async ({ page }) => {
@@ -455,7 +457,7 @@ test("native ETH purchase has no typed signature group and one SDK transaction g
   const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
   await expect(swap).toBeEnabled(); await swap.click(); await expect(page.getByText("Transaction confirmed", { exact: true })).toBeVisible();
   const state = await observed(); expect(state.signatures).toEqual([]); expect(state.sdkGroups).toEqual([["eth_sendTransaction"]]);
-  expect(decodeFunctionData({ abi: HELPERS_DIAMOND_ABI, data: state.transactions[0].data }).functionName).toBe("issueFromNativeExactOut");
+  expect(decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: state.transactions[0].data }).functionName).toBe("executeExactInput");
 });
 
 test("first SDK typed-format unavailability sends one replacement exact-approval transaction group", async ({ page }) => {
@@ -467,7 +469,7 @@ test("first SDK typed-format unavailability sends one replacement exact-approval
   expect(state.sdkGroups).toEqual([["eth_signTypedData_v4"], ["eth_sendTransaction", "eth_sendTransaction"]]);
   expect(state.signatures).toHaveLength(1); expect(state.transactions).toHaveLength(2);
   expect(decodeFunctionData({ abi: erc20Abi, data: state.transactions[0].data }).args).toEqual([protocolAddresses.helpers, 10n ** 18n]);
-  expect(decodeFunctionData({ abi: HELPERS_DIAMOND_ABI, data: state.transactions[1].data }).functionName).toBe("issueFromTokenExactOut");
+  expect(decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: state.transactions[1].data }).functionName).toBe("executeExactInput");
 });
 
 test("a rejected SDK execution after setup approval preserves the form without replay or replacement", async ({ page }) => {
@@ -479,6 +481,6 @@ test("a rejected SDK execution after setup approval preserves the form without r
   const state = await observed();
   expect(state.sdkGroups).toEqual([["eth_signTypedData_v4"], ["eth_sendTransaction", "eth_sendTransaction"]]);
   expect(state.signatures).toHaveLength(1); expect(state.transactions).toHaveLength(2); expect(state.bundles).toEqual([]);
-  expect(decodeFunctionData({ abi: erc20Abi, data: state.transactions[0].data }).args).toEqual([permit2, maxUint256]);
-  expect(decodeFunctionData({ abi: HELPERS_DIAMOND_ABI, data: state.transactions[1].data }).functionName).toBe("issueFromTokenExactOutWithPermit2");
+  expect(decodeFunctionData({ abi: erc20Abi, data: state.transactions[0].data }).args).toEqual([permit2, 10n ** 18n]);
+  expect(decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: state.transactions[1].data }).functionName).toBe("executeExactInput");
 });

@@ -674,7 +674,7 @@ test("optional RPC setup and detach failures cannot reject a successful native h
 });
 
 test("the real independent executor rejects changed mined calldata even with the same valid selector", async () => {
-  const { HELPERS_EXECUTION_ABI } = await import("../contracts/cybergold-helpers/execution.ts");
+  const { HISTORICAL_HELPERS_EXECUTION_ABI: HELPERS_EXECUTION_ABI } = await import("../../tests/fixtures/helpers-execution-legacy.ts");
   const refund = { address: protocolConfigurationFixture.contracts.helpers!,
     topics: encodeEventTopics({ abi: HELPERS_EXECUTION_ABI, eventName: "DustRefunded", args: { payer: owner, asset: tokenAddresses.XAUT } }),
     data: encodeAbiParameters([{ type: "uint256" }], [7n]) };
@@ -705,7 +705,7 @@ test("the real independent executor rejects changed mined calldata even with the
 });
 
 for (const kind of ["token", "native", "basket"] as const) test(`independent ${kind} execution retains all owned refunds without adding them to selected-pair amounts`, async () => {
-  const { HELPERS_EXECUTION_ABI } = await import("../contracts/cybergold-helpers/execution.ts");
+  const { HISTORICAL_HELPERS_EXECUTION_ABI: HELPERS_EXECUTION_ABI } = await import("../../tests/fixtures/helpers-execution-legacy.ts");
   const event = (name: string, args: Record<string, unknown>) => {
     const abi = HELPERS_EXECUTION_ABI.find(row => row.type === "event" && row.name === name)!;
     if (abi.type !== "event") throw Error("Fixture event missing");

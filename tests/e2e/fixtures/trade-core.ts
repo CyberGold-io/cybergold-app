@@ -1,3 +1,4 @@
+import { universalFromCoreQuote, tradeRequestFromUniversal } from "./universal-exact-input";
 import type { Page, Route } from "@playwright/test";
 import type { QuoteIntent, QuoteIntentEvent, QuoteIntentRequest } from "../../../app/utils/quoteIntent";
 import type { TradeQuote, TradeQuoteEvent, TradeQuoteRequest } from "../../../app/utils/tradeQuote";
@@ -40,7 +41,11 @@ export function tradeFixture(value: QuoteIntent, request: QuoteIntentRequest): E
 }
 
 export function tradeIntentEvent(frame: QuoteIntentEvent, request: QuoteIntentRequest): TradeQuoteEvent {
-  if (frame.type === "complete" || frame.type === "qualified") return { type: frame.type, value: tradeFixture(frame.value, request) };
+  if (frame.type === "complete" || frame.type === "qualified") {
+    if ("strategy" in frame.value) return { type:frame.type,value:frame.value as Extract<TradeQuoteEvent,{type:"complete"}>["value"] };
+    if ("readOnly" in frame.value) return { type:"estimate",strategy:"core",amount:(frame.value.displayAmount ?? frame.value.executionAmount)! };
+    return { type: frame.type, value: tradeFixture(frame.value, request) };
+  }
   if (frame.type === "model") return { type: "model", value: { namespace: "trade", intent: {
     side: request.mode.startsWith("issue") ? "buy" : "sell", mode: request.mode.endsWith("exact-in") ? "exact-in" : "exact-out",
     counterToken: request.quoteToken, native: request.native, amount: request.amount, slippageBps: request.slippageBps },
@@ -60,31 +65,41 @@ export function tradeIntentBody(body: string, request: QuoteIntentRequest): stri
   }).join("\n") + "\n";
 }
 
-/** Adapt legacy Core-only fixture handlers while the product uses the unified API. */
+/** Adapt retained synthetic economic cases to the canonical exact-input transport. */
 export function coreIntentRoute(route: Route, assets?: readonly string[]): Route {
-  const incoming = route.request();
-  if (!new URL(incoming.url()).pathname.endsWith("/quotes/trade/stream")) return route;
-  const request = coreIntentRequest(incoming.postDataJSON(), assets);
-  const requestView = new Proxy(incoming, { get(target, key) {
-    if (key === "postDataJSON") return () => request;
-    if (key === "postData") return () => JSON.stringify(request);
-    if (key === "url") return () => target.url().replace("/quotes/trade/stream", "/quotes/intent/stream");
-    const value = Reflect.get(target, key);
-    return typeof value === "function" ? value.bind(target) : value;
-  } });
-  return new Proxy(route, { get(target, key) {
-    if (key === "request") return () => requestView;
-    if (key === "fulfill") return async (options: Parameters<Route["fulfill"]>[0]) => {
-      const body = typeof options?.body === "string" ? tradeIntentBody(options.body, request) : options?.body;
-      await target.fulfill({ ...options, body });
+  const incoming=route.request(),path=new URL(incoming.url()).pathname;
+  const canonical=path.endsWith("/quotes/universal-exact-input")?incoming.postDataJSON():undefined;
+  if(!canonical&&!path.endsWith("/quotes/trade/stream"))return route;
+  const request=coreIntentRequest(canonical?tradeRequestFromUniversal(canonical):incoming.postDataJSON(),assets);
+  const requestView=new Proxy(incoming,{get(target,key){
+    if(key==="postDataJSON")return()=>request;
+    if(key==="postData")return()=>JSON.stringify(request);
+    if(key==="url")return()=>target.url().replace(/\/quotes\/(?:trade\/stream|universal-exact-input)$/, "/quotes/intent/stream");
+    const value=Reflect.get(target,key);return typeof value==="function"?value.bind(target):value;
+  }});
+  const fulfill=async(options:Parameters<Route["fulfill"]>[0])=>{
+    if(!canonical){const body=typeof options?.body==="string"?tradeIntentBody(options.body,request):options?.body;await route.fulfill({...options,body});return;}
+    const frames=typeof options?.body==="string"?options.body.split("\n").filter(Boolean).map(line=>JSON.parse(line)):[];
+    const terminal=frames.findLast(frame=>frame.type==="complete")??frames.findLast(frame=>frame.type==="error")??frames.findLast(frame=>frame.type==="qualified");
+    if(terminal?.type==="error"){await route.fulfill({status:503,json:{...terminal,code:terminal.code??"quote-unavailable"}});return;}
+    const value=terminal?.value??options?.json;
+    if(!value){await route.fulfill(options);return;}
+    await route.fulfill({status:options?.status??200,headers:options?.headers,json:value.strategy==="universal"?value:
+      universalFromCoreQuote(canonical,value.strategy==="core"?value.providerQuote:value,assets??request.orderedAssets)});
+  };
+  return new Proxy(route,{get(target,key){
+    if(key==="request")return()=>requestView;
+    if(key==="fulfill")return fulfill;
+    if(key==="continue")return async(options:Parameters<Route["continue"]>[0])=>{
+      if(!canonical)return target.continue({...options,postData:JSON.stringify(request)});
+      const response=await target.fetch({...options,postData:JSON.stringify(request)});
+      return fulfill({status:response.status(),body:await response.text()});
     };
-    if (key === "continue") return (options: Parameters<Route["continue"]>[0]) =>
-      target.continue({ ...options, postData: JSON.stringify(request) });
-    const value = Reflect.get(target, key);
-    return typeof value === "function" ? value.bind(target) : value;
-  } });
+    const value=Reflect.get(target,key);return typeof value==="function"?value.bind(target):value;
+  }});
 }
 
 export async function routeCoreIntent(page: Page, handler: (route: Route) => Promise<void>, assets?: readonly string[]) {
   await page.route("**/api/quotes/trade/stream", route => handler(coreIntentRoute(route, assets)));
+  await page.route("**/api/quotes/universal-exact-input", route => handler(coreIntentRoute(route, assets)));
 }

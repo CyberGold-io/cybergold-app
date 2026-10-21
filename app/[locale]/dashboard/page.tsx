@@ -4,7 +4,11 @@ import { useProtocolConfiguration } from "../../context/protocolConfigurationCon
 
 import { useEffect, useMemo, useSyncExternalStore, useState } from "react";
 import { CoreProtocolTab } from "./_core/CoreProtocolTab";
-import type { RecoveryOverview } from "./_core/panels/RecoveryOverviewPanel";
+import { dashboardExpandedAssetKey, dashboardSummaryDisplayKey, parseDashboardDisplaySummary, type DashboardOnchainSummary } from "./_core/dashboardDisplayState";
+import { usePublicDisplayCache } from "../../hooks/usePublicDisplayCache";
+import { goldDisplayCacheKey, writePublicDisplayCache } from "../../utils/publicDisplayCache";
+import { parseGoldMarketDataPayload } from "../../utils/marketDataValidation";
+import { RetainedPageDisplay } from "../../components/retainedPageDisplay";
 import { LuRefreshCw } from "react-icons/lu";
 import { useLocale, useTranslations } from "next-intl";
 import { zeroAddress } from "viem";
@@ -21,57 +25,7 @@ type PegRange = "24H" | "7D" | "1M";
 const GRAMS_PER_TROY_OUNCE = 31.1034768;
 const FALLBACK_PROTOCOL_ADDRESS = zeroAddress;
 
-type DashboardOnchainSummary = {
-    enabled: boolean;
-    protocolLogicUpdate: { timestampMs: number; txHash: string | null } | null;
-    protocolParameterUpdate: { timestampMs: number; txHash: string | null } | null;
-    chainHeadBlock?: string | null;
-    chainHeadTimestampMs?: number | null;
-    snapshotBlock?: string | null;
-    lastScannedBlock?: string | null;
-    metrics?: {
-        currentTotalSupplyCygld: number | null;
-        netIssuance24hCygld: number | null;
-        holderCount?: number | null;
-        issuanceFeePercent: number | null;
-        redemptionFeePercent: number | null;
-        paused: boolean | null;
-    };
-    basket?: {
-        reserveAddress: string | null;
-        cygldRefGrams: number | null;
-        cygldRefGramsFp18: string | null;
-        withinBand: boolean | null;
-        assets: Array<{
-            address: string;
-            symbol: string;
-            targetPercent: number;
-            actualPercent: number;
-            driftPercent: number;
-            decimals: number | null;
-            reserveBalance: number | null;
-            reserveBalanceRaw: string;
-            totalSupply: number | null;
-            totalSupplyRaw: string | null;
-            goldRefGrams: number | null;
-            cygldPerUnitFp18: string;
-            cygldPerToken: number | null;
-        }>;
-    } | null;
-    recovery?: RecoveryOverview | null;
-    series?: Record<
-        PegRange,
-        Array<{
-            bucketStartMs: number;
-            mintCygld: number;
-            redeemCygld: number;
-            netCygld: number;
-            supplyCygld: number;
-            transferredCygld: number;
-            transferTxCount: number;
-        }>
-    >;
-};
+
 
 function resolveHashTab(hash: string): DashboardTabId {
     const cleaned = hash.replace("#", "");
@@ -111,6 +65,10 @@ function isPegRange(value: string | null): value is PegRange {
     return value === "24H" || value === "7D" || value === "1M";
 }
 
+const rangeMemory = new Map<string, PegRange>();
+let expandedAssetMemory: string | null = null;
+let hasExpandedAssetMemory = false;
+
 function usePersistentRange(storageKey: string, fallback: PegRange) {
     const value = useSyncExternalStore(
         (onStoreChange) => {
@@ -139,19 +97,46 @@ function usePersistentRange(storageKey: string, fallback: PegRange) {
         },
         () => {
             if (typeof window === "undefined") return fallback;
-            const stored = window.localStorage.getItem(storageKey);
-            return isPegRange(stored) ? stored : fallback;
+            if (rangeMemory.has(storageKey)) return rangeMemory.get(storageKey)!;
+            try {
+                const stored = window.localStorage.getItem(storageKey);
+                return isPegRange(stored) ? stored : fallback;
+            } catch { return rangeMemory.get(storageKey) ?? fallback; }
         },
         () => fallback
     );
 
     const setValue = (next: PegRange) => {
         if (typeof window === "undefined") return;
-        window.localStorage.setItem(storageKey, next);
+        rangeMemory.set(storageKey, next);
+        try { window.localStorage.setItem(storageKey, next); } catch { /* Keep ordinary range selection usable. */ }
         window.dispatchEvent(new CustomEvent("cybergold:range-storage", { detail: { key: storageKey } }));
     };
 
     return [value, setValue] as const;
+}
+
+function usePersistentExpandedAsset() {
+    const value = useSyncExternalStore(
+        listener => {
+            window.addEventListener("cybergold:dashboard-expanded-asset", listener);
+            return () => window.removeEventListener("cybergold:dashboard-expanded-asset", listener);
+        },
+        () => {
+            if (hasExpandedAssetMemory) return expandedAssetMemory;
+            try { return window.sessionStorage.getItem(dashboardExpandedAssetKey); } catch { return expandedAssetMemory; }
+        },
+        () => null,
+    );
+    return [value, (next: string | null) => {
+        expandedAssetMemory = next;
+        hasExpandedAssetMemory = true;
+        try {
+            if (next === null) window.sessionStorage.removeItem(dashboardExpandedAssetKey);
+            else window.sessionStorage.setItem(dashboardExpandedAssetKey, next);
+        } catch { /* Optional display preferences do not affect data retrieval. */ }
+        window.dispatchEvent(new Event("cybergold:dashboard-expanded-asset"));
+    }] as const;
 }
 
 function buildRangeDates(range: PegRange, endAtHour: Date): Date[] {
@@ -222,29 +207,43 @@ export default function Dashboard() {
         fetchedAt: goldPriceFetchedAt,
         isStale: isGoldPriceStale,
     } = useGoldPrice();
-    const [activeTab, setActiveTab] = useState<DashboardTabId>("core-protocol");
+    const activeTab = useSyncExternalStore(
+        listener => {
+            window.addEventListener("hashchange", listener);
+            window.addEventListener("cybergold:dashboard-tab", listener);
+            return () => {
+                window.removeEventListener("hashchange", listener);
+                window.removeEventListener("cybergold:dashboard-tab", listener);
+            };
+        },
+        () => resolveHashTab(window.location.hash),
+        () => "core-protocol" as DashboardTabId,
+    );
     const [activityRange, setActivityRange] = usePersistentRange("dashboard-range-activity", "7D");
     const [issueRange, setIssueRange] = usePersistentRange("dashboard-range-issue", "7D");
-    const [expandedBasketAssetAddress, setExpandedBasketAssetAddress] = useState<string | null>(null);
-    const [onchainSummary, setOnchainSummary] = useState<DashboardOnchainSummary | null>(null);
+    const [expandedBasketAssetAddress, setExpandedBasketAssetAddress] = usePersistentExpandedAsset();
+    const cachedSummary = usePublicDisplayCache(dashboardSummaryDisplayKey(publicEnv.NEXT_PUBLIC_CHAIN_ID), parseDashboardDisplaySummary);
+    const [liveSummary, setOnchainSummary] = useState<DashboardOnchainSummary | null>(null);
+    const onchainSummary = liveSummary ?? cachedSummary ?? null;
     const [onchainSummaryError, setOnchainSummaryError] = useState<string | null>(null);
     const [summaryRefreshCount, setSummaryRefreshCount] = useState(0);
     const [isRefreshingSummary, setIsRefreshingSummary] = useState(false);
     const refreshOnchainSummary = () => setSummaryRefreshCount((count) => count + 1);
-    // The shared market feeds also mark configured fallback prices as stale.
-    // Without an observed quote, show only the known configured gold weight.
+    // A completed observation remains a displayed approximation during refresh;
+    // configured fallback data never becomes an observed dashboard price.
+    const cachedGold = usePublicDisplayCache(goldDisplayCacheKey, parseGoldMarketDataPayload);
     const goldQuoteForReference = isGoldPriceStale || (selectedCurrency !== "USD" && isFxStale)
-        ? undefined : liveGoldSpotUsdPerOzt;
+        ? cachedGold?.price : liveGoldSpotUsdPerOzt;
     const cygldReference = dashboardGoldReference(
         onchainSummary?.enabled ? onchainSummary.basket?.cygldRefGrams : null,
         goldQuoteForReference
     );
     const handleTabChange = (tabId: DashboardTabId) => {
-        setActiveTab(tabId);
         if (typeof window !== "undefined") {
             const nextHash = `#${tabId}`;
             if (window.location.hash !== nextHash) {
                 window.history.pushState(null, "", nextHash);
+                window.dispatchEvent(new Event("cybergold:dashboard-tab"));
             }
         }
     };
@@ -446,7 +445,6 @@ export default function Dashboard() {
                         payload,
                     });
                     if (!cancelled) {
-                        setOnchainSummary(null);
                         setOnchainSummaryError(payload.error ?? `On-chain summary API failed with status ${response.status}`);
                     }
                     return;
@@ -484,13 +482,15 @@ export default function Dashboard() {
                 }
 
                 if (!cancelled) {
-                    setOnchainSummary(payload);
+                    if (payload.enabled) {
+                        writePublicDisplayCache(dashboardSummaryDisplayKey(publicEnv.NEXT_PUBLIC_CHAIN_ID), payload);
+                        setOnchainSummary(previous => JSON.stringify(previous) === JSON.stringify(payload) ? previous : payload);
+                    }
                     setOnchainSummaryError(payload.enabled ? null : t("onchainDataDisabled"));
                 }
             } catch (error) {
                 console.error("[dashboard] Failed to load on-chain summary", error);
                 if (!cancelled) {
-                    setOnchainSummary(null);
                     setOnchainSummaryError(error instanceof Error ? error.message : t("onchainDataUnavailableDescription"));
                 }
             } finally {
@@ -511,17 +511,10 @@ export default function Dashboard() {
         };
     }, [t, summaryRefreshCount]);
 
-    useEffect(() => {
-        const syncFromHash = () => {
-            setActiveTab(resolveHashTab(window.location.hash));
-        };
 
-        syncFromHash();
-        window.addEventListener("hashchange", syncFromHash);
-        return () => window.removeEventListener("hashchange", syncFromHash);
-    }, []);
 
     return (
+        <RetainedPageDisplay page="dashboard" ready={onchainSummary !== null || onchainSummaryError !== null}>
         <div className="flex flex-1 flex-col items-center bg-background font-sans">
             <div className="flex min-w-0 flex-col w-full max-w-7xl mx-auto px-3 py-4 sm:px-6 lg:px-8">
                 {/* HEADER SECTION */}
@@ -531,10 +524,10 @@ export default function Dashboard() {
                         <p className="mt-1 text-sm">{t("subtitle")}</p>
                     </div>
                     <button type="button" onClick={refreshOnchainSummary} aria-label={t("refreshData")} aria-busy={isRefreshingSummary} className="md:hidden p-3 rounded-xl bg-gold-cg/10 w-fit items-center text-xs text-gold-cg hover:scale-102 transition-all mr-2">
-                        <LuRefreshCw className={isRefreshingSummary ? "animate-spin" : undefined} />
+                        <LuRefreshCw />
                     </button>
                     <button type="button" onClick={refreshOnchainSummary} aria-busy={isRefreshingSummary} className="hidden md:flex px-4 py-2 rounded-full bg-gold-cg text-black text-sm font-semibold flex items-center space-x-2 hover:scale-102 shadow-lg shadow-accent/20 transition-all">
-                        <LuRefreshCw className={`inline-block mr-2${isRefreshingSummary ? " animate-spin" : ""}`} />
+                        <LuRefreshCw className="inline-block mr-2" />
                         {t("refreshData")}
                     </button>
                 </section>
@@ -702,5 +695,6 @@ export default function Dashboard() {
                 ) : null}
             </div>
         </div>
+        </RetainedPageDisplay>
     );
 }

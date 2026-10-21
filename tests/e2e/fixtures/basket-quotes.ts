@@ -1,3 +1,4 @@
+import { universalFixture } from "./universal-exact-input";
 import { protocolAddresses } from "../../fixtures/protocol-configuration";
 import { expect, type Page } from "@playwright/test";
 import { encodeFunctionData } from "viem";
@@ -39,6 +40,16 @@ export async function install(page: Page, unavailable = false, recoveryUnavailab
       await route.fulfill(precision === "unavailable" ? { status: 503, json: { error: "Precision unavailable" } }
         : { json: { context: { ...context, blockTimestamp: "1790800000" },
           core: protocolAddresses.core, asset, shareDecimals: precision } });
+    } else if(path==="/api/quotes/universal-exact-input") {
+      const request=route.request().postDataJSON();
+      const mode=request.intent===2?"issue-exact-in":"redeem-exact-in";previews.push(mode);
+      const timing={mode,request,receivedAt:Date.now(),completedAt:undefined as number|undefined};timings.push(timing);
+      if(responseDelayMs)await new Promise(resolve=>setTimeout(resolve,responseDelayMs));
+      if(unavailable){await route.fulfill({status:503,json:{error:"Basket quotes are temporarily unavailable."}});return;}
+      const projected=[{kind:0,token:asset,id:"0",amount:String(10n**18n)}];
+      if(precision!==undefined)projected.push({kind:1,token:protocolAddresses.core!,id:BigInt(asset).toString(),amount:"2500001"});
+      await route.fulfill({json:universalFixture(request,{basketAssets:[asset],quotedOutput:request.intent===2?String(10n**18n):"0",recipientOutputs:request.intent===3?projected:undefined,context})});
+      timing.completedAt=Date.now();
     } else if (path === "/api/quotes/basket-preview") {
       const request = route.request().postDataJSON(); previews.push(request.mode);
       const timing = { mode: request.mode, request, receivedAt: Date.now(), completedAt: undefined as number | undefined }; timings.push(timing);

@@ -3,9 +3,9 @@ import test from 'node:test';
 import { estimateHelpersExecutionGas, type HelpersExecutionOperation } from './helpersExecutionGas.ts';
 
 const owner=`0x${'1'.repeat(40)}` as const;
-const operations:HelpersExecutionOperation[]=['issueFromBasketExactInWithPermit2','issueFromBasketExactOutWithPermit2',
-  'issueFromTokenExactOutWithPermit2','issueFromTokenExactOutWithPermit','issueFromTokenExactOut','issueFromNativeExactOut','redeemToBasketExactInWithPermit',
-  'redeemToTokenExactInWithPermit','redeemToNativeExactInWithPermit'];
+const operations:HelpersExecutionOperation[]=['executeExactInput','issueFromBasketExactOutWithPermit2',
+  'issueFromBasketExactOutWithMixedPermits','issueFromTokenExactOutWithPermit2','issueFromTokenExactOutWithPermit',
+  'issueFromTokenExactOut','issueFromNativeExactOut','swapExactOutput'];
 
 test('exact purchase and signed operation hints retain nested amounts and signatures without an ABI or target',async()=>{
   const amount=2n**200n+1n,gas=2n**100n+1n;

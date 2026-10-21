@@ -7,8 +7,8 @@ import { coreTrade, marketTrade, tradeCore, tradeCounter, tradeHelpers, tradeOwn
 function executors() {
   const calls: { family: string; args: unknown[] }[] = [];
   const handlers: Parameters<typeof submitTradeQuote>[2] = {
+    universal: async (...args) => { calls.push({ family: "universal", args }); return "0x04"; },
     tokenPurchase: async (...args) => { calls.push({ family: "issue", args }); return "0x01"; },
-    redemption: async (...args) => { calls.push({ family: "redeem", args }); return "0x02"; },
     market: async (...args) => { calls.push({ family: "market", args }); return "0x03"; },
   };
   return { calls, handlers };
@@ -38,25 +38,37 @@ test("losing-provider updates refresh evidence without replacing the selected ec
 for (const side of ["buy", "sell"] as const) for (const mode of ["exact-in", "exact-out"] as const) {
   test(`${side}/${mode}: dispatch prepares only the selected market executor`, async () => {
     const value = executors(), quote = { ...tradeQuoteResult(marketTrade(side, mode)), deployment };
-    await submitTradeQuote(quote, params, value.handlers);
-    assert.deepEqual(value.calls.map(row => row.family), ["market"]);
+    await submitTradeQuote(quote, params, value.handlers, async (_path, init) => {
+      const request = JSON.parse(String(init?.body));
+      assert.equal(request.inputs[0].amount, quote.value.providerRequest.amount);
+      return Response.json({strategy:"universal",plan:{...request,minimumOutput:"1",body:"0xabcd"},outputMinimum:"1"});
+    });
+    assert.deepEqual(value.calls.map(row => row.family), [mode === "exact-in" ? "universal" : "market"]);
+    if(mode === "exact-in") {
+      const observed=value.calls[0].args[0] as {plan:{minimumOutput:string;body:string}};
+      assert.equal(observed.plan.minimumOutput,String(quote.outputMinimum));assert.equal(observed.plan.body,"0xabcd");return;
+    }
     const observed = value.calls[0].args[0] as { deployment: typeof deployment; params: { data: string } };
     assert.deepEqual(observed.deployment, deployment);
     assert.equal(observed.params.data, quote.value.providerQuote.params.data);
   });
   test(`${side}/${mode}: Core execution retains its actual funded lot and output protection`, async () => {
     const value = executors(), quote = { ...tradeQuoteResult(coreTrade(side, mode)), deployment };
-    await submitTradeQuote(quote, params, value.handlers);
-    assert.deepEqual(value.calls.map(row => row.family), [side === "buy" ? "issue" : "redeem"]);
+    await submitTradeQuote(quote, params, value.handlers, async (_path, init) => {
+      const request = JSON.parse(String(init?.body));
+      assert.equal(request.inputs[0].amount, "20");
+      return Response.json({ strategy: "universal", plan: { ...request, minimumOutput: "22", body: "0x1234" }, outputMinimum: "22" });
+    });
+    assert.deepEqual(value.calls.map(row => row.family), [side === "buy" && mode === "exact-out" ? "issue" : "universal"]);
     const observed = value.calls[0].args[0] as Record<string, unknown>;
-    assert.deepEqual(observed.deployment, deployment);
-    if (side === "buy") { assert.equal(observed.maximumInputAmount, 30n); assert.equal(observed.netCygldOut, 25n); }
-    else { assert.equal(observed.grossCygldIn, 20n); assert.equal((observed.request as Record<string, unknown>).minimumAmountOut, 24n); }
+    if (side === "buy" && mode === "exact-out") assert.deepEqual(observed.deployment, deployment);
+    if (side === "buy" && mode === "exact-out") { assert.equal(observed.maximumInputAmount, 30n); assert.equal(observed.netCygldOut, 25n); }
+    else { assert.equal((observed.plan as { inputs: { amount: string }[] }).inputs[0].amount, "20"); assert.equal((observed.plan as { minimumOutput: string }).minimumOutput, "24"); }
   });
 }
 
 test("native Core purchase retains WETH when the existing fallback funds through ERC20", async () => {
-  const quote = coreTrade(); quote.providerRequest.native = true;
+  const quote = coreTrade("buy", "exact-out"); quote.providerRequest.native = true;
   quote.providerRequest.token = `0x${"00".repeat(20)}`; quote.providerRequest.quoteToken = tradeCounter;
   const value = executors();
   await submitTradeQuote(tradeQuoteResult(quote), { ...params, inputFundingMode: "erc20" }, value.handlers);
@@ -96,4 +108,17 @@ test("unified stream publishes a winner before a competitor error and the termin
     return new Response(response, { headers: { "Content-Type": "application/x-ndjson" } });
   }) as typeof fetch);
   assert.deepEqual(events, ["qualified", "provider-error"]); assert.equal(result.value.strategy, "market");
+});
+
+test("a canonical universal winner from the retained trade stream keeps its solved Q, zero scalar bound, body and deployment", async () => {
+  const request = { side:"sell" as const, mode:"exact-out" as const,counterToken:tradeCounter,native:false,amount:"24",recipient:tradeOwner,deadline:"1900000000" };
+  const quote = { strategy:"universal",routeFamily:"core",operation:"executeExactInput",inputs:[{currency:tradeCore,amount:"20"}],
+    quotedInput:"20",inputMaximum:"20",quotedOutput:"0",outputMinimum:"0",
+    plan:{intent:1,inputs:[{currency:tradeCore,amount:"20"}],outputCurrency:tradeCounter,recipient:tradeOwner,deadline:request.deadline,minimumOutput:"0",body:"0x1234"},
+    deployment:{helpers:tradeHelpers,adapter:tradeCounter,encoding:"uniswap-routing-v1"},context:coreTrade().context };
+  const result = await fetchTradeQuote(request,new AbortController().signal,()=>{},async()=>new Response(JSON.stringify({type:"complete",value:quote})+"\n"));
+  assert.equal(result.value.strategy,"universal");assert.equal(result.quotedInput,20n);assert.equal(result.outputMinimum,0n);
+  if(result.value.strategy!=="universal") throw new Error("fixture");
+  assert.equal(result.value.plan.body,"0x1234");assert.equal(result.value.deployment.helpers,tradeHelpers);
+  assert.equal(result.value.providerRequest,request);assert.equal(result.value.tokenIn,tradeCore);assert.equal(result.value.tokenOut,tradeCounter);
 });

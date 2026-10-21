@@ -12,7 +12,7 @@ test("basket quotes wait while hidden and resume once visible", async ({ page })
     document.dispatchEvent(new Event("visibilitychange"));
   });
   let quotes = 0;
-  page.on("request", request => { if (new URL(request.url()).pathname === "/api/quotes/basket-preview") quotes++; });
+  page.on("request", request => { if (new URL(request.url()).pathname === "/api/quotes/universal-exact-input") quotes++; });
   await page.getByRole("textbox", { name: "Sell amount (PAXG)", exact: true }).fill("1");
   await page.clock.fastForward(601_000);
   expect(quotes).toBe(0);
@@ -21,6 +21,6 @@ test("basket quotes wait while hidden and resume once visible", async ({ page })
     Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" });
     document.dispatchEvent(new Event("visibilitychange"));
   });
-  await expect(page.getByRole("textbox", { name: "You Buy CYGLD", exact: true })).toHaveValue("1");
+  await expect(page.getByRole("status", { name: "You Buy CYGLD", exact: true })).toHaveText("1");
   expect(quotes).toBe(1);
 });

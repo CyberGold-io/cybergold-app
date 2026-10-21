@@ -20,7 +20,7 @@ for (let repeat = 1; repeat <= 3; repeat++) for (const mode of modes) {
     await page.goto("/en");
     await selectBasket(page);
     if (mode.startsWith("redeem")) await page.getByRole("button", { name: "Reverse swap direction" }).click();
-    const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)');
+    const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance):visible');
     const input = inputs.first();
     await input.click();
     const measure = async (values: string[]) => {
@@ -36,7 +36,7 @@ for (let repeat = 1; repeat <= 3; repeat++) for (const mode of modes) {
       const rows = observed.timings.slice(offset).filter(row => row.mode === mode);
       return { requests: rows.length,
         responseAfterLastEditMs: rows.length ? rows.at(-1)!.completedAt! - lastEditAt : null,
-        displayedInputs: await inputs.evaluateAll(nodes => nodes.map(node => (node as HTMLInputElement).value)) };
+        displayedInputs: await page.locator('input[inputmode="decimal"]:not(#execution-tolerance):visible, #buy-basket-composition output, #buy-amount').evaluateAll(nodes => nodes.map(node => node instanceof HTMLInputElement ? node.value : node.textContent)) };
     };
     const rapid = await measure(["1", "12", "123"]);
     expect(rapid.requests).toBe(3);
@@ -55,7 +55,7 @@ for (const mode of ["issue-exact-in", "redeem-exact-in"]) {
     await page.goto("/en");
     await selectBasket(page);
     if (mode.startsWith("redeem")) await page.getByRole("button", { name: "Reverse swap direction" }).click();
-    const input = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first();
+    const input = page.locator('input[inputmode="decimal"]:not(#execution-tolerance):visible').first();
     await input.click();
     await page.clock.install();
     await page.clock.pauseAt(new Date(Date.now() + 1_000));

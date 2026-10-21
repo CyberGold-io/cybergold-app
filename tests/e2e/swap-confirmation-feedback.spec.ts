@@ -33,7 +33,8 @@ async function readyRedeem(page: Page) {
 
 async function installSigningWallet(page: Page) {
   await page.route("**/api/account/token-permit*", route => route.fulfill({ json: {
-    spender: protocolAddresses.helpers, allowance: { status: "success", value: "0" },
+    spender: protocolAddresses.helpers, allowance: { status: "success", value: "0" },nonce:{status:"success",value:"0"},
+    authorization:{kind:"erc2612",confidence:"qualified",domain:{name:"CyberGold",version:"1",chainId:chain,verifyingContract:protocolAddresses.core}},
   } }));
   await page.addInitScript(({ owner, hash, chain }) => {
     const requests: string[] = [];
@@ -207,8 +208,8 @@ for (const mode of ["exact-in"] as const) {
     await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
     await selectBasket(page);
     const amount = mode === "exact-in"
-      ? page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first()
-      : page.getByRole("textbox", { name: "You Buy CYGLD", exact: true });
+      ? page.locator('input[inputmode="decimal"]:not(#execution-tolerance):visible').first()
+      : page.getByLabel("You Buy CYGLD", { exact: true });
     await amount.click();
     await amount.fill("1");
     const submit = page.getByRole("button", { name: "Swap currencies", exact: true });

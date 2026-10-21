@@ -31,34 +31,34 @@ for (const symbol of ["WETH", "USDC"] as const) {
       await page.goto("/en"); await choose(page, symbol);
       if (mode.startsWith("redeem")) await page.getByRole("button", { name: "Reverse swap direction" }).click();
       const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)');
-      const exactIn = mode.endsWith("-in"), edited = exactIn ? inputs.first() : inputs.last();
+      const edited = inputs.first();
       await edited.click(); await edited.fill("1");
-      const quoted = exactIn ? inputs.last() : inputs.first();
-      await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).not.toHaveValue("");
-      const before = await quoted.inputValue(), count = observed.intents.length;
+      const quoted = page.locator("#buy-amount");
+      await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
+      const before = (await quoted.textContent())!, count = observed.intents.length;
       pending = new Promise<void>(resolve => { finish = resolve; });
       name = "Updated display name";
       head = { ...head, blockHash: `0x${"b".repeat(64)}` };
       await expect.poll(() => observed.intents.length).toBeGreaterThan(count);
       const start = performance.now(), samples: { elapsedMs: number; blank: boolean }[] = [];
       for (let i = 0; i < 20; i++) {
-        samples.push({ elapsedMs: performance.now()-start, blank: (await quoted.inputValue()) === "" });
+        samples.push({ elapsedMs: performance.now()-start, blank: /^(?:0(?:[.,]0+)?|\.\.\.)?$/.test((await quoted.textContent())!) });
         await page.waitForTimeout(20);
       }
       expect(samples.some(s => s.blank)).toBe(baseline);
-      if (!baseline) await expect(quoted).toHaveValue(before);
+      if (!baseline) await expect(quoted).toHaveText(before);
       await test.info().attach("refresh-measurement", { body: JSON.stringify({ baseline, mode, symbol, sampleIntervalMs:20, samples }), contentType:"application/json" });
       finish(); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
       // A changed raw input must not retain the preceding completed amount.
       pending = new Promise<void>(resolve => { finish = resolve; });
       await edited.fill("2");
-      await expect(quoted).toHaveValue("");
+      await expect(quoted).toHaveText("...");
       finish(); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
     });
   }
 }
 
-test("balance warning precedes the exact request and survives a quote failure", async ({ page }) => {
+test("a purchase budget above the wallet balance requests qualification and preserves an ordinary quote failure", async ({ page }) => {
   await readOnlyWallet(page);
   const observed = await install(page, "uniswap");
   await routeWalletBalances(page, route => route.fulfill({ json: {
@@ -80,8 +80,10 @@ test("balance warning precedes the exact request and survives a quote failure", 
   await edited.fill("10");
   await expect.poll(() => observed.intents.length).toBe(1); // Indicative quoting continues.
   const warning = page.getByRole("button",{name:"Reduce the swap amount to match your available balance.",exact:true});
-  if (baseline) await expect(warning).toBeHidden();
-  else await expect(warning).toBeVisible();
+  await expect(warning).toBeHidden();
+  const failure = page.getByRole("button", { name: "The quote service could not process this request. Retry.", exact: true });
+  await expect(failure).toBeVisible();
+  await expect(failure).toBeDisabled();
   const measurement = await page.evaluate(() => (window as unknown as {__quoteBalanceMeasurement:unknown}).__quoteBalanceMeasurement);
   await test.info().attach("balance-measurement",{body:JSON.stringify({baseline,measurement,quoteRequests:observed.intents.length}),contentType:"application/json"});
 });

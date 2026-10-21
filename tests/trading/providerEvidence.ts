@@ -1,6 +1,6 @@
 import type { components } from '../../app/contracts/backend/http';
 import type { TradeSelectionObservation } from '../../app/utils/tradeSelectionObservation.ts';
-import type { TradeQuote, TradeQuoteRequest } from '../../app/utils/tradeQuote.ts';
+import type { TradeQuote, ActiveTradeQuote, TradeQuoteRequest } from '../../app/utils/tradeQuote.ts';
 import { diagnosticReferences, safeDiagnosticReferences, safeQuoteDiagnostics, type QuoteDiagnostics } from '../../app/utils/diagnosticReferences.ts';
 import { fetchQuoteStream } from '../../app/utils/quoteStream.ts';
 import { knownQuoteError, safeQuoteConstraint, type QuoteConstraint } from '../../app/utils/quoteErrors.ts';
@@ -26,7 +26,8 @@ export const emptyProviders = (): Record<Provider, ProviderSummary> => ({ core: 
 const observationFields = new Set(['metrics', 'evaluation', 'diagnostics', 'quoteDiagnostics', 'refs', 'requestId', 'attemptId', 'correlationId', 'workId', 'observedAt', 'providerAssessments', 'providerCandidates']);
 const executableTerms = (v: unknown): unknown => Array.isArray(v) ? v.map(executableTerms) : v && typeof v === 'object'
   ? Object.fromEntries(Object.entries(v).filter(([key]) => !observationFields.has(key)).map(([key, child]) => [key, executableTerms(child)])) : v;
-export function planDigest(value: Candidate, deployment?: SelectionCapture['deployment']) {
+export function planDigest(value: Candidate | ActiveTradeQuote, deployment?: SelectionCapture['deployment']) {
+  if (value.strategy === "universal") return semanticDigest({ plan: value.plan, deployment: value.deployment });
   return semanticDigest({ strategy: value.strategy, side: value.side, mode: value.mode, tokenIn: value.tokenIn, tokenOut: value.tokenOut,
     quotedInput: value.quotedInput, quotedOutput: value.quotedOutput, inputMaximum: value.inputMaximum, outputMinimum: value.outputMinimum,
     context: executableTerms(value.context), providerRequest: executableTerms(value.providerRequest), providerQuote: executableTerms(value.providerQuote), deployment });
@@ -55,7 +56,7 @@ export function installSelectionCapture(scope: SelectionWindow = window) {
   scope.__cybergoldSelections = [];
   scope.addEventListener('cybergold:trade-selection', event => {
     const detail = (event as CustomEvent<SelectionCapture>).detail;
-    if (detail?.quote || detail?.basketRequest) scope.__cybergoldSelections!.push(structuredClone(detail));
+    if (detail?.quote || detail?.basketRequest || detail?.universalQuote) scope.__cybergoldSelections!.push(structuredClone(detail));
   });
 }
 export async function selectionCaptures(page: Page): Promise<SelectionCapture[]> {
@@ -64,12 +65,23 @@ export async function selectionCaptures(page: Page): Promise<SelectionCapture[]>
 export function captureSelection(value: SelectionCapture) {
   const captured = structuredClone(value), quote = captured.quote;
   if (!quote) throw new Error('token-selection-not-observed');
+  if (quote.strategy === "universal") return { captured, primary: { selectedProvider: "universal" as const,
+    planDigest: planDigest(quote), bounds: { quotedInput: quote.quotedInput, quotedOutput: quote.quotedOutput,
+      inputMaximum: quote.inputMaximum, outputMinimum: quote.outputMinimum }, context: quote.context, deployment: captured.deployment,
+    providers: emptyProviders(), selectedPlan: { provider: "universal", routeFamily: quote.routeFamily, quotedInput: quote.quotedInput, quotedOutput: quote.quotedOutput,
+      inputMaximum: quote.inputMaximum, outputMinimum: quote.outputMinimum } as SelectedPlan,
+    quoteTerms: { inputSpent: quote.inputs.map(row => ({ asset: row.currency, amount: row.amount })),
+      netOutput: [{ asset: quote.tokenOut, amount: quote.quotedOutput }],
+      requestedInput: quote.inputs.map(row => ({ asset: row.currency, amount: row.amount })), refundCoverage: "not-disclosed" as const },
+    refs: safeDiagnosticReferences(captured.diagnostics) }, alternate: undefined };
   return { captured, primary: { selectedProvider: quote.strategy, planDigest: planDigest(quote, captured.deployment),
     bounds: { quotedInput: quote.quotedInput, quotedOutput: quote.quotedOutput, inputMaximum: quote.inputMaximum, outputMinimum: quote.outputMinimum }, context: quote.context, deployment: captured.deployment,
     ...(safeQuoteDiagnostics((quote.providerQuote as { quoteDiagnostics?: unknown }).quoteDiagnostics) ? { quoteDiagnostics: safeQuoteDiagnostics((quote.providerQuote as { quoteDiagnostics?: unknown }).quoteDiagnostics) } : {}), selectedPlan: safeSelectedPlan(quote.providerQuote, quote.strategy, quote), providers: providerSummaries(quote, captured.deployment), quoteTerms: tradeQualityTerms(quote), refs: { ...diagnosticReferences(quote.providerQuote), ...safeDiagnosticReferences(captured.diagnostics) } }, alternate: quote.providerCandidates?.[quote.strategy === 'core' ? 'market' : 'core'] };
 }
 /** A basket winner is linked only to the preview frozen by its actual click. */
 export function captureBasketSelection(value: SelectionCapture): Pick<ScenarioResult, 'selectedProvider' | 'planDigest' | 'selectedPlan' | 'quoteDiagnostics'> {
+  if (value.universalQuote) return { selectedProvider: "universal", planDigest: semanticDigest({ plan:value.universalQuote.plan,deployment:value.universalQuote.deployment }),
+    selectedPlan: { provider:"universal",intent:value.universalQuote.plan.intent,routeFamily:value.universalQuote.routeFamily,quotedOutput:value.universalQuote.quotedOutput } };
   const preview = value.basketPreview;
   if (!preview) return {};
   const quoteDiagnostics = safeQuoteDiagnostics((preview as { quoteDiagnostics?: unknown }).quoteDiagnostics);
@@ -92,10 +104,10 @@ export async function executeAlternate(capture: SelectionCapture, scenario: Scen
   page: Page, owner: `0x${string}`, config: ProtocolConfiguration, fetcher: typeof fetch, execute?: typeof import('./walletExecution.ts').executeScenario, predecessorDisposition?: ScenarioResult['transactionDisposition'], comparisonState: AlternateExecution['comparisonState'] = 'sequential-state',
   checkpoint?: (result: AlternateExecution) => void | Promise<void>): Promise<AlternateExecution> {
   const { alternate } = captureSelection(capture);
-  let result = notAttemptedAlternate(scenario, capture.quote);
+  let result = notAttemptedAlternate(scenario, capture.quote?.strategy === "universal" ? undefined : capture.quote);
   result.comparisonState = comparisonState;
   if (predecessorDisposition === 'unknown') return { ...result, reason: 'predecessor-submission-unknown' };
-  if (!alternate || capture.quote?.providerAssessments?.[result.provider]?.availability !== 'qualified') return result;
+  if (!alternate || capture.quote?.strategy === 'universal' || capture.quote?.providerAssessments?.[result.provider]?.availability !== 'qualified') return result;
   result = { ...result, attempted: true, executionAttempted: true, code: 'execution-not-completed', executionStage: 'execution-quote', planDigest: planDigest(alternate, capture.deployment) };
   delete result.reason;
   const started = performance.now();

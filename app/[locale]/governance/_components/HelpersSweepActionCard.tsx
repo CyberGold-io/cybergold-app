@@ -109,7 +109,7 @@ export function HelpersSweepActionCard({
         <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
           <label className="text-xs text-[var(--text-muted)]">
             <span className="mb-1 block">{t("helpersSweepFormTokenLabel")}</span>
-            <input
+            <input data-page-draft-key={`${action.id}:token`}
               type="text"
               value={tokenInput}
               onChange={(event) => setTokenInput(event.target.value)}
@@ -119,7 +119,7 @@ export function HelpersSweepActionCard({
           </label>
           <label className="text-xs text-[var(--text-muted)]">
             <span className="mb-1 block">{t("helpersSweepFormRecipientLabel")}</span>
-            <input
+            <input data-page-draft-key={`${action.id}:recipient`}
               type="text"
               value={recipientInput}
               onChange={(event) => setRecipientInput(event.target.value)}

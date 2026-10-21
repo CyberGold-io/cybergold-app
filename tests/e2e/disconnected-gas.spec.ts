@@ -22,7 +22,7 @@ for (const symbol of ["BASKET", "WETH", "ETH", "USDC"]) {
     const placeholder = () => expect(gas).toHaveText("Transaction fee (gas):...");
     await placeholder();
 
-    const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)');
+    const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance):visible');
     const quoted = (mode: string) => expect.poll(() => symbol === "BASKET"
       ? observed.previews.includes(mode) : observed.intents.some(value => value.mode === mode)).toBe(true);
     await inputs.first().click(); await inputs.first().fill("0"); await placeholder();
@@ -57,13 +57,13 @@ test("disconnected gas-price cache refreshes only after the head hash changes", 
   await page.getByRole("button", { name: /Total fee/ }).click();
   const gas = page.getByText("Transaction fee (gas):", { exact: true }).locator("..");
   await expect(gas).toHaveText("Transaction fee (gas):...");
-  const edited = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first();
+  const edited = page.locator('input[inputmode="decimal"]:not(#execution-tolerance):visible').first();
   await edited.fill("1");
-  await expect(page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last()).toHaveValue("1");
+  await expect(page.locator("#buy-amount")).toHaveText("1");
   await expect(gas).toContainText("~ 0.000415 ETH");
   const initialFees = fees;
   await edited.fill("2");
-  await expect(page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last()).toHaveValue("2");
+  await expect(page.locator("#buy-amount")).toHaveText("2");
   await page.clock.install(); await page.clock.runFor(60_000);
   expect(fees).toBe(initialFees);
   head = { ...head, blockHash: `0x${"b".repeat(64)}` };

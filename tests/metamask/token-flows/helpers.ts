@@ -1,5 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import type { MetaMask } from "@synthetixio/synpress-metamask/playwright";
+import { displayedUiAmount } from "../../trading/uiQuoteCapture.ts";
 
 type SwapSide = "sell" | "buy";
 
@@ -186,6 +187,7 @@ export function getSwapSection(page: Page) {
   return page.locator("#swapsection");
 }
 
+/** Stable side locator: the spend input or its selectable receive output. */
 export function getMainInput(page: Page, side: SwapSide) {
   return page.locator(`#${side}-amount`);
 }
@@ -292,8 +294,8 @@ export async function setupRedeemToToken(page: Page, metamask: MetaMask, tokenSy
 
 export async function expectQuotedAmount(page: Page, side: SwapSide) {
   const input = getMainInput(page, side);
-  await expect(input).toHaveValue(/^[0-9]/, { timeout: 45_000 });
-  const value = parseAmount(await input.inputValue());
+  await expect.poll(async () => parseAmount(await displayedUiAmount(input)), { timeout: 45_000 }).toBeGreaterThan(0);
+  const value = parseAmount(await displayedUiAmount(input));
   expect(value).toBeGreaterThan(0);
   return value;
 }

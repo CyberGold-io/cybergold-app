@@ -23,7 +23,7 @@ test("a new Sandbox generation clears old browser executions without a nonce reg
   expect(await page.evaluate((key) => localStorage.getItem(key), execution)).toBeNull();
   expect(await page.evaluate((key) => localStorage.getItem(key), nonce)).toBeNull();
   expect(await page.evaluate(() => localStorage.getItem("cybergold:governance-safe-executions:1:same-safe"))).toBe("mainnet");
-  await expect(page.getByText("You Sell")).toBeVisible();
+  await expect(page.getByText("Your budget")).toBeVisible();
 });
 
 test("a retained dashboard cannot erase current pending transactions", async ({ page }) => {
@@ -33,7 +33,7 @@ test("a retained dashboard cannot erase current pending transactions", async ({ 
   }, { marker, execution });
   await page.route("**/api/dashboard/onchain-summary", (route) => route.fulfill({ json: { enabled: true } }));
   await page.goto("/en");
-  await expect(page.getByText("You Sell")).toBeVisible();
+  await expect(page.getByText("Your budget")).toBeVisible();
   expect(await page.evaluate((key) => localStorage.getItem(key), execution)).toBe("current pending transaction");
 });
 
@@ -45,7 +45,7 @@ test("an unavailable dashboard cannot erase current pending transactions", async
   await page.route("**/api/dashboard/onchain-summary", (route) => route.fulfill({ status: 503,
     json: { error: "Dashboard is rebuilding" } }));
   await page.goto("/en");
-  await expect(page.getByText("You Sell")).toBeVisible();
+  await expect(page.getByText("Your budget")).toBeVisible();
   expect(await page.evaluate((key) => localStorage.getItem(key), execution)).toBe("current pending transaction");
 });
 

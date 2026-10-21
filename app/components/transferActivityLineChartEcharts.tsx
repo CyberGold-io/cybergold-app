@@ -35,8 +35,7 @@ export function TransferActivityLineChartEcharts({
         const cygldFormatter = new Intl.NumberFormat(locale, { maximumFractionDigits: 6 });
 
         return {
-            animation: true,
-            animationDuration: 350,
+            animation: false,
             animationDurationUpdate: 0,
             grid: {
                 top: 12,
@@ -158,5 +157,5 @@ export function TransferActivityLineChartEcharts({
         };
     }, [locale, series, transfersSuffix]);
 
-    return <ReactECharts echarts={dashboardEcharts} option={option} notMerge lazyUpdate style={{ height: "8rem", width: "100%" }} />;
+    return <ReactECharts echarts={dashboardEcharts} option={option} notMerge lazyUpdate={false} onChartReady={chart => { chart.getDom().dataset.pageChartReady = "true"; }} style={{ height: "8rem", width: "100%" }} />;
 }

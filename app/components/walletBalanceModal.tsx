@@ -1,8 +1,7 @@
 "use client";
 import { publicEnv } from "../config/publicEnvironment.ts";
 
-import { useEffect, useId, useMemo, useRef, useState, type RefObject } from "react";
-import Image from "next/image";
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { formatUnits } from "viem";
 import { toast } from "sonner";
 import { useLocale, useTranslations } from "next-intl";
@@ -13,9 +12,9 @@ import { useGoldPrice } from "../hooks/useGoldPrice";
 import { useBasketData } from "../hooks/cybergold/useBasketData";
 import { useObservedWalletAccount } from "../hooks/useObservedWalletAccount";
 import { useIsDarkMode } from "../hooks/useIsDarkMode";
-import { type erc20Token } from "../config/tokens";
+import { type erc20Token, type spendableToken } from "../config/tokens";
+import { targetChainId } from "../config/chain";
 import { useProtocolConfiguration } from "../context/protocolConfigurationContext";
-import { IoCloseCircle, IoCopyOutline, IoEyeOutline, IoEyeOffOutline, IoGlobeOutline, IoPowerOutline, IoRefreshOutline } from "react-icons/io5";
 import { formatNumberWithCustomGrouping } from "../utils/formatting";
 import { resolveActiveProvider } from "../utils/ethereumProvider";
 import { useCurrency } from "../context/currencyContext";
@@ -26,9 +25,14 @@ import { RecoverySharePortfolio } from "./recoverySharePortfolio";
 import { useRecoverySharePortfolio } from "../hooks/cybergold/useRecoverySharePortfolio";
 import { MarketDataFreshnessNotice } from "./marketDataFreshnessNotice";
 import { LiquidityProviderPanel } from "./liquidityProviderPanel";
-import { WalletActionSlot } from "./walletActionSlot";
+import { WalletBalanceRow, WalletPanelFrame } from "./walletPresentation";
 import { useLiquidityPositions } from "../hooks/useLiquidityPositions";
 import { faucetFailureFeedback, faucetResponseError, FaucetRequestError, type FaucetFailureFeedback } from "../utils/faucetErrors";
+import { useWalletDisplayCache } from "../hooks/useWalletDisplayCache";
+import { parseWalletPresentationSnapshot, walletPresentationStorageKey } from "../utils/walletPresentationSnapshot";
+import { tradeDisplayScopeKey } from "../utils/tradeDisplaySnapshot";
+import { mergeWalletDisplayBalances, parseWalletDisplayBalances, parseWalletLiquidityDisplay,
+    projectWalletDisplayBalances, walletDisplayBalance, walletDisplayCacheKey } from "../utils/walletDisplayCache";
 
 type WalletBalanceModalProps = {
     isOpen: boolean;
@@ -51,16 +55,16 @@ const isForkFaucetEnabled = publicEnv.NEXT_PUBLIC_FORK_FAUCET_ENABLED === "1";
 const IMPORT_SUCCESS_FEEDBACK_MS = 5 * 60 * 1000;
 
 export function WalletBalanceModal({ isOpen, onClose, returnFocusRef, onDisconnect, isDisconnecting, networkName, isNetworkChooserOpen, onNetworkChange }: WalletBalanceModalProps) {
-    const { tokens } = useProtocolConfiguration();
+    const { tokens, displayTokens } = useProtocolConfiguration();
     const locale = useLocale();
     const t = useTranslations("WalletBalances");
-    const walletT = useTranslations("WalletMenu");
     const titleId = useId();
     const dialogRef = useRef<HTMLDialogElement>(null);
     const {
         formatFiat,
         formatGoldAmount,
         selectedCurrency,
+        selectedGoldUnit,
         selectedPriceDisplayMode,
         fxFetchedAt,
         isFxStale,
@@ -68,20 +72,43 @@ export function WalletBalanceModal({ isOpen, onClose, returnFocusRef, onDisconne
     } = useCurrency();
     const isDarkMode = useIsDarkMode();
     const { importedTokens } = useImportedTokens();
-    const allTokens = useMemo(() => [...tokens, ...importedTokens], [tokens, importedTokens]);
+    const allTokens = useMemo(() => [...new Map([...displayTokens, ...importedTokens].map(token => [token.id, token])).values()], [displayTokens, importedTokens]);
     const { address, isConnected, connector } = useObservedWalletAccount();
-    const { balances, isLoading, isRefreshing: areTokensRefreshing, rpcUnavailable, refreshWalletBalances } = useTokenWalletBalances(importedTokens);
+    const savedPresentation = useWalletDisplayCache(walletPresentationStorageKey(targetChainId, locale), parseWalletPresentationSnapshot);
+    const presentationScope = tradeDisplayScopeKey({ chainId: targetChainId, locale, currency: selectedCurrency,
+        goldUnit: selectedGoldUnit, priceDisplayMode: selectedPriceDisplayMode });
+    const presentation = savedPresentation?.address.toLowerCase() === address?.toLowerCase()
+        && savedPresentation?.scopeKey === presentationScope ? savedPresentation : undefined;
+    const { balances, isRefreshing: areTokensRefreshing, rpcUnavailable, refreshWalletBalances } = useTokenWalletBalances(importedTokens);
     const orderedTokens = useMemo(() => {
         const priority = (id: string) => id === "eth" ? 0 : id === "cygld" ? 1 : 2;
-        return allTokens.filter(token => token.type !== "basket")
+        return allTokens.filter((token): token is spendableToken => token.type !== "basket")
             .sort((left, right) => priority(left.id) - priority(right.id));
     }, [allTokens]);
     const balanceByTokenId = useMemo(() => {
         return new Map(balances.map(({ id, balance }) => [id, balance]));
     }, [balances]);
+    const observedDisplayBalances = useMemo(() => projectWalletDisplayBalances(orderedTokens, balances), [orderedTokens, balances]);
+    const displayBalances = useWalletDisplayCache(walletDisplayCacheKey(targetChainId, address, "balances"),
+        parseWalletDisplayBalances, observedDisplayBalances, mergeWalletDisplayBalances);
     const recovery = useRecoverySharePortfolio(address);
     const [isLiquidityExpanded, setIsLiquidityExpanded] = useState(false);
+    useEffect(() => {
+        try { setIsLiquidityExpanded(window.sessionStorage.getItem("cg:wallet-liquidity-open:v1") === "true"); } catch { /* optional display preference */ }
+        const restore = (event: Event) => setIsLiquidityExpanded((event as CustomEvent<boolean>).detail);
+        window.addEventListener("wallet-display-liquidity", restore);
+        return () => window.removeEventListener("wallet-display-liquidity", restore);
+    }, []);
+    const changeLiquidityExpanded = (expanded: boolean) => {
+        setIsLiquidityExpanded(expanded);
+        try { window.sessionStorage.setItem("cg:wallet-liquidity-open:v1", String(expanded)); } catch { /* optional display preference */ }
+    };
     const liquidity = useLiquidityPositions(address, isOpen);
+    const observedLiquidityDisplay = useMemo(() => liquidity.data ? {
+        positionCount: liquidity.data.positions.length, paxgAmount: liquidity.data.paxgAmount, cygldAmount: liquidity.data.cygldAmount,
+    } : undefined, [liquidity.data]);
+    const liquidityDisplay = useWalletDisplayCache(walletDisplayCacheKey(targetChainId, address, "liquidity"),
+        parseWalletLiquidityDisplay, observedLiquidityDisplay);
     const isRefreshing = areTokensRefreshing || recovery.isRefreshing;
     const refreshBalances = async () => {
         await Promise.allSettled([
@@ -91,7 +118,6 @@ export function WalletBalanceModal({ isOpen, onClose, returnFocusRef, onDisconne
     };
     const { basket, cygldRefGrams } = useBasketData();
     const {
-        price: goldPriceUsdPerGram,
         ouncePrice: goldSpotUsdPerOzt,
         fetchedAt: goldPriceFetchedAt,
         isStale: isGoldPriceStale,
@@ -101,17 +127,29 @@ export function WalletBalanceModal({ isOpen, onClose, returnFocusRef, onDisconne
         goldRefGramsFp18: cygldRefGrams.data,
         goldSpotUsdPerOzt,
     });
-    const cygldPriceUsd = cygldReferencePriceUsd ?? (cygldRefGrams.isError ? goldPriceUsdPerGram : undefined);
     const isCygldPriceLoading = isGoldPriceLoading || cygldRefGrams.isLoading;
     const goldReferenceGramsByTokenId = useMemo(
         () => buildGoldReferenceGramsByTokenId(basket.data),
         [basket.data]
     );
-    const { prices, isLoading: isPricesLoading } = useTokenUsdPrices(allTokens, {
+    const displayPriceOverrides = useMemo(() => ({ cygld: cygldReferencePriceUsd }), [cygldReferencePriceUsd]);
+    const { displayPrices, isLoading: isPricesLoading } = useTokenUsdPrices(allTokens, {
         goldSpotUsdPerOzt,
         goldReferenceGramsByTokenId,
-    });
+    }, displayPriceOverrides);
     const [showFullAddress, setShowFullAddress] = useState(false);
+    const restoredAddress = useRef<string | undefined>(undefined);
+    useLayoutEffect(() => {
+        const accountKey = address?.toLowerCase();
+        if (restoredAddress.current === accountKey) return;
+        restoredAddress.current = accountKey;
+        setShowFullAddress(presentation?.showFullAddress === true);
+    }, [address, presentation?.showFullAddress]);
+    useEffect(() => {
+        const restore = (event: Event) => setShowFullAddress((event as CustomEvent<boolean>).detail);
+        window.addEventListener("wallet-display-address", restore);
+        return () => window.removeEventListener("wallet-display-address", restore);
+    }, []);
     const [isCopied, setIsCopied] = useState(false);
     const copyFeedbackTimeoutRef = useRef<number | null>(null);
     const [isFundingWallet, setIsFundingWallet] = useState(false);
@@ -124,19 +162,14 @@ export function WalletBalanceModal({ isOpen, onClose, returnFocusRef, onDisconne
     const fundingReferenceCopyStatus = fundingFailure?.correlationId === fundingReferenceCopy?.reference
         ? fundingReferenceCopy?.status : undefined;
 
-    const shortAddress = useMemo(() => {
-        if (!address) return "";
-        return `${address.slice(0, 6)}...${address.slice(-4)}`;
-    }, [address]);
-
     const importableTokenById = useMemo(() => {
-        return allTokens.reduce<Record<string, erc20Token>>((acc, token) => {
+        return [...tokens, ...importedTokens].reduce<Record<string, erc20Token>>((acc, token) => {
             if (token.type === "erc20") {
                 acc[token.id] = token;
             }
             return acc;
         }, {});
-    }, [allTokens]);
+    }, [tokens, importedTokens]);
 
     const tokenDecimalsBySymbol = useMemo(() => {
         return tokens.reduce<Record<string, number>>((acc, token) => {
@@ -334,7 +367,6 @@ export function WalletBalanceModal({ isOpen, onClose, returnFocusRef, onDisconne
         if (!isConnected || !isOpen) return;
         const dialog = dialogRef.current;
         const returnFocus = returnFocusRef.current;
-        setShowFullAddress(false);
         setIsCopied(false);
         return () => {
             dialog?.close();
@@ -403,73 +435,11 @@ export function WalletBalanceModal({ isOpen, onClose, returnFocusRef, onDisconne
                     first?.focus();
                 }
             }}>
-            <div
-                className="flex h-full w-full min-w-0 flex-col overflow-y-auto border-l border-[var(--swap-container-border)] bg-[var(--background-swap-container)] px-5 py-5 shadow-xl shadow-black/70 sm:w-[440px] sm:max-w-[calc(100vw-2rem)] sm:px-6"
-                data-testid="wallet-balance-modal"
-                onClick={(e) => e.stopPropagation()}
-            >
-                <div className="flex items-center gap-2">
-                    <h2 id={titleId} className="min-w-0 flex-1 text-lg text-[var(--text-input)] min-[1025px]:text-xl">{t("walletTitle")}</h2>
-                    <div className="flex shrink-0 items-center gap-2">
-                        <button type="button" onClick={onNetworkChange}
-                            aria-label={`${walletT("network")}: ${networkName}`}
-                            title={`${walletT("network")}: ${networkName}`}
-                            className="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-gold-cg bg-gold-cg text-black transition hover:opacity-90 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
-                            <IoGlobeOutline aria-hidden="true" className="size-5" />
-                        </button>
-                        <button type="button" onClick={() => void refreshBalances()} disabled={isRefreshing} aria-busy={isRefreshing}
-                            aria-label={t(isRefreshing ? "refreshing" : "refresh")}
-                            title={t(isRefreshing ? "refreshing" : "refresh")}
-                            className="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-gold-cg bg-gold-cg text-black transition hover:opacity-90 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60">
-                            <IoRefreshOutline aria-hidden="true" className={`size-5 ${isRefreshing ? "animate-spin" : ""}`} />
-                        </button>
-                        <button type="button" onClick={onDisconnect} disabled={isDisconnecting}
-                            aria-label={walletT(isDisconnecting ? "disconnecting" : "disconnect")}
-                            title={walletT(isDisconnecting ? "disconnecting" : "disconnect")}
-                            className="inline-flex size-10 shrink-0 items-center justify-center rounded-full border border-[var(--swap-container-border)] bg-[var(--background-input)] text-[var(--text-input)] transition hover:border-gold-cg focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60">
-                            <IoPowerOutline aria-hidden="true" className="size-5" />
-                        </button>
-                    </div>
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        className="shrink-0 min-[1025px]:hidden"
-                        aria-label={t("close")}
-                    >
-                        <IoCloseCircle className="text-xl text-[var(--text-muted)]" />
-                    </button>
-                </div>
-                <div className="mt-4">
-                    <div className="flex items-center gap-3">
-                        <div className="flex-1 overflow-hidden rounded-xl border border-[var(--swap-container-border)] bg-[var(--background-input)] px-2 py-3 hover:border-gold-cg">
-                            <p className={`text-xs tracking-wide text-[var(--text-input)] break-all ${showFullAddress ? "" : "truncate"}`}>
-                                {showFullAddress ? address : shortAddress}
-                            </p>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                            <button
-                                type="button"
-                                className={isCopied ? "text-gold-cg" : "text-[var(--text-input)]"}
-                                aria-label={t("copyAddress")}
-                                title={t("copyAddress")}
-                                onClick={handleCopyAddress}
-                            >
-                                <IoCopyOutline className="text-base" />
-                            </button>
-                            <button
-                                type="button"
-                                className="text-gold-cg dark:text-white"
-                                aria-label={t(showFullAddress ? "hideAddress" : "viewAddress")}
-                                title={t(showFullAddress ? "hideAddress" : "viewAddress")}
-                                aria-pressed={showFullAddress}
-                                onClick={() => setShowFullAddress((prev) => !prev)}
-                            >
-                                {showFullAddress ? <IoEyeOffOutline aria-hidden="true" className="text-base" /> : <IoEyeOutline aria-hidden="true" className="text-base" />}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
+            <WalletPanelFrame titleId={titleId} networkName={networkName} address={address}
+                showFullAddress={showFullAddress} isCopied={isCopied} isRefreshing={isRefreshing}
+                isDisconnecting={isDisconnecting} onNetworkChange={onNetworkChange}
+                onRefresh={() => void refreshBalances()} onDisconnect={onDisconnect} onClose={onClose}
+                onCopyAddress={() => void handleCopyAddress()} onToggleFullAddress={() => setShowFullAddress((prev) => !prev)}>
                 <MarketDataFreshnessNotice
                     className="mt-4"
                     locale={locale}
@@ -537,10 +507,11 @@ export function WalletBalanceModal({ isOpen, onClose, returnFocusRef, onDisconne
                     </div>
                 )}
 
-                { isLoading && <p role="status" className="mt-3 text-xs text-[var(--text-input)]">{t("loading")}</p> }
                 <div className="mt-4 space-y-2">
-                        {orderedTokens.map(({ id, symbol: tokenSymbol, name: tokenName, decimals }) => {
-                            const balance = balanceByTokenId.get(id);
+                        {orderedTokens.map(token => {
+                            const { id, symbol: tokenSymbol, name: tokenName, decimals } = token;
+                            const liveBalance = balanceByTokenId.get(id);
+                            const balance = liveBalance ?? walletDisplayBalance(token, displayBalances);
                             const formatted = balance !== undefined ? formatUnits(balance, decimals) : undefined;
                             const amountNumber = formatted !== undefined ? Number(formatted) : undefined;
                             const roundedAmount = amountNumber !== undefined && Number.isFinite(amountNumber)
@@ -549,81 +520,57 @@ export function WalletBalanceModal({ isOpen, onClose, returnFocusRef, onDisconne
                                     maximumFractionDigits: 3,
                                 })
                                 : formatted ?? "...";
-                            const tokenPriceUsd = id === "cygld" ? cygldPriceUsd : prices?.[id];
-                            const usdValueRaw = tokenPriceUsd !== undefined && formatted !== undefined
-                                ? Number(formatted) * tokenPriceUsd
-                                : undefined;
+                            const tokenPriceUsd = displayPrices[id];
+                            const usdValueRaw = balance === 0n ? 0 : tokenPriceUsd !== undefined && formatted !== undefined
+                                ? Number(formatted) * tokenPriceUsd : undefined;
                             const usdValue = usdValueRaw !== undefined && Number.isFinite(usdValueRaw)
                                 ? usdValueRaw
                                 : undefined;
+                            const previousRow = presentation?.rows.find(row => row.tokenId === id);
                             const importableToken = importableTokenById[id];
                             const isImportingThisToken = importingTokenId === id;
                             const wasRecentlyImported = recentlyImportedTokenIds[id] === true;
+                            const importState = importableToken ? isImportingThisToken ? "importing" : wasRecentlyImported ? "imported" : "import"
+                                : previousRow?.importState ?? "import";
                             return (
-                                <div
-                                    key={id}
-                                    className={`flex items-center justify-between gap-3 rounded-xl border p-3 hover:border-gold-cg ${id === "cygld"
-                                        ? "border-gold-cg/40 bg-gold-cg/10"
-                                        : "border-[var(--swap-container-border)] bg-[var(--background-input)]"}`}
-                                    data-testid={`wallet-balance-row-${id}`}
-                                >
-                                    <div className="flex items-center gap-3 min-w-0">
-                                        <div className="flex h-[22px] w-[22px] items-center justify-center">
-                                            <Image
-                                                src={resolveTokenImagePath(id, isDarkMode)}
-                                                alt={`${tokenName} icon`}
-                                                width={22}
-                                                height={22}
-                                                className="h-[22px] w-[22px] object-contain"
-                                            />
-                                        </div>
-                                        <div className="min-w-0">
-                                            <p className="truncate text-sm font-medium text-[var(--text-input)]" title={tokenName}>{tokenName}</p>
-                                            <p
-                                                className="text-xs font-medium text-[var(--text-input)]"
-                                                data-testid={`wallet-balance-amount-${id}`}
-                                            >
-                                                {roundedAmount} {tokenSymbol}
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-3 shrink-0">
-                                        <p className="whitespace-nowrap text-xs font-semibold text-black dark:text-white" data-testid={`wallet-balance-value-${id}`}
-                                            title={balance !== undefined && usdValue === undefined && !(id === "cygld" ? isCygldPriceLoading : isPricesLoading)
-                                                ? t("priceUnavailable") : undefined}>
-                                            {formatApproxDisplayValue(usdValue) ?? "..."}
-                                        </p>
-                                        <WalletActionSlot>{importableToken && (
+                                <WalletBalanceRow key={id} tokenId={id} tokenName={tokenName} tokenSymbol={tokenSymbol}
+                                    amountText={balance === undefined && previousRow ? previousRow.amount : `${roundedAmount} ${tokenSymbol}`}
+                                    valueText={formatApproxDisplayValue(usdValue) ?? previousRow?.value ?? "..."}
+                                    valueTitle={balance !== undefined && usdValue === undefined && !(id === "cygld" ? isCygldPriceLoading : isPricesLoading)
+                                        ? t("priceUnavailable") : undefined} isDarkMode={isDarkMode}>
+                                        {(importableToken || previousRow?.importLabel) && (
                                             <button
                                                 type="button"
                                                 onClick={() => void handleImportToken(id)}
-                                                disabled={Boolean(importingTokenId) || wasRecentlyImported}
-                                                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                                                    wasRecentlyImported
+                                                data-wallet-import={importState}
+                                                disabled={!importableToken || Boolean(importingTokenId) || wasRecentlyImported}
+                                                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition disabled:cursor-not-allowed ${
+                                                    importState === "imported"
                                                         ? "border border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-white"
                                                         : "border border-[var(--swap-container-border)] text-[var(--text-input)] hover:border-gold-cg hover:text-gold-cg dark:text-white dark:hover:text-white"
                                                 }`}
                                             >
-                                                {t(isImportingThisToken ? "importing" : wasRecentlyImported ? "imported" : "import")}
+                                                {importableToken ? t(importState) : previousRow?.importLabel}
                                             </button>
-                                        )}</WalletActionSlot>
-                                    </div>
-                                </div>
+                                        )}
+                                </WalletBalanceRow>
                             );
                         })}
                 </div>
                 <LiquidityProviderPanel
                     expanded={isLiquidityExpanded}
-                    onExpandedChange={setIsLiquidityExpanded}
+                    onExpandedChange={changeLiquidityExpanded}
                     liquidity={liquidity}
-                    paxgPriceUsd={prices?.paxg}
-                    cygldPriceUsd={cygldPriceUsd}
+                    cachedDisplay={liquidityDisplay}
+                    cachedValues={presentation?.liquidity?.values}
+                    paxgPriceUsd={displayPrices.paxg}
+                    cygldPriceUsd={displayPrices.cygld}
                     goldSpotUsdPerOzt={goldSpotUsdPerOzt}
                     formatValue={formatApproxDisplayValue}
                     isPricesLoading={isPricesLoading || isCygldPriceLoading}
                 />
                 <RecoverySharePortfolio holder={address} />
-            </div>
+            </WalletPanelFrame>
         </dialog>
     );
 }

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "../../e2e/fixtures/app-test";
-import { installMarket, marketTradeFixture } from "../../e2e/fixtures/market-quotes";
+import { installLegacyMarket as installMarket, marketTradeFixture } from "../../e2e/fixtures/market-quotes";
 import { install } from "../../e2e/fixtures/token-quotes";
 import { coreIntentRequest, tradeFixture } from "../../e2e/fixtures/trade-core";
 import { intentFixture } from "../../e2e/fixtures/quote-intent";

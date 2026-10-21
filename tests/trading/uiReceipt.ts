@@ -1,5 +1,6 @@
 import { decodeEventLog, decodeFunctionData, zeroAddress, type Address, type Hex } from "viem";
-import { HELPERS_EXECUTION_ABI } from "../../app/contracts/cybergold-helpers/execution.ts";
+import { HISTORICAL_HELPERS_EXECUTION_ABI as HELPERS_EXECUTION_ABI } from "../fixtures/helpers-execution-legacy.ts";
+import { exactInputBasketMinimums, type ExactInputPlan } from "../../app/utils/universalExactInput.ts";
 import { tradeReceipt, tradeRefundEvidence } from "../../app/utils/tradeReceipt.ts";
 import { marketSwapReceipt } from "../../app/utils/marketSwap.ts";
 import { configuredToken, type Scenario } from "./scenarios.ts";
@@ -16,7 +17,7 @@ export function observeUiReceipt(scenario: Scenario, config: ProtocolConfigurati
   evidence?: ScenarioResult) {
   const decoded = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: input });
   const operation = decoded.functionName, args = decoded.args as unknown as [Record<string, unknown>, unknown, unknown];
-  const params = args[0], strategy: "market" | "core" = operation.startsWith("swapExact") ? "market" : "core";
+  const params = args[0], strategy: "market" | "core" | "universal" = operation === "executeExactInput" ? "universal" : operation.startsWith("swapExact") ? "market" : "core";
   const result: ScenarioResult = Object.assign(evidence ?? {}, { ...resultFor(scenario, "execution"), id: evidence?.id ?? `ui-${scenario.id}`, requestedStrategy: "auto" as const,
     actualStrategy: strategy, actualOperation: operation, transactionHash: receipt.transactionHash,
     context: { chainId: config.chainId, blockNumber: String(receipt.blockNumber), blockHash: receipt.blockHash }, uiQuote });
@@ -28,7 +29,27 @@ export function observeUiReceipt(scenario: Scenario, config: ProtocolConfigurati
   retainReceiptOutcome(result, receipt);
   requireInvariant(receipt.status === "success", "receipt-reverted");
   result.receipt = { ...result.receipt, refunds: tradeRefundEvidence(receipt.logs, config.contracts.helpers as Address, owner) };
-  if (scenario.asset === "BASKET") {
+  if (strategy === "universal") {
+    const plan = args[0] as unknown as ExactInputPlan;
+    const measured = tradeReceipt(receipt.logs, config.contracts.helpers as Address, owner, "universal", plan.inputs[0].currency);
+    requireInvariant(measured?.strategy === "universal", "operation-event-missing");
+    check(plan.intent === (scenario.asset === "BASKET" ? scenario.side === "buy" ? 2 : 3 : scenario.side === "buy" ? 0 : 1), "universal-receipt-intent-mismatch");
+    check(measured.acquiredInputs?.length === plan.inputs.length && measured.acquiredInputs.every((row,index) => row.currency.toLowerCase() === plan.inputs[index].currency.toLowerCase() && row.amount === plan.inputs[index].amount), "receipt-exact-acquisition-mismatch");
+    const minimum = plan.intent === 3 ? exactInputBasketMinimums(plan).filter(row => row.kind === 0).map(row => actualAmount(row.token,row.minimumAmount))
+      : [actualAmount(plan.outputCurrency,plan.minimumOutput,plan.outputCurrency.toLowerCase() === zeroAddress)];
+    actual = { input: measured.acquiredInputs!.map(row => actualAmount(row.currency,row.amount,row.currency.toLowerCase() === zeroAddress)),
+      output: measured.recipientOutputs!.filter(row => row.kind === 0).map(row => actualAmount(row.token,row.amount,row.token.toLowerCase() === zeroAddress)),
+      maximum: plan.inputs.map(row => actualAmount(row.currency,row.amount,row.currency.toLowerCase() === zeroAddress)), minimum };
+    if (plan.intent !== 3) check(measured.amountOut >= plan.minimumOutput,"receipt-output-minimum-missed");
+    else for (const bound of exactInputBasketMinimums(plan)) check(measured.recipientOutputs!.some(row => row.kind === bound.kind && row.token.toLowerCase() === bound.token.toLowerCase() && row.id === bound.id && row.amount >= bound.minimumAmount),"receipt-basket-output-minimum-missed");
+    recovery = measured.recoveryAssets.map((asset,index) => ({asset,amount:String(measured.recoveryShareAmounts[index]),kind:1}));
+    result.receipt = { ...result.receipt, refunds: [], inputUsed:String(measured.inputUsed),amountOut:String(measured.amountOut),
+      acquiredInputs:measured.acquiredInputs!.map(row=>({asset:row.currency,amount:String(row.amount)})),
+      retainedInputs:measured.retainedInputs!.map(row=>({asset:row.currency,amount:String(row.amount)})),
+      stageResults:JSON.stringify(measured.stages,(_key,row)=>typeof row==="bigint"?String(row):row),
+      protocolFeeCygld:String(measured.protocolFeeCygld),helperFeeCygld:String(measured.helperFeeCygld),marketFeeCygld:String(measured.marketFeeCygld??0n),
+      retainedCustodian:measured.retainedCustodian!,feeBeneficiary:measured.feeRecipient! };
+  } else if (scenario.asset === "BASKET") {
     requireInvariant(strategy === "core", "basket-strategy-mismatch");
     const events = receipt.logs.filter(log => log.address.toLowerCase() === config.contracts.helpers!.toLowerCase()).flatMap(log => {
       try { return [decodeEventLog({ abi: HELPERS_EXECUTION_ABI, data: log.data, topics: log.topics as [Hex, ...Hex[]] })]; } catch { return []; }

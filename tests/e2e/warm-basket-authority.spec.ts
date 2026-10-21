@@ -18,19 +18,19 @@ for (const mode of ["issue-exact-in", "redeem-exact-in"]) {
       reference: success("2000000000000000000"), fees: { issuancePpm: success("1000"), helpersPpm: success("1000") }, pause: success(false) } }));
     await page.goto("/en"); await selectBasket(page);
     if (mode.startsWith("redeem")) await page.getByRole("button", { name: "Reverse swap direction" }).click();
-    const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)');
+    const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance):visible');
     const edited = inputs.first();
     await edited.click(); await edited.fill("3");
     const quote = mode === "issue-exact-in" ? page.locator("#buy-amount")
-      : page.getByRole("textbox", { name: "Buy amount (PAXG)", exact: true });
-    await expect(quote).toHaveAttribute("readonly", "");
-    await expect(quote).not.toHaveValue("");
+      : page.getByRole("status", { name: "Buy amount (PAXG)", exact: true });
+    await expect(quote).toHaveJSProperty("tagName", "OUTPUT");
+    await expect(quote).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
     await expect(quote).toHaveAttribute("aria-busy", "true");
-    const initial = await quote.inputValue();
+    const initial = (await quote.textContent())!;
     await expect.poll(() => observed.timings.some(row => row.completedAt !== undefined)).toBe(true);
     await expect(quote).not.toHaveAttribute("aria-busy", "true");
-    if (mode === "issue-exact-in") await expect(quote).toHaveValue("1");
-    const final = await quote.inputValue();
+    if (mode === "issue-exact-in") await expect(quote).toHaveText("1");
+    const final = (await quote.textContent())!;
     // The deliberately changed exact fixture returns one token/CYGLD; the
     // historical display must never prevent that authoritative correction.
     expect(final).not.toBe(initial); expect(observed.previews).toEqual([mode]);

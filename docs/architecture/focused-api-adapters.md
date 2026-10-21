@@ -259,9 +259,10 @@ The quoted fee-recipient observation is advisory; receipts use the emitted
 beneficiary. Exact-output excess returns to the payer, while exact-input
 settlement delivers favorable output to the selected recipient.
 
-The generated `helpersMarket.ts` ABI supplements the historical Helpers
-Diamond ABI without changing its interface ID or selector manifest. Generate
-it from Helpers' `generated/abi/HelpersMarket.json`; candidate worktrees may
+The generated `helpersMarket.ts` ABI supplements the current Helpers base ABI.
+The universal exact-input candidate uses 43 base functions, one retained Market
+exact-output function and one universal function. The generator defaults to the
+compiled snapshots under `app/contracts/abi-inputs`; candidate worktrees may
 pass `--market-source` to `scripts/generate-contract-abis.mjs` or set
 `CYBERGOLD_HELPERS_MARKET_ABI_SOURCE` for the normal generation/check command.
 The existing base ABI source may likewise be selected with `--helpers-source`

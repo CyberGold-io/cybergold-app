@@ -1,7 +1,7 @@
 import { protocolConfigurationFixture, protocolAddresses } from "../fixtures/protocol-configuration";
 import { expect, test, type Page } from "./fixtures/app-test";
-import { decodeAbiParameters, decodeFunctionData, maxUint256, parseAbiParameters } from "viem";
-import { HELPERS_ABI_ISSUE_FROM_TOKEN } from "../../app/contracts/cybergold-helpers/issueFacet";
+import { decodeFunctionData, maxUint256 } from "viem";
+import { HELPERS_EXECUTION_ABI } from "../../app/contracts/cybergold-helpers/execution";
 import { choose, context, install } from "./fixtures/token-quotes";
 import { routeWalletBalances } from "./fixtures/wallet-balances";
 
@@ -64,6 +64,31 @@ async function installSyntheticWallet(page: Page) {
   return observed;
 }
 
+test("the dark gold swap action keeps black text while disabled, preparing a quote and ready", async ({ page }) => {
+  await installSyntheticWallet(page);
+  await page.addInitScript(() => localStorage.setItem("theme", "dark"));
+  let release!: () => void, requests = 0;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  await page.route("**/api/quotes/trade/**", async route => { requests++; await pending; await route.fallback(); });
+  const action = page.locator("main button.bg-gold-cg").last();
+  const foreground = () => action.evaluate(button => getComputedStyle(button).color);
+  try {
+    await page.goto("/en");
+    await expect(page.getByRole("button", { name: "Open wallet menu", exact: true })).toBeVisible();
+    await expect(page.locator("html")).toHaveClass(/dark/);
+    await expect(action).toBeDisabled();
+    await expect.poll(foreground).toBe("rgb(0, 0, 0)");
+    await choose(page, "WETH");
+    await page.locator("#sell-amount").fill("1");
+    await expect.poll(() => requests).toBeGreaterThan(0);
+    await expect(action).toBeDisabled();
+    await expect.poll(foreground).toBe("rgb(0, 0, 0)");
+    release();
+    await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
+    await expect.poll(foreground).toBe("rgb(0, 0, 0)");
+  } finally { release(); }
+});
+
 test("redemption uses the slider's selected minimum in final calldata", async ({ page }) => {
   const observed = await installSyntheticWallet(page);
   await page.goto("/en");
@@ -71,7 +96,7 @@ test("redemption uses the slider's selected minimum in final calldata", async ({
   await page.getByRole("switch").uncheck(); await choose(page, "ETH");
   await page.getByRole("button", { name: "Reverse swap direction", exact: true }).click();
   await page.locator("#sell-amount").click(); await page.locator("#sell-amount").fill("1");
-  await expect(page.locator("#buy-amount")).toHaveValue("1");
+  await expect(page.locator("#buy-amount")).toHaveText("1");
   await expandFees(page);
   await expect(page.getByTestId("swap-minimum-output")).toContainText("0.99 ETH");
   await expect(page.getByTestId("swap-maximum-input")).toHaveCount(0);
@@ -80,26 +105,24 @@ test("redemption uses the slider's selected minimum in final calldata", async ({
   await slider.focus(); await slider.press("ArrowRight");
   await expect(page.locator("#execution-tolerance")).toHaveValue("0.25");
   await expect(page.getByTestId("swap-minimum-output")).toContainText("0.9975 ETH");
-  await expect(page.locator("#buy-amount")).toHaveValue("1");
+  await expect(page.locator("#buy-amount")).toHaveText("1");
   await expect.poll(() => observed.intents.at(-1)?.slippageBps).toBe(25);
   const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
   await expect(swap).toBeEnabled(); await swap.click();
   const transactions = () => page.evaluate(() => (window as unknown as { __toleranceTransactions: Submitted[] }).__toleranceTransactions);
   await expect.poll(async () => (await transactions()).length).toBe(1);
-  const decoded = decodeFunctionData({ abi: HELPERS_ABI_ISSUE_FROM_TOKEN, data: (await transactions())[0].data });
-  expect(decoded.functionName).toBe("redeemToNativeExactIn");
-  const params = decoded.args![0] as { minimumAmountOut: bigint; grossCygldIn: bigint };
-  expect(params.grossCygldIn).toBe(unit); expect(params.minimumAmountOut).toBe(unit * 9975n / 10000n);
-  const legs = decoded.args![1] as readonly { data: `0x${string}` }[];
-  const [, minimumOutput] = decodeAbiParameters(parseAbiParameters("bytes,uint256,uint256,bool"), legs[0].data);
-  expect(minimumOutput).toBe(unit * 9975n / 10000n);
+  const decoded = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: (await transactions())[0].data });
+  expect(decoded.functionName).toBe("executeExactInput");
+  const params = decoded.args![0] as { minimumOutput: bigint; inputs: readonly { amount: bigint }[] };
+  expect(params.inputs[0].amount).toBe(unit); expect(params.minimumOutput).toBe(unit * 9975n / 10000n);
+
 });
 
 for (const width of [1280, 390]) {
   test(`French tolerance field and keyboard slider fit at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 920 }); await install(page);
     await page.goto("/fr");
-    await page.getByRole("button", { name: "Sélectionner un token", exact: true }).first().click();
+    await page.locator('main button[aria-haspopup="dialog"]').first().click();
     await page.getByPlaceholder("Rechercher une devise...").fill("WETH");
     await page.locator("#dropdown-from").getByRole("button", { name: "WETH Wrapped Ether WETH", exact: true }).click();
     await page.getByRole("button", { name: "Inverser le sens de l’échange", exact: true }).click();
@@ -111,7 +134,7 @@ for (const width of [1280, 390]) {
     const slider = page.getByRole("slider", { name: "Ajuster la tolérance d’exécution", exact: true });
     await slider.focus(); await slider.press("ArrowRight");
     await expect(field).toHaveValue("0.26");
-    await expect(page.locator("#buy-amount")).toHaveValue("1");
+    await expect(page.locator("#buy-amount")).toHaveText("1");
     const control = page.getByTestId("execution-tolerance-control");
     expect(await control.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -123,18 +146,18 @@ test("fees accordion owns tolerance, retains its value and shows only the active
   const observed = await install(page);
   await page.goto("/en"); await choose(page, "WETH");
   const sell = page.locator("#sell-amount"), buy = page.locator("#buy-amount");
-  await sell.fill("1"); await expect(buy).toHaveValue("1");
+  await sell.fill("1"); await expect(buy).toHaveText("1");
   const accordion = page.getByRole("button", { name: /Total fee/ });
   await expect(accordion).toHaveAttribute("aria-expanded", "false");
-  await expect(page.getByTestId("execution-tolerance-control")).toHaveCount(0);
-  await expect(page.getByTestId("swap-minimum-output")).toHaveCount(0);
+  await expect(page.getByTestId("execution-tolerance-control")).not.toBeVisible();
+  await expect(page.getByTestId("swap-minimum-output")).not.toBeVisible();
   await expect(page.getByTestId("swap-maximum-input")).toHaveCount(0);
   await accordion.click();
   const field = page.locator("#execution-tolerance");
   const slider = page.getByRole("slider", { name: "Adjust execution tolerance", exact: true });
   await expect(field).toHaveValue("1");
   await expect(slider).toHaveAttribute("min", "0"); await expect(slider).toHaveAttribute("max", "1");
-  await expect(page.getByTestId("swap-minimum-output")).toContainText("1 CYGLD");
+  await expect(page.getByTestId("swap-minimum-output")).toContainText("0.99 CYGLD");
   await expect(page.getByTestId("swap-maximum-input")).toHaveCount(0);
   await expect.poll(() => observed.intents.at(-1)?.mode).toBe("issue-exact-in");
   const feePanel = page.getByText(/^Protocol fee/).locator("..").locator("..");
@@ -150,14 +173,14 @@ test("fees accordion owns tolerance, retains its value and shows only the active
   await field.fill("1.01"); await field.blur();
   await expect(field).toHaveValue("0.5"); await expect(slider).toHaveValue("0.5");
   await accordion.click();
-  await expect(page.getByTestId("execution-tolerance-control")).toHaveCount(0);
-  await expect(page.getByTestId("swap-minimum-output")).toHaveCount(0);
+  await expect(page.getByTestId("execution-tolerance-control")).not.toBeVisible();
+  await expect(page.getByTestId("swap-minimum-output")).not.toBeVisible();
   await accordion.click(); await expect(field).toHaveValue("0.5");
 
 
 });
 
-for (const side of ["issue", "redeem"] as const) test(`${side}: a Backend default adapter omitted from configuration stays concrete in Core execution and its existing approval check`, async ({ page }) => {
+for (const side of ["issue", "redeem"] as const) test(`${side}: a complete universal plan binds execution without caller-selected adapter calldata`, async ({ page }) => {
   const observed = await installSyntheticWallet(page);
   const approvalAdapters: string[] = [];
   await page.route("**/api/governance/helpers-facts**", async route => {
@@ -168,6 +191,7 @@ for (const side of ["issue", "redeem"] as const) test(`${side}: a Backend defaul
   await page.route("**/api/protocol/config", route => route.fulfill({ json: {
     ...protocolConfigurationFixture, contracts: { ...protocolConfigurationFixture.contracts, uniswapAdapter: null },
     adapter: { status: "unavailable", encoding: null, observation: null },
+    universalExactInput: {adapter:protocolAddresses.adapter,encoding:"uniswap-routing-v1",settlementPolicy:"protocol-retained-input"},
   } }));
   await page.goto("/en");
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
@@ -175,7 +199,7 @@ for (const side of ["issue", "redeem"] as const) test(`${side}: a Backend defaul
   if (side === "redeem") await page.getByRole("button", { name: "Reverse swap direction", exact: true }).click();
   const edited = page.locator("#sell-amount");
   await edited.click(); await edited.fill("1");
-  await expect(page.locator("#buy-amount")).toHaveValue("1");
+  await expect(page.locator("#buy-amount")).toHaveText("1");
   await expect.poll(() => observed.intents.length).toBeGreaterThan(0);
   // App sends only an economic trade intent. The Backend fixture resolves its
   // concrete Core adapter, which the existing approval read and calldata use.
@@ -186,11 +210,11 @@ for (const side of ["issue", "redeem"] as const) test(`${side}: a Backend defaul
   await expect(swap).toBeEnabled(); await swap.click();
   const transactions = () => page.evaluate(() => (window as unknown as { __toleranceTransactions: Submitted[] }).__toleranceTransactions);
   await expect.poll(async () => (await transactions()).length).toBe(1);
-  // This existing code/approval check happens after Swap captures the winner,
-  // before wallet submission, and uses that winner's concrete adapter.
-  expect(approvalAdapters).toContain(protocolAddresses.adapter);
-  const decoded = decodeFunctionData({ abi: HELPERS_ABI_ISSUE_FROM_TOKEN, data: (await transactions())[0].data });
-  expect(decoded.functionName).toBe(side === "issue" ? "issueFromNativeExactOut" : "redeemToNativeExactIn");
-  const legs = decoded.args![side === "issue" ? 2 : 1] as readonly { adapter: string }[];
-  expect(legs[0].adapter.toLowerCase()).toBe(protocolAddresses.adapter);
+  // The adapter is bound by the deployed facet. The universal selector has no
+  // caller-selected adapter field and adds no redundant App approval read.
+  expect(approvalAdapters).toEqual([]);
+  const decoded = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: (await transactions())[0].data });
+  expect(decoded.functionName).toBe("executeExactInput");
+  const plan=decoded.args![0] as {intent:number;inputs:readonly{amount:bigint}[]};
+  expect(plan.intent).toBe(side === "issue" ? 0 : 1);expect(plan.inputs[0].amount).toBe(unit);
 });

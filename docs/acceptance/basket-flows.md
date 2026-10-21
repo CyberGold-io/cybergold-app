@@ -20,9 +20,10 @@ acceptance cases; it does not describe active output entry.
 
 1. Enter each supported spend asset and obtain an exact-in quote. The receive
    amount displays the selected plan's estimate and minimum received.
-2. Focus, click, type or paste into the receive amount or any receive basket
-   component. No output-target mode, request or amount mutation is activated;
-   estimates remain selectable and copyable.
+2. Select and copy the receive amount or any receive basket component as plain
+   text. Clicking an amount does not focus an input or show an editing caret,
+   border or focus ring. Typing or pasting cannot activate an output-target
+   mode, request or amount mutation.
 3. Reverse the token pair. Both amounts and the basket driver clear, focus
    moves to the new spend field, and a new quote requires new spend input.
 4. Restore an old output-driven session. Pair and filter preferences remain;
@@ -37,21 +38,30 @@ acceptance cases; it does not describe active output entry.
    product matrices contain 24 exact-in journeys; future UI cases are excluded
    from normal collection with separate configuration and restoration notes.
 
-## Wallet limited proportional MAX
+## Backend executable basket MAX
 
-Choose the positive-weight asset whose wallet balance divided by its raw-unit
-basket proportion is smallest. Use that full raw balance as the driver and
-floor the other derived component budgets in canonical order. Compare ratios
-with BigInt; ties use canonical order. Zero-weight members do not limit MAX;
-a known zero positive-weight balance produces a zero basket, and unavailable
-balances remain unavailable.
+The App derives the wallet-funded proportional upper budget in canonical
+basket order, including each token's decimal scale. It sends that budget and
+its limiting driver token to `POST /api/quotes/basket-max`. The Backend computes
+the executable driver amount using current Core issuance capacity and preview
+semantics. MAX can therefore be limited by the wallet or by remaining mint
+capacity; no remaining capacity produces a zero basket.
 
-Verify unequal weights, mixed decimals, tiny values, ties and wide integers.
-Quoted/submitted amounts retain full raw precision despite shortened display.
-Changing provider, conversion price, fees, tolerance or mint capacity cannot
-change MAX. Quote-specific capacity errors remain ordinary quote outcomes;
-MAX does not silently shrink the spend budget. Native token gas reservation
-belongs to its separate single-token MAX flow.
+Keep the returned canonical component vector for display and the ordinary
+input-driven basket preview; stale App proportions must not recompute it.
+Quoted/submitted component amounts retain full raw precision despite shortened
+display. A successful Backend MAX and ordinary preview remain usable when an
+older warm model reports less mint capacity. An ordinary Backend capacity
+error still applies. Manual input clears the MAX vector and restores local
+proportional entry. Verify warm and cold models, unequal weights, mixed
+decimals, wallet and capacity limits, and a capacity change followed by another
+MAX request. Execution tolerance continues to apply to the ordinary quote.
+
+A later manual edit, form, token-pair, wallet or configuration change cancels a
+pending MAX. An ordinary Backend error preserves the existing amounts and
+quote and displays the existing quote error toast. Unavailable wallet balances
+remain unavailable. Token/native MAX retains its separate wallet budget and
+native gas reservation behavior.
 
 ## Mixed output recovery acceptance
 

@@ -10,29 +10,28 @@ for (const symbol of ["WETH", "USDC"] as const) {
       const observed = await install(page);
       await page.goto("/en"); await choose(page, symbol);
       if (mode.startsWith("redeem")) await page.getByRole("button", { name: "Reverse swap direction" }).click();
-      const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)'), exactIn = mode.endsWith("-in");
-      const edited = exactIn ? inputs.first() : inputs.last(), quoted = exactIn ? inputs.last() : inputs.first();
-      await edited.click(); await edited.fill("1"); await expect(quoted).not.toHaveValue(""); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
-      const expected = await quoted.inputValue();
+      const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)');
+      const edited = inputs.first(), quoted = page.locator("#buy-amount");
+      await edited.click(); await edited.fill("1"); await expect(quoted).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
+      const expected = (await quoted.textContent())!;
       await edited.fill("2");
-      // Empty/enabled is a transient edit state, not a completed second quote.
-      await expect(quoted).toHaveValue(String(Number(expected) * 2));
+      // A pending placeholder is a transient edit state, not a completed second quote.
+      await expect(quoted).toHaveText(String(Number(expected) * 2));
       await expect(quoted).not.toHaveAttribute("aria-busy", "true");
       await expect.poll(() => observed.intents.length).toBe(2);
       const before = observed.intents.length;
       await edited.evaluate((input, expectedValue) => {
-        const all = [...document.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]:not(#execution-tolerance)')];
-        const output = all.find(row => row !== input)!;
+        const output = document.querySelector<HTMLOutputElement>("#buy-amount")!;
         input.addEventListener("input", () => {
           const started = performance.now();
           const check = () => {
-            if (output.getAttribute("aria-busy") !== "true" && output.value === expectedValue) Object.assign(window, { __revisitMs: performance.now() - started });
+            if (output.getAttribute("aria-busy") !== "true" && output.textContent === expectedValue) Object.assign(window, { __revisitMs: performance.now() - started });
             else requestAnimationFrame(check);
           };
           requestAnimationFrame(check);
         }, { once: true });
       }, expected);
-      await edited.fill("1"); await expect(quoted).toHaveValue(expected); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
+      await edited.fill("1"); await expect(quoted).toHaveText(expected); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
       expect(observed.intents.length).toBe(before);
       await expect.poll(() => page.evaluate(() => typeof (window as unknown as { __revisitMs?: number }).__revisitMs)).toBe("number");
       const elapsed = await page.evaluate(() => (window as unknown as { __revisitMs: number }).__revisitMs);
@@ -66,10 +65,10 @@ for (const symbol of ["WETH", "USDC"] as const) {
       });
       await page.goto("/en"); await choose(page, symbol);
       if (mode.startsWith("redeem")) await page.getByRole("button", { name: "Reverse swap direction" }).click();
-      const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)'), exactIn = mode.endsWith("-in");
-      const edited = exactIn ? inputs.first() : inputs.last(), quoted = exactIn ? inputs.last() : inputs.first();
+      const inputs = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)');
+      const edited = inputs.first(), quoted = page.locator("#buy-amount");
       await edited.click(); await edited.fill("1");
-      await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).not.toHaveValue("");
+      await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
       pending = new Promise<void>(resolve => { finish = resolve; });
       const clockStart = new Date();
       await page.clock.install({ time: clockStart });
@@ -79,21 +78,20 @@ for (const symbol of ["WETH", "USDC"] as const) {
       await page.clock.pauseAt(new Date(clockStart.getTime() + 1000));
       const before = observed.intents.length;
       await page.evaluate(() => {
-        const inputs = [...document.querySelectorAll<HTMLInputElement>('input[inputmode="decimal"]:not(#execution-tolerance)')];
-        const source = inputs.find(input => input === document.activeElement)!;
-        const output = inputs.find(input => input !== source)!;
+        const source = document.querySelector<HTMLInputElement>("#sell-amount")!;
+        const output = document.querySelector<HTMLOutputElement>("#buy-amount")!;
         const measurement = { start: null as number | null, previewMs: null as number | null };
         Object.assign(window, { __modelTiming: measurement });
         source.addEventListener("input", () => { measurement.start = performance.now(); });
         const observer = new MutationObserver(() => {
-          if (measurement.start !== null && measurement.previewMs === null && output.value !== "") measurement.previewMs = performance.now() - measurement.start;
+          if (measurement.start !== null && measurement.previewMs === null && !/^(?:0(?:[.,]0+)?|\.\.\.)?$/.test(output.textContent ?? "")) measurement.previewMs = performance.now() - measurement.start;
         });
-        observer.observe(output, { attributes: true, attributeFilter: ["value"] });
+        observer.observe(output, { childList: true, characterData: true, subtree: true });
       });
       await edited.fill("2");
       // The Backend-ranked model arrives asynchronously. Flush only immediate
       // query notifications, leaving the exact-quote debounce clock unchanged.
-      await expect.poll(async () => { await page.clock.runFor(0); return quoted.inputValue(); }).not.toBe("");
+      await expect.poll(async () => { await page.clock.runFor(0); return quoted.textContent(); }).not.toMatch(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
       await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
       const timing = await page.evaluate(() => (window as unknown as { __modelTiming: { previewMs: number | null } }).__modelTiming);
       expect(timing.previewMs).not.toBeNull();
@@ -105,10 +103,10 @@ for (const symbol of ["WETH", "USDC"] as const) {
       await expect.poll(() => observed.intents.length).toBe(before + 1);
       await expect(quoted).toHaveAttribute("aria-busy", "true");
       await edited.fill("");
-      await expect(quoted).toHaveValue("");
+      await expect(quoted).toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)$/);
       finish();
       await page.waitForTimeout(150);
-      await expect(quoted).toHaveValue("");
+      await expect(quoted).toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)$/);
       await test.info().attach("local-preview-timing", { body: JSON.stringify({ symbol, mode, ...timing,
         quoteRequests: observed.intents.length, scope: "linear read-only fixture history with a controlled debounce clock; previewMs is logical time, not wall-clock latency" }), contentType: "application/json" });
     });

@@ -11,6 +11,7 @@ export const quoteErrorKeys = {
   "rpc-access-denied": "quoteRpcAccessDenied",
   "quote-timeout": "quoteTimedOut",
   "quote-no-route": "quoteNoRoute",
+  "quote-insufficient-liquidity": "quoteInsufficientLiquidity",
   "quote-contract-reverted": "quoteContractRejected",
   "quote-unavailable": "quoteUnexpectedError",
   "quote-service-unavailable": "quoteServiceUnavailable",

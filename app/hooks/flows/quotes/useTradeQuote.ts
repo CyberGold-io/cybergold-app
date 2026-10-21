@@ -10,9 +10,10 @@ import { useQuoteCacheScope } from "@/app/context/chainHeadContext";
 import { usePageVisible } from "@/app/hooks/usePageVisible";
 import { buildQuoteDeadline } from "@/app/utils/swapPolicy";
 import { QuotePreviewError, quoteErrorMessage } from "@/app/utils/quoteErrors";
-import { fetchTradeQuote, receiveTradeModel, tradeAdapter, tradeQuoteResult, withTradeProviderEvent,
+import { fetchTradeQuote, fetchUniversalTradeQuote, normalizedTradeQuote, receiveTradeModel, tradeAdapter, tradeQuoteResult, withTradeProviderEvent,
   type TradeQuoteRequest, type TradeQuoteResult } from "@/app/utils/tradeQuote";
 import { useBoundQuoteState } from "./useBoundQuoteState";
+import { tradeDisplayModelScope } from "@/app/utils/quoteModelStore";
 
 export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retainedPlan">, enabled: boolean) {
   const { addresses, identity: configurationIdentity } = useProtocolConfiguration();
@@ -33,7 +34,8 @@ export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retai
   const [progress, publishProgress] = useBoundQuoteState<{ completed: number; total: number }>([scope, request]);
   const publishQualified = useCallback((value: TradeQuoteResult, attempt: number) => {
     if (sequence.current !== attempt) return;
-    value = { ...value, deployment: { core: addresses.core, helpers: addresses.helpers, adapter: tradeAdapter(value.value) } };
+    value = { ...value, deployment: { core: addresses.core, helpers: value.value.strategy === "universal"
+      ? value.value.deployment.helpers as `0x${string}` : addresses.helpers, adapter: tradeAdapter(value.value) } };
     // The Backend compares economics. The App replaces the entire selected tuple together.
     accept(previous => previous && previous.attempt > attempt ? previous
       : { identity, attempt, deadline: Number(request.deadline), value });
@@ -44,10 +46,15 @@ export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retai
     queryFn: ({ signal }: { signal: AbortSignal }) => {
       const attempt = ++sequence.current, stages = new Map<string, { completed: number; total: number }>();
       // Ordinary head refresh competes again; explicit retained-plan revalidation is a separate operation.
+      if (request.mode === "exact-in") return fetchUniversalTradeQuote(request, addresses.core!, signal).then(result => {
+        if (!signal.aborted) publishQualified(result, attempt);
+        return { ...result, deployment: { core: addresses.core, helpers: result.value.deployment.helpers as `0x${string}`, adapter: tradeAdapter(result.value) } };
+      });
       return fetchTradeQuote(request, signal, event => {
         if (signal.aborted || sequence.current !== attempt) return;
-        if (event.type === "model") receiveTradeModel(event.value, configurationIdentity);
-        if (event.type === "qualified") publishQualified(tradeQuoteResult(event.value), attempt);
+        if (event.type === "model") receiveTradeModel(event.value, configurationIdentity,
+          tradeDisplayModelScope(configurationIdentity, generation));
+        if (event.type === "qualified") publishQualified(tradeQuoteResult(normalizedTradeQuote(event.value, request)), attempt);
         if (event.type === "provider-qualified" || event.type === "provider-assessment") accept(previous => {
           if (previous?.identity !== identity || previous.attempt !== attempt) return previous;
           return { ...previous, value: { ...previous.value, value: withTradeProviderEvent(previous.value.value, event) } };
@@ -66,7 +73,7 @@ export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retai
         }
       }).then(result => {
         if (!signal.aborted) publishQualified(result, attempt);
-        return { ...result, deployment: { core: addresses.core, helpers: addresses.helpers, adapter: tradeAdapter(result.value) } };
+        return { ...result, deployment: { core: addresses.core, helpers: result.value.strategy === "universal" ? result.value.deployment.helpers as `0x${string}` : addresses.helpers, adapter: tradeAdapter(result.value) } };
       });
     },
   });

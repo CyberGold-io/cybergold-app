@@ -180,8 +180,8 @@ async function getBasketInput(page: Page, symbol: string) {
   return basketForm.getByRole("textbox", { name: `Sell amount (${symbol})`, exact: true });
 }
 
-async function getBuyMainInput(page: Page) {
-  return page.locator('label', { hasText: 'You Buy' }).locator('..').locator('input').first();
+async function getBuyMainOutput(page: Page) {
+  return page.locator("#buy-amount");
 }
 
 async function openFeeDetails(page: Page) {
@@ -251,10 +251,10 @@ test.describe("Issue From Basket Exact In", () => {
     const xautInput = await getBasketInput(page, "XAUt");
     await expect(xautInput).toHaveValue(basketIn.xaut);
 
-    const buyInput = await getBuyMainInput(page);
-    await expect(buyInput).toBeVisible();
-    await expect(buyInput).toHaveJSProperty("readOnly", true);
-    await expect(buyInput).toHaveValue(/^[0-9]/, { timeout: 30000 });
+    const buyOutput = await getBuyMainOutput(page);
+    await expect(buyOutput).toBeVisible();
+    await expect(buyOutput).toHaveJSProperty("tagName", "OUTPUT");
+    await expect(buyOutput).toHaveText(/^[0-9]/, { timeout: 30000 });
 
     await openFeeDetails(page);
     await expect(page.getByText(/protocol fee/i)).toBeVisible();

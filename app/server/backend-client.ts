@@ -94,7 +94,7 @@ function transportFailure(path: PublicBackendPath, error: unknown, elapsedMs: nu
   if (path === "/api/pools/catalog") {
     return Response.json({ error: "Pool inventory is temporarily unavailable." }, { status: 503, headers });
   }
-  if (path === "/api/quotes/basket-preview") {
+  if (path === "/api/quotes/basket-preview" || path === "/api/quotes/basket-max") {
     return Response.json({ error: "Basket previews are temporarily unavailable." }, { status: 503, headers });
   }
   if (path === "/api/quotes/token-preview") {
@@ -103,7 +103,7 @@ function transportFailure(path: PublicBackendPath, error: unknown, elapsedMs: nu
   if (path === "/api/quotes/uniswap") {
     return Response.json({ error: "Uniswap quotes are temporarily unavailable." }, { status: 503, headers });
   }
-  if (path === "/api/quotes/intent/stream" || path === "/api/quotes/market/stream" || path === "/api/quotes/market" || path === "/api/quotes/trade/stream") {
+  if (path === "/api/quotes/universal-exact-input" || path === "/api/quotes/intent/stream" || path === "/api/quotes/market/stream" || path === "/api/quotes/market" || path === "/api/quotes/trade/stream") {
     return Response.json({ code: timedOut ? "quote-timeout" : "quote-service-unavailable",
       error: timedOut ? "Quote service request timed out." : "Quote service connection failed.", ...references }, { status: 503, headers });
   }

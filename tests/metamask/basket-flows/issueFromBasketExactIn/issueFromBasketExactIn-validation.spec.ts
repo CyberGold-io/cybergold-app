@@ -128,8 +128,8 @@ async function getBasketInput(page: Page, symbol: string) {
   return basketForm.getByRole("textbox", { name: `Sell amount (${symbol})`, exact: true });
 }
 
-async function getBuyMainInput(page: Page) {
-  return page.locator('label', { hasText: 'You Buy' }).locator('..').locator('input').first();
+async function getBuyMainOutput(page: Page) {
+  return page.locator("#buy-amount");
 }
 
 async function getSwapButton(page: Page) {
@@ -155,8 +155,8 @@ test.describe("Issue From Basket Exact In", () => {
     await paxgInput.fill(basketIn.paxg);
     await expect(paxgInput).toHaveValue(basketIn.paxg);
 
-    const buyInput = await getBuyMainInput(page);
-    await expect(buyInput).toHaveValue(/^[0-9]/, { timeout: 30000 });
+    const buyOutput = await getBuyMainOutput(page);
+    await expect(buyOutput).toHaveText(/^[0-9]/, { timeout: 30000 });
     await expect(swapButton).toBeEnabled();
   });
 });

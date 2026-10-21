@@ -9,7 +9,7 @@ test("a long exact quote completes across head changes, then resumes refresh and
   const observed = await install(page, "", () => waiting, false, undefined, () => head);
   await page.goto("/en"); await choose(page, "WETH");
   const edited = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first();
-  const computed = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
+  const computed = page.locator("#buy-amount");
   await edited.fill("1");
   await expect.poll(() => observed.intents.length).toBe(1);
   await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
@@ -21,12 +21,12 @@ test("a long exact quote completes across head changes, then resumes refresh and
     await refreshedFacts;
     await page.clock.runFor(250);
     await expect.poll(() => observed.intents.length).toBe(process.env.QUOTE_HEAD_COMPLETION_BASELINE === "1" ? index + 1 : 1);
-    if (process.env.QUOTE_HEAD_COMPLETION_BASELINE === "1") await expect(computed).toHaveValue("");
-    else await expect(computed).not.toHaveValue("");
+    if (process.env.QUOTE_HEAD_COMPLETION_BASELINE === "1") await expect(computed).toHaveText("...");
+    else await expect(computed).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
   }
   const pendingStarts = observed.intents.length;
   finish();
-  await expect(computed).toHaveValue("1");
+  await expect(computed).toHaveText("1");
   await expect(computed).not.toHaveAttribute("aria-busy", "true");
   await expect(page.getByTestId("quote-estimate-description")).not.toBeAttached();
   waiting = new Promise<void>(resolve => { finish = resolve; });
@@ -37,10 +37,10 @@ test("a long exact quote completes across head changes, then resumes refresh and
   // retaining the displayed incumbent. Explicit selected-plan revalidation is
   // a separate API operation, rather than silently pinning this refresh to Core.
   const refreshed = observed.rawIntents.at(-1) as TradeQuoteRequest;
-  expect(refreshed).toMatchObject({ side: "buy", mode: "exact-in", amount: "1000000000000000000" });
+  expect(refreshed).toMatchObject({ intent:0,inputs:[{amount:"1000000000000000000"}] });
   expect(refreshed.retainedPlan).toBeUndefined();
   expect("orderedAssets" in refreshed).toBe(false);
-  await expect(computed).toHaveValue("1");
+  await expect(computed).toHaveText("1");
   await edited.fill("2");
   await page.clock.runFor(150);
   await expect.poll(() => observed.intents.length).toBe(pendingStarts + 2);
@@ -66,8 +66,8 @@ test("slow first head reuses facts context without duplicating the initial quote
   });
   await page.goto("/en"); await choose(page, "WETH");
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
-  const quoted = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
-  await expect(quoted).toHaveValue("1");
+  const quoted = page.locator("#buy-amount");
+  await expect(quoted).toHaveText("1");
   await expect.poll(() => observed.intents.length).toBe(1);
   release(); await page.waitForTimeout(500);
   expect(observed.intents.length).toBe(process.env.QUOTE_HEAD_BOOTSTRAP_BASELINE === "1" ? 2 : 1);
@@ -106,29 +106,31 @@ test("unchanged heads cause no quote/fee refresh; same-height replacement refres
   } }));
   await page.goto("/en");
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
-  await expect(page.getByRole("switch")).toBeChecked();
-  await page.getByRole("switch").uncheck(); // Settle the connection default before opening the picker.
+  await expect(page.getByRole("switch")).not.toBeChecked();
   await choose(page, "WETH");
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
-  const computed = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
+  const computed = page.locator("#buy-amount");
   await expect(computed).not.toHaveAttribute("aria-busy", "true");
-  await expect(computed).not.toHaveValue("");
-  await expect(computed).toHaveValue("1"); // Completed execution quote, after its initial display estimate.
+  await expect(computed).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
+  await expect(computed).toHaveText("1");
+  await expect(page.getByTestId("exact-input-retention-disclosure")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Swap currencies",exact:true})).toBeEnabled();
+  await expect(computed).not.toHaveAttribute("aria-busy", "true"); // Complete plan, after advisory/debounce.
   // Wallet-free gas starts at mount; development Strict Mode can cancel and
   // restart that fetch before the display settles. Later reads stay head-driven.
   await expect.poll(() => fees).toBeGreaterThan(0);
   const initial = { fees, facts, quotes: observed.quotes.length, previews: observed.previews.length };
-  const value = await computed.inputValue();
+  const value = (await computed.textContent())!;
   await page.clock.install();
   await page.clock.runFor(60_000);
-  await expect(computed).toHaveValue(value);
+  await expect(computed).toHaveText(value);
   expect({ fees, facts, quotes: observed.quotes.length, previews: observed.previews.length }).toEqual(initial);
   finalPreview = new Promise<void>(resolve => { finish = resolve; });
   head = { ...head, blockHash: `0x${"b".repeat(64)}` }; // Same height, different state identity.
   await page.clock.runFor(1_000);
   await expect.poll(async () => { await page.clock.runFor(1_000); return fees; }).toBe(initial.fees + 1);
   await expect.poll(() => observed.quotes.length).toBeGreaterThan(initial.quotes);
-  await expect(computed).toHaveValue(value);
+  await expect(computed).toHaveText(value);
   await expect(page.getByRole("status").filter({ hasText: "Estimate — preparing final quote" })).toBeHidden();
   await expect(computed).not.toHaveAttribute("aria-busy", "true");
   await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
@@ -142,7 +144,7 @@ test("unchanged heads cause no quote/fee refresh; same-height replacement refres
   await page.clock.runFor(12_000);
   await expect.poll(() => fees).toBeGreaterThanOrEqual(initial.fees + 2); // Ordinary failed-read retries remain independent.
   await expect(computed).not.toHaveAttribute("aria-busy", "true");
-  await expect(computed).toHaveValue(value);
+  await expect(computed).toHaveText(value);
   await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
 });
 
@@ -151,11 +153,11 @@ test("revisiting an amount at one head reuses route observations and exact previ
   await page.goto("/en");
   await choose(page, "WETH");
   const edited = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first();
-  const computed = page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').last();
+  const computed = page.locator("#buy-amount");
   await edited.fill("1");
   await page.waitForTimeout(250);
   await expect(computed).not.toHaveAttribute("aria-busy", "true");
-  await expect(computed).not.toHaveValue("");
+  await expect(computed).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
   await edited.fill("2");
   await page.waitForTimeout(250);
   await expect.poll(() => observed.quotes.filter(mode => mode === "exact-in").length).toBe(2);
@@ -164,7 +166,7 @@ test("revisiting an amount at one head reuses route observations and exact previ
   await edited.fill("1");
   await page.waitForTimeout(250);
   await expect(computed).not.toHaveAttribute("aria-busy", "true");
-  await expect(computed).not.toHaveValue("");
+  await expect(computed).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
   expect({ quotes: observed.quotes.length, previews: observed.previews.length }).toEqual(before);
 });
 
@@ -179,7 +181,7 @@ test("the first head after an outage refreshes facts loaded at an older hash", a
   await page.goto("/en");
   await initialFacts;
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  await expect(page.getByRole("button", { name: /^(Select token|BASKET|XAUt XAUt|PAXG PAXG|Sélectionner un token|Token auswählen)$/ }).first()).toBeVisible();
+  await expect(page.locator('main button[aria-haspopup="dialog"]').first()).toBeVisible();
   const before = facts;
   current = { ...current, blockHash: `0x${"b".repeat(64)}` };
   ready = true;

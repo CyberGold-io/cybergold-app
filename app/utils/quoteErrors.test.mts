@@ -6,6 +6,9 @@ import { failureResult, resultFor } from '../../tests/trading/regression.ts';
 import { tradeScenarios } from '../../tests/trading/scenarios.ts';
 import { providerSummaries } from '../../tests/trading/providerEvidence.ts';
 import type { TradeQuote } from './tradeQuote.ts';
+import { fetchQuoteStream } from './quoteStream.ts';
+import { quoteDiagnostics } from './diagnosticReferences.ts';
+import { createQuoteDiagnostics, type ClientDiagnostic } from './clientDiagnostics.ts';
 
 test("RPC error codes survive an HTTP error without exposing provider text", async () => {
   const error = await quoteResponseError(Response.json({ code: "rpc-rate-limit", error: "private-provider-url-and-token" }, { status: 503 }));
@@ -13,6 +16,45 @@ test("RPC error codes survive an HTTP error without exposing provider text", asy
   assert.equal(quoteErrorMessage(error, key => key), "quoteRpcRateLimit");
   assert.doesNotMatch(error.message, /private/);
   assert.equal((await quoteResponseError(new Response("private HTML", { status: 502 }))).code, "quote-service-unavailable");
+});
+
+for (const transport of ['http', 'stream'] as const) test(`Market liquidity failures retain their cause and bounded diagnostics through ${transport}`, async () => {
+  const snapshot = { providerQualifications: { provider: 'market', attempts: 1,
+    rows: [{ attempt: 1, stage: 'route-pricing', outcome: 'rejected', code: 'quote-insufficient-liquidity' }] },
+    routeWave: { mode: 'exact-in', legs: { count: 1, rows: [{ index: 0,
+      failureCounts: [{ code: 'quote-insufficient-liquidity', count: 2 }], bestPools: [] }] } } };
+  const payload = { type: 'error', code: 'quote-insufficient-liquidity', error: 'private-provider-url',
+    quoteDiagnostics: { ...snapshot, privatePayload: 'private-provider-url' } };
+  let error: unknown;
+  if (transport === 'http') error = await quoteResponseError(Response.json(payload, { status: 422 }));
+  else {
+    try { await fetchQuoteStream('/api/quotes/trade/stream', {}, new AbortController().signal, () => {},
+      (async () => new Response(JSON.stringify(payload) + '\n')) as typeof fetch); }
+    catch (cause) { error = cause; }
+  }
+  assert.ok(error instanceof QuotePreviewError);
+  assert.equal(error.code, 'quote-insufficient-liquidity');
+  assert.equal(quoteErrorMessage(error, key => key), 'quoteInsufficientLiquidity');
+  assert.deepEqual(quoteDiagnostics(error), snapshot);
+  const events: ClientDiagnostic[] = [], quotes = createQuoteDiagnostics(event => events.push(event));
+  quotes.observe({ strategy: 'market' }, 'failed', error);
+  assert.equal(events[0].errorClassification, 'quote-insufficient-liquidity');
+  const result = failureResult(resultFor(tradeScenarios[0], 'api'), error);
+  assert.deepEqual(result.quoteDiagnostics, snapshot);
+  assert.doesNotMatch(JSON.stringify({ error, events, result }), /private-provider/);
+});
+
+test('Market liquidity errors have a distinct description in every supported locale', () => {
+  for (const locale of ['en', 'fr', 'de', 'ru']) {
+    const messages = JSON.parse(readFileSync(new URL(`../../messages/${locale}.json`, import.meta.url), 'utf8')).Home;
+    const error = knownQuoteError({ code: 'quote-insufficient-liquidity', error: 'private-provider-text' })!;
+    const description = quoteErrorMessage(error, key => messages[key]);
+    assert.equal(typeof description, 'string');
+    assert.ok(description.length > 0);
+    assert.notEqual(description, messages.quoteNoRoute);
+    assert.notEqual(description, messages.quoteUnexpectedError);
+    assert.doesNotMatch(description, /private/);
+  }
 });
 
 test('capacity causes retain safe producer facts in HTTP, stream, scenario and provider evidence', async () => {
@@ -60,5 +102,19 @@ test("RPC failure descriptions are translated in every supported locale", () => 
       assert.match(description, /RPC/);
       assert.doesNotMatch(description, /private|temporarily unavailable/);
     }
+  }
+});
+
+test("insufficient market liquidity retains its specific HTTP code and localized explanation", async () => {
+  const error = await quoteResponseError(Response.json({ code: "quote-insufficient-liquidity", error: "private route diagnostic" }, { status: 422 }));
+  assert.equal(error.code, "quote-insufficient-liquidity");
+  for (const locale of ["en", "fr", "de", "ru"]) {
+    const messages = JSON.parse(readFileSync(new URL(`../../messages/${locale}.json`, import.meta.url), "utf8")).Home;
+    assert.equal(quoteErrorMessage(error, key => key), "quoteInsufficientLiquidity");
+    const description = quoteErrorMessage(error, key => messages[key]);
+    assert.equal(typeof description, "string");
+    assert.notEqual(description, messages.quoteNoRoute);
+    assert.notEqual(description, messages.quoteTimedOut);
+    assert.doesNotMatch(description, /private/);
   }
 });

@@ -6,10 +6,9 @@ test("a quote failure keeps its localized message and copyable Backend reference
   const requestId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e", correlationId = "eb3e6932-a2af-4303-a09e-35831f864a1d";
   const events: Record<string, unknown>[] = [];
   await page.route("**/api/diagnostics", route => { events.push(route.request().postDataJSON()); return route.fulfill({ status: 204 }); });
-  await page.route("**/api/quotes/trade/stream", route => {
+  await page.route("**/api/quotes/universal-exact-input", route => {
     expect(route.request().headers()["x-cybergold-attempt-id"]).toMatch(/^[0-9a-f-]{36}$/);
-    return route.fulfill({ headers: { "X-CyberGold-Request-Id": requestId }, contentType: "application/x-ndjson",
-      body: JSON.stringify({ type: "error", code: "rpc-timeout", correlationId, requestId, error: "private-provider-diagnostic" }) + "\n" });
+    return route.fulfill({ headers: { "X-CyberGold-Request-Id": requestId }, status: 503, json: { code: "rpc-timeout", correlationId, requestId, error: "private-provider-diagnostic" } });
   });
   await page.goto("/en"); await choose(page, "USDC");
   await page.locator("#sell-amount").fill("10");

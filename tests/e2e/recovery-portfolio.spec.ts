@@ -426,6 +426,60 @@ test("recovery balances stay in the wallet dialog and closing it cannot discard 
   await expect(claim).toBeEnabled();
 });
 
+test("cached recovery and liquidity figures survive reload with disabled redemption presentation", async ({ page }) => {
+  let paused = false, recoveryPending = false, liquidityPending = false, release!: () => void;
+  let redemptionRequests = 0;
+  const waiting = new Promise<void>(resolve => { release = resolve; });
+  await installWalletAndNetwork(page, async route => {
+    if (paused) { recoveryPending = true; await waiting; }
+    await route.fulfill({ json: portfolio() });
+  }, { redemption: async route => {
+    redemptionRequests++;
+    await route.fulfill({ status: 503, json: { error: "Synthetic redemption must not start from a cached button" } });
+  } });
+  await installLiquidityPrices(page);
+  await page.route("**/api/account/liquidity-positions?**", async route => {
+    if (paused) { liquidityPending = true; await waiting; }
+    await route.fulfill({ json: lpSnapshot });
+  });
+  await page.goto("/en");
+  await openBalances(page);
+  await expect(page.getByText("20 recovery shares", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Redeem recovery shares" })).toBeEnabled();
+  const total = page.getByTestId("liquidity-collapsed-value");
+  await expect(total).toContainText("4 725.29");
+  const before = await total.innerText();
+  await expect.poll(() => page.evaluate(({ chain, holder }) => {
+    const prefix = `cybergold:wallet-display:v1:${chain}:${holder}:`;
+    const recovery = JSON.parse(sessionStorage.getItem(`${prefix}recovery:en`) ?? "null");
+    const liquidity = JSON.parse(sessionStorage.getItem(`${prefix}liquidity`) ?? "null");
+    return recovery?.rows?.length === 1 && liquidity?.positionCount === 2;
+  }, { chain: CHAIN_ID, holder: ALICE })).toBe(true);
+
+  paused = true;
+  try {
+    await page.reload();
+    await openBalances(page);
+    await expect.poll(() => recoveryPending && liquidityPending).toBe(true);
+    await expect(page.getByText("20 recovery shares", { exact: true })).toBeVisible();
+    await expect(page.getByText("5 underlying tokens", { exact: true })).toBeVisible();
+    const cachedClaim = page.getByRole("button", { name: "Redeem recovery shares" });
+    await expect(cachedClaim).toBeDisabled();
+    await cachedClaim.evaluate(button => (button as HTMLButtonElement).click());
+    expect(redemptionRequests).toBe(0);
+    const methods = await page.evaluate(() => (window as unknown as { __recoveryTestWalletRequests: string[] }).__recoveryTestWalletRequests);
+    expect(methods.filter(method => /^(?:eth_send|eth_sign|personal_sign|wallet_send)/.test(method))).toEqual([]);
+    await expect(total).toHaveText(before);
+    await page.getByRole("button", { name: /Liquidity Positions/ }).click();
+    await expect(page.getByTestId("liquidity-position-count")).toHaveText("2 positions");
+    await expect(page.getByTestId("liquidity-fiat-value")).toHaveText(before);
+    await expect(page.getByTestId("wallet-balance-modal").locator(".animate-spin")).toHaveCount(0);
+    release();
+    await expect(page.getByRole("button", { name: "Redeem recovery shares" })).toBeEnabled();
+    await expect(total).toHaveText(before);
+  } finally { release(); }
+});
+
 test("failed refresh retains the last complete shares and never flashes initial loading", async ({ page }) => {
   let fail = false;
   let requests = 0;

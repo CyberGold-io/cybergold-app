@@ -11,7 +11,7 @@ import { parseDisplayTokens, projectDisplayTokens, tokenDisplayCacheKey, writePu
 
 const initial = { ...emptyProtocolConfiguration, configuration: undefined as ProtocolConfiguration | undefined,
   displayTokens: emptyProtocolConfiguration.tokens,
-  error: null as Error | null, isLoading: true, refetch: async (): Promise<unknown> => undefined };
+  error: null as Error | null, isLoading: true, isRefreshing: false, refetch: async (): Promise<unknown> => undefined };
 const ProtocolConfigurationContext = createContext(initial);
 export const useProtocolConfiguration = () => useContext(ProtocolConfigurationContext);
 
@@ -30,7 +30,7 @@ export function ProtocolConfigurationProvider({ children }: { children: ReactNod
     if (query.data) writePublicDisplayCache(catalogKey, projectDisplayTokens(live.tokens));
   }, [catalogKey, query.data, live.tokens]);
   const value = useMemo(() => ({ ...live, displayTokens: query.data ? live.tokens : cachedTokens ?? [],
-    configuration: query.data, error: query.error, isLoading: query.isLoading, refetch: query.refetch }),
-    [live, cachedTokens, query.data, query.error, query.isLoading, query.refetch]);
+    configuration: query.data, error: query.error, isLoading: query.isLoading, isRefreshing: query.isFetching, refetch: query.refetch }),
+    [live, cachedTokens, query.data, query.error, query.isLoading, query.isFetching, query.refetch]);
   return <ProtocolConfigurationContext.Provider value={value}>{children}</ProtocolConfigurationContext.Provider>;
 }

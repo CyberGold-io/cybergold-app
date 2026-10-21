@@ -77,7 +77,7 @@ test("faucet transport failures expose the same safe reference as their diagnost
 
 test("all fixed API adapters attach only the server token, with no browser credential fallback", async () => {
   const paths = ["/api/quotes/trade/model", "/api/protocol/config", "/api/transaction/revert", "/api/account/ens-name", "/api/account/ens-avatar-record", "/api/account/native-balance", "/api/governance/target-code", "/api/protocol/recovery-share-precision", "/api/transaction/wait/head", "/api/transaction/wait/transaction", "/api/transaction/wait/receipt", "/api/transaction/wait/block", "/api/transaction/permit2-approval-gas", "/api/transaction/recovery-redemption", "/api/governance/authority", "/api/governance/roles", "/api/governance/safe-nonce", "/api/governance/safe-transaction-hash", "/api/transaction/receipt", "/api/account/transaction-nonce", "/api/account/permit2", "/api/transaction/fees", "/api/protocol/recovery-assets", "/api/account/core-permit", "/api/quotes/token-preview", "/api/quotes/uniswap", "/api/governance/safe-principal", "/api/governance/helpers-facts", "/api/governance/core-facts", "/api/account/wallet-balances", "/api/protocol/facts", "/api/pools/snapshot", "/api/quotes/basket-preview", "/api/gold", "/api/fx", "/api/dashboard/onchain-summary", "/api/recovery/shares",
-    "/api/account/token-permit", "/api/tokens/metadata", "/api/transaction/token-approval-gas", "/api/pools/catalog",
+    "/api/account/token-permit", "/api/tokens/metadata", "/api/transaction/token-approval-gas", "/api/pools/catalog", "/api/quotes/basket-max",
     "/api/governance/owner-aliases", "/api/quote-pool-cache", "/api/safe",
     "/api/safe/events", "/api/faucet", "/api/diagnostics"] as const;
   for (const token of ["fixture-private-entry-token", undefined]) {

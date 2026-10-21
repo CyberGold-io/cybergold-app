@@ -97,11 +97,11 @@ export function TransferActivityPanel({
                         <div className="mb-1 flex justify-end">
                             <span className="mr-[8px] w-[64px] text-right text-[10px] text-[var(--text-muted)]">CYGLD</span>
                         </div>
-                        <TransferActivityLineChartEcharts
+                        <div data-page-chart-slot><TransferActivityLineChartEcharts
                             series={activeTransferSeries}
                             locale={locale}
                             transfersSuffix={t("transfersAbbreviation")}
-                        />
+                        /></div>
                         <div className="mt-2 flex items-center justify-between pl-[6px] pr-[72px] text-[10px] text-[var(--text-muted)]">
                             <span>{activeTransferAxisLabels[0]}</span>
                             <span>{activeTransferAxisLabels[Math.floor((activeTransferAxisLabels.length - 1) / 2)]}</span>

@@ -11,7 +11,9 @@ canonical_for: App preview and execution orchestration
 # App swap-flow architecture
 
 The home form accepts spend amounts only. Receive token and basket amounts
-are read-only estimates that can be selected and copied. Reversing the pair
+are plain output text that can be selected and copied, with no input border,
+editing caret, focus ring or tab stop. Clicking an amount does not activate an
+editor; the separate receive-token picker remains interactive. Reversing the pair
 clears amounts and the basket driver, then focuses the new spend input. Old
 output-driven session drafts retain their pair/preferences and clear amounts;
 legitimate input drafts restore without trusting a saved receive quote.
@@ -104,19 +106,27 @@ retains the uncapped requested output even when a warm model or Helpers preview
 clips issuance to the remaining capacity. This Core-specific cap presentation
 cannot reject another eligible Backend-selected provider.
 
-Basket MAX depends only on proportions, decimal scales and wallet balances.
-It chooses the positive-weight component with the smallest balance divided by
-its raw-unit proportion, sets that limiting balance as the raw driver and
-floors the derived component budgets in canonical order. Zero-weight members
-do not limit MAX; a known zero positive-weight balance produces a zero basket.
-Unavailable balances remain unavailable. MAX uses BigInt and keeps its raw
-precision independently from shortened display values.
+Basket MAX first derives a wallet-funded proportional upper budget using
+canonical basket order, decimal scales and BigInt arithmetic. Zero-weight
+members do not limit that budget; unavailable balances remain unavailable.
+The App sends `{driverToken, maximumAmountsIn}` to
+`POST /api/quotes/basket-max`. The Backend owns the executable limit, including
+current Core mint capacity and preview semantics, and returns the raw driver,
+canonical component amounts and net CYGLD output. A wallet limit can keep the
+full proportional budget; a tighter mint limit reduces it, and exhausted
+capacity returns zero.
 
-Provider quotes, conversion prices, fees, tolerance and mint capacity do not
-resize that basket. A wallet-funded MAX can receive an ordinary Core cap
-warning; the user can reduce the spend amount. Token/native MAX retains its
-spending balance and native gas reserve. Existing cancellation prevents a
-pending MAX from overwriting a later form, token-pair or wallet change.
+The App retains the returned canonical component vector for display and the
+ordinary `issue-exact-in` basket preview before submission. It does not
+rederive that vector from older App proportions or let an older capacity model
+disable a validated MAX; ordinary Backend preview capacity errors still apply.
+Manual input clears the MAX vector and restores local proportional entry. Raw
+component budgets keep their precision independently from shortened display
+values. Execution tolerance remains part of the ordinary quote. A failed MAX
+request preserves the current amount and quote and reports the existing quote error toast.
+Existing cancellation prevents a pending MAX from overwriting a later manual
+edit, form, token-pair, wallet or configuration change. Token/native MAX retains
+its spending balance and native gas reserve.
 
 Token and direct-basket purchases share one authorization builder. It reuses
 sufficient Helpers allowance, including legacy unlimited allowance. Otherwise,

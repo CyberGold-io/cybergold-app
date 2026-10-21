@@ -21,6 +21,7 @@ canonical_for: App documentation navigation
 | [Environment configuration](architecture/environment.md) | active | App maintainer | 2026-09-20 |
 | [Focused API adapter release](architecture/focused-api-adapters.md) | active | App maintainer | 2026-10-08 |
 | [Dashboard indexer](architecture/dashboard-indexer.md) | active | App maintainer | 2026-09-26 |
+| [Universal exact-input integration](architecture/universal-exact-input.md) | active | App maintainer | 2026-10-20 |
 | [Swap flows](architecture/swap-flows.md) | active | App maintainer | 2026-07-11 |
 | [E2E and MetaMask guide](../tests/README.md) | active | App maintainer | 2026-07-23 |
 | [Basket-flow acceptance](acceptance/basket-flows.md) | active | App maintainer | 2026-10-19 |

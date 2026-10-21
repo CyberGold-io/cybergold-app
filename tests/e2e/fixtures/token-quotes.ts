@@ -1,8 +1,9 @@
 import { protocolAddresses } from "../../fixtures/protocol-configuration";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
+import { universalFixture, universalFromCoreQuote, tradeRequestFromUniversal } from "./universal-exact-input";
 import { intentFixture } from "./quote-intent";
-import { coreIntentRoute, tradeIntentBody, tradeIntentEvent } from "./trade-core";
+import { coreIntentRoute, coreIntentRequest, tradeIntentBody, tradeIntentEvent } from "./trade-core";
 import type { QuoteIntentRequest } from "../../../app/utils/quoteIntent";
 import { expect, type Page } from "@playwright/test";
 import { toFunctionSelector } from "viem";
@@ -49,6 +50,25 @@ export async function install(page: Page, unavailable = "", waitForFinalPreview?
     page.on("close", () => { server.closeAllConnections(); server.close(); });
   }
   await page.route("**/api/**", async route => {
+    if (new URL(route.request().url()).pathname === "/api/quotes/universal-exact-input") {
+      const request=route.request().postDataJSON();rawIntents.push(request);
+      if(request.intent<2) {
+        const legacy=coreIntentRequest(tradeRequestFromUniversal(request),basketAssets);intents.push(legacy);
+        quotes.push("exact-in");previews.push((legacy.mode.startsWith("issue")?"issue-":"redeem-")+(legacy.native?"native-":"token-")+"exact-in");
+        if(unavailable){await route.fulfill({status:503,json:{code:"quote-unavailable",error:"Quote is temporarily unavailable."}});return;}
+        let value=intentFixture(legacy,"complete",headSource());
+        if(progressive) {
+          const response=await route.fetch({url:progressive,method:"POST",postData:JSON.stringify(legacy)});
+          const frames=(await response.text()).split("\n").filter(Boolean).map(line=>JSON.parse(line));
+          const complete=frames.findLast(frame=>frame.type==="complete")??frames.findLast(frame=>frame.type==="qualified");
+          if(complete)value=complete.value;
+        } else await waitForFinalPreview?.();
+        await route.fulfill({json:universalFromCoreQuote(request,value,basketAssets)});return;
+      }
+      previews.push(request.intent===2?"issue-exact-in":"redeem-exact-in");
+      if(unavailable==="basket-preview"){await route.fulfill({status:503,json:{code:"quote-unavailable"}});return;}
+      await route.fulfill({json:universalFixture(request,{basketAssets,context:headSource()})});return;
+    }
     if (new URL(route.request().url()).pathname === "/api/quotes/trade/stream") rawIntents.push(route.request().postDataJSON());
     route = coreIntentRoute(route, basketAssets);
     const path = new URL(route.request().url()).pathname;
@@ -64,7 +84,10 @@ export async function install(page: Page, unavailable = "", waitForFinalPreview?
     } });
     else if (path === "/api/quotes/trade/model") {
       const request = route.request().postDataJSON();
-      await route.fulfill({ json: { namespace: "trade", intent: request, models: [] } });
+      const coreRequest=coreIntentRequest({...request,recipient:protocolAddresses.helpers!,deadline:"2000000000"},basketAssets);
+      const modeled=intentFixture(coreRequest,"complete",currentContext);
+      await route.fulfill({ json: { namespace: "trade", intent: request, models: [],
+        ...(waitForFinalPreview||progressive||models?{estimate:{strategy:"core",amount:modeled.displayAmount}}:{}) } });
     }
     else if (path === "/api/quotes/intent/stream") {
       const request = route.request().postDataJSON(); intents.push(request);
@@ -151,7 +174,11 @@ export async function install(page: Page, unavailable = "", waitForFinalPreview?
 }
 
 export async function choose(page: Page, name: string) {
-  await page.getByRole("button", { name: /^(Select token|BASKET|XAUt XAUt|PAXG PAXG)$/ }).first().click();
-  await page.getByPlaceholder("Search currency...").fill(name);
+  const search=page.getByPlaceholder("Search currency...");
+  await expect(async()=>{
+    if(!await search.isVisible())await page.locator('main button[aria-haspopup="dialog"]').first().click();
+    await expect(search).toBeVisible({timeout:300});
+  }).toPass();
+  await search.fill(name);
   await page.locator("#dropdown-from").getByRole("button").filter({ has: page.getByText(name === "ETH" ? "Ether" : name === "USDC" ? "USDC" : name === "USDT" ? "Tether USD" : "Wrapped Ether", { exact: true }) }).click();
 }

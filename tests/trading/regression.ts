@@ -1,9 +1,11 @@
-import { parseUnits, zeroAddress } from "viem";
+import { decodeAbiParameters, parseAbiParameters, parseUnits, zeroAddress } from "viem";
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
 import type { ProtocolFacts } from "../../app/utils/protocolFacts.ts";
 import type { BasketPreview, BasketPreviewRequest } from "../../app/utils/basketPreview.ts";
 import type { QuoteIntent } from "../../app/utils/quoteIntent.ts";
 import type { MarketQuote } from "../../app/utils/marketQuote.ts";
+import { preserveExactInputMinimum, preserveExactInputBasketMinimums } from "../../app/utils/universalExactInput.ts";
+import type { UniversalExactInputQuote } from "../../app/utils/universalExactInput.ts";
 import type { TradeQuote, TradeQuoteRequest } from "../../app/utils/tradeQuote.ts";
 import { fetchQuoteStream } from "../../app/utils/quoteStream.ts";
 import { QuotePreviewError, quoteResponseError, safeQuoteConstraint, type QuoteConstraint } from "../../app/utils/quoteErrors.ts";
@@ -34,10 +36,10 @@ export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "ass
   size?: "small" | "medium" | "large"; nominalUsd?: string; valuationId?: string; amountRaw?: string; basketAmounts?: string[]; basketAssets?: string[];
   deployment?: import("../../app/utils/protocolConfiguration.ts").ProtocolDeployment;
   providers?: Record<Provider, ProviderSummary>; alternateExecution?: AlternateExecution;
-  selectedProvider?: Provider; planDigest?: string; revalidatedPlanDigest?: string; executionAttempted?: boolean;
+  selectedProvider?: Provider | "universal"; planDigest?: string; revalidatedPlanDigest?: string; executionAttempted?: boolean;
   transactionDisposition?: "not-submitted" | "submitted" | "confirmed" | "unknown";
   requestedStrategy: "core" | "market" | "auto";
-  status: "pass" | "fail" | "unavailable" | "skipped"; actualStrategy: "core" | "market" | "unknown";
+  status: "pass" | "fail" | "unavailable" | "skipped"; actualStrategy: "core" | "market" | "mixed" | "universal" | "unknown";
   actualOperation?: string; quotedOperation?: string; layer: "api" | "browser" | "execution"; durationMs?: number; firstExecutableMs?: number;
   code?: string; reason?: QuotePreviewError["code"] | UiObservationPhase | "unsupported" | "no-qualified-plan" | "quote-observation-unavailable" | "predecessor-submission-unknown"; refs?: DiagnosticReferences; transactionHash?: string;
   quoteDiagnostics?: QuoteDiagnostics; selectedPlan?: import("./selectedPlan.ts").SelectedPlan;
@@ -59,7 +61,7 @@ export type RegressionReport = { schema: "cybergold.trade-regression.v1"; runId:
     cleanup?: Partial<Record<"processes" | "containers" | "network" | "source", "complete" | "failed">> };
   runnerOutcome?: "pass" | "fail" | "unavailable"; runnerCode?: string; scenarios: ScenarioResult[]; fixtures?: ScenarioResult[] };
 export type QuoteObservation = { scenario: Scenario; request: TradeQuoteRequest | BasketPreviewRequest;
-  value: QuoteIntent | MarketQuote | BasketPreview; result: ScenarioResult };
+  value: QuoteIntent | MarketQuote | BasketPreview | UniversalExactInputQuote; result: ScenarioResult };
 
 export class RegressionAssertionError extends Error {
   readonly code: string;
@@ -228,6 +230,35 @@ export async function observeScenario(scenario: Scenario, config: ProtocolConfig
   const events = (event: { type: string }) => {
     if (event.type === "qualified" && result.firstExecutableMs === undefined) result.firstExecutableMs = Math.round(performance.now() - started);
   };
+
+  if (scenario.inputMode === "exact-in") {
+    const request = scenario.asset === "BASKET" ? await basketRequest(scenario, config, facts, fetcher) : tokenRequest(scenario, config, recipient);
+    const assets = basketFacts(facts).assets;
+    const inputs = scenario.asset === "BASKET" && scenario.side === "buy"
+      ? assets.map((currency, index) => ({ currency, amount: (request as Extract<BasketPreviewRequest, { mode: "issue-exact-in" }>).maximumAmountsIn[index] }))
+      : [{ currency: scenario.side === "sell" ? config.contracts.core! : scenario.asset === "ETH" ? zeroAddress : (request as TradeQuoteRequest).counterToken,
+        amount: "amount" in request ? request.amount : "grossCygldIn" in request ? request.grossCygldIn : "0" }];
+    const outputCurrency = scenario.side === "buy" ? config.contracts.core! : scenario.asset === "ETH" || scenario.asset === "BASKET" ? zeroAddress : (request as TradeQuoteRequest).counterToken;
+    const value = await readJson<UniversalExactInputQuote>(fetcher, "/api/quotes/universal-exact-input", {
+      intent: scenario.asset === "BASKET" ? scenario.side === "buy" ? 2 : 3 : scenario.side === "buy" ? 0 : 1,
+      inputs, outputCurrency, recipient, deadline: "deadline" in request ? request.deadline : String(Math.floor(Date.now() / 1000) + 1200), slippageBps: 100 });
+    requireInvariant(value.operation === "executeExactInput", "universal-operation-mismatch");
+    requireInvariant(value.plan.inputs.length === inputs.length && value.plan.inputs.every((row, index) => row.currency.toLowerCase() === inputs[index].currency.toLowerCase() && row.amount === inputs[index].amount), "universal-exact-input-mismatch");
+    let outputMinimum: string | string[] = value.outputMinimum;
+    if (value.plan.intent === 3) {
+      const [body] = decodeAbiParameters(parseAbiParameters("((uint8 kind,address token,uint256 id,uint256 minimumAmount)[] expectedOutputs)"), value.plan.body as `0x${string}`);
+      outputMinimum = body.expectedOutputs.map(row => String(row.minimumAmount));
+    }
+    result.bounds = { inputMaximum: inputs.length === 1 ? inputs[0].amount : inputs.map(row => row.amount), outputMinimum,
+      protocolFeeCygld: value.fees.coreProtocolFeeCygld, helperFeeCygld: value.fees.coreHelpersFeeCygld, marketFeeCygld: value.fees.marketFeeCygld };
+    const inputTerms = inputs.map(row => ({ asset: row.currency.toLowerCase(), amount: row.amount }));
+    result.quoteTerms = { inputSpent: inputTerms, requestedInput: inputTerms, inputMaximum: inputTerms,
+      netOutput: value.estimatedRecipientOutputs?.map(row => ({ asset: row.token.toLowerCase(), amount: row.amount, kind: row.kind, id: row.id })), refundCoverage: "not-disclosed" };
+    result.quotedOperation = "executeExactInput"; result.selectedProvider = "universal"; result.actualStrategy = value.routeFamily;
+    result.deployment = { core: config.contracts.core as `0x${string}`, helpers: value.deployment.helpers as `0x${string}`, adapter: value.deployment.adapter as `0x${string}` };
+    result.status = "pass"; delete result.code; result.context = value.context; result.durationMs = Math.round(performance.now() - started);
+    return { scenario, request, value, result };
+  }
   let request: TradeQuoteRequest | BasketPreviewRequest, value: QuoteObservation["value"];
   if (scenario.asset === "BASKET") {
     const basket = await basketRequest(scenario, config, facts, fetcher);
@@ -267,11 +298,28 @@ export async function observeScenario(scenario: Scenario, config: ProtocolConfig
       result.quotedOperation = request.mode === "exact-in" ? "swapExactInput" : "swapExactOutput";
     }
   }
+  // Inactive output-target Core sale fixtures solve Q with their retained numerical
+  // preview, then obtain fresh universal bytes while preserving accepted bounds.
+  if (scenario.side === "sell" && scenario.inputMode === "exact-out" && scenario.requestedStrategy === "core") {
+    const gross = result.bounds!.inputMaximum as string;
+    const fresh = await readJson<UniversalExactInputQuote>(fetcher, "/api/quotes/universal-exact-input", {
+      intent: scenario.asset === "BASKET" ? 3 : 1, inputs: [{currency:config.contracts.core!,amount:gross}],
+      outputCurrency: scenario.asset === "BASKET" || scenario.asset === "ETH" ? zeroAddress : (request as TradeQuoteRequest).counterToken,
+      recipient,deadline:"deadline" in request?request.deadline:String(Math.floor(Date.now()/1000)+1200),slippageBps:100 });
+    if (scenario.asset === "BASKET") {
+      const outputs = (value as Extract<BasketPreview,{mode:"redeem-exact-out"}>).result.projectedCoreOutputs;
+      const minima = result.bounds!.outputMinimum as string[];
+      value = preserveExactInputBasketMinimums(fresh, outputs.map((row,index)=>({...row,token:row.token as `0x${string}`,id:BigInt(row.id),minimumAmount:BigInt(minima[index])})));
+    } else value = preserveExactInputMinimum(fresh,BigInt(result.bounds!.outputMinimum as string));
+    result.selectedProvider="universal"; result.quotedOperation="executeExactInput";
+    result.quoteTerms={inputSpent:[{asset:config.contracts.core!.toLowerCase(),amount:gross}],inputMaximum:[{asset:config.contracts.core!.toLowerCase(),amount:gross}],
+      netOutput:value.estimatedRecipientOutputs.map(row=>({asset:row.token.toLowerCase(),amount:row.amount,kind:row.kind,id:row.id})),refundCoverage:"not-disclosed"};
+  }
   if (scenario.requestedStrategy === "core") {
     const fees = "result" in value ? value.result.fees : "preview" in value ? value.preview.fees : undefined;
     if (fees) result.bounds = { ...result.bounds, protocolFeeCygld: fees.protocolFeeCygld, helperFeeCygld: fees.helperFeeCygld };
   }
-  result.status = "pass"; delete result.code; result.actualStrategy = scenario.requestedStrategy;
+  result.status = "pass"; delete result.code; result.actualStrategy = "strategy" in value && value.strategy === "universal" ? value.routeFamily : scenario.requestedStrategy;
   result.refs = diagnosticReferences(value); result.context = value.context;
   result.durationMs = Math.round(performance.now() - started);
   result.firstExecutableMs ??= result.durationMs;
