@@ -16,6 +16,7 @@ import type { UiQuoteSnapshot, UiWalletEvidence } from "./uiEconomics.ts";
 import type { WalletRequestDiagnostic } from "./runnerDiagnostics.ts";
 import type { QualityTerms, QualityMeasurement } from "./quoteQuality.ts";
 import { tradeQualityTerms, basketQualityTerms } from "./quoteQuality.ts";
+import { SandboxFundingError } from "./sandboxFunding.ts";
 
 export type UiObservationPhase = "ui-prepare" | "ui-facts" | "ui-balances" | "ui-submit" | "ui-confirmation"
   | "ui-hash" | "ui-receipt-read" | "ui-transaction-read" | "ui-receipt-assertions" | "ui-balance-postchecks";
@@ -42,7 +43,7 @@ export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "ass
   requestedStrategy: "core" | "market" | "auto";
   status: "pass" | "fail" | "unavailable" | "skipped"; actualStrategy: "core" | "market" | "mixed" | "universal" | "unknown";
   actualOperation?: string; quotedOperation?: string; layer: "api" | "browser" | "execution"; durationMs?: number; firstExecutableMs?: number;
-  code?: string; reason?: QuotePreviewError["code"] | UiObservationPhase | "unsupported" | "no-qualified-plan" | "quote-observation-unavailable" | "predecessor-submission-unknown"; refs?: DiagnosticReferences; transactionHash?: string;
+  code?: string; reason?: QuotePreviewError["code"] | SandboxFundingError["reason"] | UiObservationPhase | "unsupported" | "no-qualified-plan" | "quote-observation-unavailable" | "predecessor-submission-unknown"; refs?: DiagnosticReferences; transactionHash?: string;
   quoteDiagnostics?: QuoteDiagnostics; selectedPlan?: import("./selectedPlan.ts").SelectedPlan;
   constraint?: QuoteConstraint;
   context?: { chainId: number; blockNumber: string; blockHash: string }; bounds?: Record<string, string | string[]>;
@@ -101,6 +102,7 @@ export function failureResult(result: ScenarioResult, error: unknown) {
   return { ...result, status: unavailable ? "unavailable" as const : "fail" as const,
     code: timedOut && code === "unexpected-error" ? "service-unavailable" : code,
     quoteDiagnostics: work,
+    ...(error instanceof SandboxFundingError ? { reason: error.reason } : {}),
     ...(constraint ? { constraint } : {}),
     refs: { ...result.refs, ...diagnosticReferences(error) } };
 }
