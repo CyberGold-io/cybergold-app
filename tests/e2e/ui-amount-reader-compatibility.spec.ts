@@ -3,13 +3,19 @@ import { protocolConfigurationFixture as config, tokenAddresses } from "../fixtu
 import { tradeScenarios } from "../trading/scenarios";
 import { armUiQuoteCapture, basketAmountControls, capturedUiQuote, currentUiQuote, displayedUiAmount, quoteAssets } from "../trading/uiQuoteCapture";
 
-const variants = ["legacy", "readonly-input", "readonly-text"] as const;
+const variants = ["legacy", "readonly-input", "readonly-text", "presentation-row"] as const;
 
-for (const variant of variants) for (const basket of [false, true]) {
+for (const variant of variants) for (const basket of variant === "presentation-row" ? [true] : [false, true]) {
   test(`${variant} ${basket ? "basket" : "token"} receive markup is captured without activating output entry`, async ({ page }) => {
     const scenario = tradeScenarios.find(row => row.id === (basket ? "core-redeem-basket-exact-in" : "core-issue-paxg-exact-in"))!;
     const assets = quoteAssets(scenario, config, basket ? [tokenAddresses.PAXG, tokenAddresses.XAUT] : []);
     const output = (value: string, symbol: string, index: number) => {
+      // TradeBasketPresentationRow keeps a hidden input beside the visible output
+      // with the same label. Give the inactive value a different amount.
+      if (variant === "presentation-row") return `<div data-trade-basket-row="${symbol.toLowerCase()}">
+        <input hidden data-trade-basket-input type="text" inputmode="decimal" aria-label="Buy amount (${symbol})" readonly value="${900 + index}">
+        <output data-trade-basket-output aria-label="Buy amount (${symbol})" aria-describedby="receive-amount-description">${value}</output>
+      </div>`;
       const attributes = basket ? `aria-label="${variant === "legacy" ? "Edit buy" : "Buy"} amount (${symbol})"` : 'id="buy-amount"';
       return variant === "legacy" && basket ? `<button ${attributes} data-receive="${index}">${value}</button>`
         : variant === "readonly-text" ? `<output ${attributes} data-receive="${index}">${value}</output>`
@@ -26,7 +32,7 @@ for (const variant of variants) for (const basket of [false, true]) {
     await page.evaluate(() => {
       const scope = window as Window & { outputInteractions?: number };
       scope.outputInteractions = 0;
-      document.querySelectorAll("[data-receive]").forEach(control => {
+      document.querySelectorAll("[data-receive], #buy-basket-composition [aria-label]").forEach(control => {
         for (const event of ["focus", "click", "input"]) control.addEventListener(event, () => { scope.outputInteractions!++; });
       });
     });

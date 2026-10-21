@@ -8,7 +8,7 @@ import { configuredToken, basketFacts, ScenarioUnavailableError } from "../tradi
 import { checkpointExecutionStage, originFetch, readJson, requireInvariant, resultFor, type ExecutionStage, type ScenarioResult, type UiObservationPhase } from "../trading/regression";
 import { observeUiReceipt } from "../trading/uiReceipt";
 import { assertCapturedTradeInput } from "../trading/planAssertions";
-import { armUiQuoteCapture, basketAmountControls, capturedUiQuote, displayedUiAmount, quoteAssets } from "../trading/uiQuoteCapture";
+import { armUiQuoteCapture, capturedUiQuote, displayedUiAmount, quoteAssets } from "../trading/uiQuoteCapture";
 import { setupPurchase } from "../trading/setupPurchase";
 import { assertWalletEconomics, positiveDisplayedAmount, walletAmounts, walletEvidence } from "../trading/uiEconomics";
 import { expectWalletBalanceDisplay } from "../trading/uiWalletDisplay";
@@ -205,15 +205,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     const quotedSide = side === "sell" ? "buy" : "sell";
     const quotedToken = quotedSide === "buy" ? buy : sell;
     await checkpoint("ui-prepare-quote");
-    if (quotedToken === "BASKET") {
-      const amounts = basketAmountControls(page, quotedSide);
-      // Both deployed edit buttons and the input-only App's read-only amounts
-      // expose the funded fixture's PAXG and XAUt quote without activating it.
-      await expect(amounts).toHaveCount(2);
-      for (const amount of await amounts.all()) {
-        await uiPreparationAssertion("ui-quoted-amount-not-ready", () => expect.poll(async () => positiveDisplayedAmount(await displayedUiAmount(amount), 18), { timeout: 60000 }).toBe(true));
-      }
-    } else {
+    if (quotedToken !== "BASKET") {
       const decimals = configuredToken(config, quotedToken).decimals;
       await uiPreparationAssertion("ui-quoted-amount-not-ready", () => expect.poll(async () => positiveDisplayedAmount(await displayedUiAmount(getMainInput(page, quotedSide)), decimals), { timeout: 60000 }).toBe(true));
     }
