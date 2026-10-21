@@ -26,7 +26,7 @@ test("one configuration bootstrap supplies Core, market and the token catalog wi
   await page.locator("#sell-amount").fill("1");
   await expect(page.locator("#buy-amount")).toHaveText("0.999");
   await page.locator("#sell-amount").fill("2");
-  await expect.poll(() => observed.requests.some(request => request.amount === "2000000000000000000")).toBe(true);
+  await expect.poll(() => observed.requests.some(request => request.inputs[0].amount === "2000000000000000000")).toBe(true);
   expect(configurations).toBe(bootstrapCalls);
   expect(observed.requests.every(request => !("adapter" in request) && !("orderedAssets" in request))).toBe(true);
 });
@@ -71,6 +71,6 @@ test("ordinary head refresh replaces the cached adapter and Helpers without rebu
   await page.clock.fastForward(61_000);
   await expect.poll(() => calls).toBeGreaterThan(before);
   await expect.poll(() => observed.requests.length).toBeGreaterThan(previousQuotes);
-  await expect.poll(() => observed.quotes.at(-1)?.providerQuote.params.adapter).toBe(changedAdapter);
+  await expect.poll(() => observed.quotes.at(-1)?.deployment.adapter).toBe(changedAdapter);
   expect(observed.requests.every(request => !("adapter" in request))).toBe(true);
 });

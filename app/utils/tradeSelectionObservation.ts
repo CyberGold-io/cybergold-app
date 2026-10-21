@@ -1,5 +1,5 @@
 import type { BasketPreviewRequest, BasketPreview } from "./basketPreview.ts";
-import type { TradeQuote, TradeQuoteRequest } from "./tradeQuote.ts";
+import type { ActiveTradeQuote, TradeQuoteRequest } from "./tradeQuote.ts";
 import type { ProtocolDeployment } from "./protocolConfiguration.ts";
 import type { DiagnosticReferences } from "./diagnosticReferences.ts";
 
@@ -7,10 +7,11 @@ export const TRADE_SELECTION_EVENT = "cybergold:trade-selection";
 
 export type TradeSelectionObservation = {
   attemptId?: string;
-  quote?: TradeQuote;
+  quote?: ActiveTradeQuote;
   deployment?: ProtocolDeployment;
   diagnostics?: DiagnosticReferences;
   intent?: TradeQuoteRequest;
+  universalQuote?: import("./universalExactInput.ts").UniversalExactInputQuote;
   basketRequest?: BasketPreviewRequest;
   basketPreview?: BasketPreview;
 };

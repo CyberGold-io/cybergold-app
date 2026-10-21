@@ -527,7 +527,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       observationPhase = "ui-receipt-assertions"; await checkpoint(observationPhase);
       const measuredReceipt = observeUiReceipt(scenario, config, owner, observed.transaction!.input, receipt, userAmount, basketAmounts, uiQuote, results[index]);
       const submittedSelection = clickedSelection as SelectionCapture | undefined;
-      if (submittedSelection?.quote) await assertCapturedTradeInput(submittedSelection, observed.transaction!.input, owner);
+      if (submittedSelection?.quote || submittedSelection?.universalQuote) await assertCapturedTradeInput(submittedSelection, observed.transaction!.input, owner);
       const receiptSelection = clickedSelection as SelectionCapture | undefined;
       if (receiptSelection?.quote) requireInvariant(results[index].actualStrategy === receiptSelection.quote.strategy, "captured-provider-mismatch");
       const validateWallet = await walletPostcheck(walletBefore, results[index]);

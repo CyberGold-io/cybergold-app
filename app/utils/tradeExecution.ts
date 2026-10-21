@@ -1,23 +1,37 @@
-import type { Address } from "viem";
+import { zeroAddress, type Address } from "viem";
 import type { SubmitBasketFlowParams } from "../hooks/flows/shared/types";
+import type { useUniversalExactInputExecution } from "../hooks/flows/shared/useUniversalExactInputExecution";
 import type { useTokenPurchaseExecution } from "../hooks/flows/shared/useTokenPurchaseExecution";
-import type { useRedemptionExecution } from "../hooks/flows/shared/useRedemptionExecution";
 import type { useMarketSwapExecution } from "../hooks/flows/shared/useMarketSwapExecution";
 import { captureTradeQuote, type TradeQuoteResult } from "./tradeQuote.ts";
 import { quoteIntentResult } from "./quoteIntent.ts";
+import { fetchUniversalExactInputQuote, preserveExactInputMinimum } from "./universalExactInput.ts";
 import { marketQuoteResult } from "./marketQuote.ts";
 
 type Executors = {
+  universal?: ReturnType<typeof useUniversalExactInputExecution>["submit"];
   tokenPurchase: ReturnType<typeof useTokenPurchaseExecution>["submitTokenPurchase"];
-  redemption: ReturnType<typeof useRedemptionExecution>["submitRedemption"];
   market: ReturnType<typeof useMarketSwapExecution>["submit"];
 };
 
 /** Only the captured winning family prepares permits or submits a transaction. */
-export async function submitTradeQuote(selected: TradeQuoteResult, params: SubmitBasketFlowParams, executors: Executors) {
+export async function submitTradeQuote(selected: TradeQuoteResult, params: SubmitBasketFlowParams, executors: Executors, fetchImpl: typeof fetch = fetch) {
   const accepted = captureTradeQuote(selected);
+  if (accepted.value.strategy === "universal") {
+    if (!executors.universal) throw new Error("Universal exact-input executor is unavailable");
+    return executors.universal(accepted.value, params);
+  }
+  if (accepted.value.mode === "exact-in") {
+    const request = accepted.value.providerRequest;
+    const fresh = await fetchUniversalExactInputQuote({ intent: accepted.value.side === "buy" ? 0 : 1,
+      inputs: [{ currency: accepted.value.tokenIn, amount: request.amount }], outputCurrency: accepted.value.tokenOut,
+      recipient: params.recipient, deadline: request.deadline, slippageBps: request.slippageBps }, params.feeEstimateSignal, fetchImpl);
+    if (!executors.universal) throw new Error("Universal exact-input executor is unavailable");
+    return executors.universal(preserveExactInputMinimum(fresh, accepted.outputMinimum), params);
+  }
   if (accepted.value.strategy === "market") {
-    return executors.market({ ...marketQuoteResult(accepted.value.providerQuote), deployment: accepted.deployment },
+    return executors.market({ ...marketQuoteResult(accepted.value.providerQuote),
+      value: { ...accepted.value.providerQuote, mode: "exact-out" }, deployment: accepted.deployment },
       params.owner, params.walletConfirmationTracker, params.feeEstimateSignal, params.diagnosticStage);
   }
   const request = accepted.value.providerRequest;
@@ -30,11 +44,10 @@ export async function submitTradeQuote(selected: TradeQuoteResult, params: Submi
       maximumInputAmount: accepted.inputMaximum, netCygldOut: result.executionAmount,
       expectedOrderedCoreAssets: result.orderedCoreAssets, quotes: result.quotes, nativeInput });
   }
-  if (!result.expectedCoreOutputs) throw new Error("Core output binding is unavailable");
-  const redemption = { grossCygldIn: result.executionAmount, recipient: params.recipient,
-    minimumAmountOut: accepted.outputMinimum, expectedCoreOutputs: result.expectedCoreOutputs };
-  return executors.redemption({ ...params, deployment: accepted.deployment, grossCygldIn: result.executionAmount,
-    operation: request.native ? "redeemToNativeExactIn" : "redeemToTokenExactIn",
-    request: request.native ? redemption : { ...redemption, outputToken: request.token as Address },
-    legs: result.redemptionQuotes.map(row => ({ adapter: row.adapter, minimumAmountOut: row.minimumAmountOut, data: row.data })) });
+  const fresh = await fetchUniversalExactInputQuote({ intent: 1,
+    inputs: [{ currency: accepted.value.tokenIn, amount: String(result.executionAmount) }],
+    outputCurrency: request.native ? zeroAddress : request.token, recipient: params.recipient,
+    deadline: request.deadline, slippageBps: request.slippageBps }, params.feeEstimateSignal, fetchImpl);
+  if (!executors.universal) throw new Error("Universal exact-input executor is unavailable");
+  return executors.universal(preserveExactInputMinimum(fresh, accepted.outputMinimum), params);
 }

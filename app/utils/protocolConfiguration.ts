@@ -28,7 +28,7 @@ export function protocolConfigurationValues(configuration: ProtocolConfiguration
   const tokenAddresses = Object.fromEntries(tokens.flatMap(token => token.type === "erc20"
     ? [[token.symbol.toUpperCase(), token.address]] : [])) as ProtocolTokenAddresses;
   return { addresses, tokens, tokenAddresses,
-    identity: JSON.stringify([configuration.chainId, addresses.core, addresses.helpers, addresses.adapter, configuration.sandboxForkGeneration]) };
+    identity: JSON.stringify([configuration.chainId, addresses.core, addresses.helpers, addresses.adapter, configuration.universalExactInput?.adapter, configuration.universalExactInput?.encoding, configuration.sandboxForkGeneration]) };
 }
 
 export async function fetchProtocolConfiguration(chainId: number, signal?: AbortSignal,

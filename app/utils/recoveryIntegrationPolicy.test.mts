@@ -29,9 +29,9 @@ test("swap submission uses bound current-state previews without a global recover
     assert.doesNotMatch(preview, /refetchInterval/);
   }
   assert.match(basketExactOutFlow, /usePreviewRedeemToBasketExactOut/);
-  assert.match(basketExactOutFlow, /operation: "redeemToBasketExactIn"/);
+  assert.match(basketExactOutFlow, /preserveExactInputBasketMinimums/);
   assert.match(tokenFlow, /useTradeQuote/);
-  assert.match(tokenExecution, /operation: request.native \? "redeemToNativeExactIn" : "redeemToTokenExactIn"/);
+  assert.match(tokenExecution, /preserveExactInputMinimum/);
   for (const flow of [basketExactOutFlow, tokenFlow, tokenExecution]) assert.doesNotMatch(flow, /recoveryMode|recoveryEpoch/);
   assert.match(basketExactOutFlow, /recoveryAssetsRead\.isError\) return "failed"/);
   assert.doesNotMatch(tokenFlow, /usePreviewCoreIssueFromBasketExactOut|usePreviewCoreRedeemExactIn/);
@@ -51,14 +51,14 @@ test("first-party redemption flows bind one complete mixed output vector", () =>
   const basketFlow = read("../hooks/flows/useRedeemToBasketExactInFlow.ts");
   const tokenFlow = read("../hooks/flows/useTradeFlow.ts"), tokenExecution = read("./tradeExecution.ts");
   assert.match(basketFlow, /projectedCoreOutputs/); assert.match(tokenFlow, /projectedCoreOutputs/);
-  assert.match(basketFlow, /expectedCoreOutputs/); assert.match(tokenExecution, /expectedCoreOutputs: result.expectedCoreOutputs/);
+  assert.match(basketFlow, /expectedCoreOutputs/); assert.match(tokenExecution, /preserveExactInputMinimum/);
   for (const flow of [basketFlow, tokenFlow]) assert.match(flow, /CORE_TOKEN_KIND\.ERC1155/);
   for (const flow of [basketFlow, tokenFlow, tokenExecution]) assert.doesNotMatch(flow,
     /expectedOrderedHealthyAssets|expectedOrderedRecoveryAssets|minimumRecoverySharesOut|expectedRecoveryEpoch|RecoveryBinding|recoveryBinding/);
-  assert.match(basketFlow, /minimumAmount: applySlippageFloor\(output\.amount, slippageBps\)/);
-  assert.match(basketFlow, /operation: "redeemToBasketExactIn"/);
-  assert.match(tokenExecution, /"redeemToTokenExactIn"/);
-  assert.match(tokenExecution, /redemptionQuotes\.map\(row => \({ adapter: row\.adapter, minimumAmountOut: row\.minimumAmountOut, data: row\.data \}\)/);
+  assert.match(basketFlow, /exactInputBasketMinimums\(quote\.plan\)/);
+  assert.match(basketFlow, /useUniversalExactInputQuote\(\{\s*intent:\s*3/);
+  assert.match(basketFlow, /quote\?\.estimatedRecipientOutputs/);
+  assert.match(tokenExecution, /fetchUniversalExactInputQuote/);
   assert.doesNotMatch(tokenExecution, /callValue|minAmountOut/);
 });
 

@@ -1,3 +1,4 @@
+import { routeBasketQuote } from "./fixtures/universal-exact-input";
 import { expect, test, type Page } from "./fixtures/app-test";
 import { asset, choose, context, install } from "./fixtures/token-quotes";
 import { intentFixture } from "./fixtures/quote-intent";
@@ -6,8 +7,8 @@ import type { BasketPreviewRequest } from "../../app/utils/basketPreview";
 import type { BasketMaxRequest } from "../../app/utils/basketMax";
 import { routeWalletBalances } from "./fixtures/wallet-balances";
 import { selectBasket } from "./fixtures/swap-selection";
-import { coreIntentRequest, routeCoreIntent } from "./fixtures/trade-core";
-import { marketTradeFixture } from "./fixtures/market-quotes";
+import { routeCoreIntent } from "./fixtures/trade-core";
+import { marketUniversalFixture } from "./fixtures/market-quotes";
 import { protocolAddresses } from "../fixtures/protocol-configuration";
 
 const success = <T,>(value: T) => ({ status: "success", value });
@@ -156,7 +157,7 @@ async function installTwoAssetBasket(page: Page, xautWalletBalance: bigint, full
     } catch { /* A later edit can cancel the pending request. */ }
     finally { maxFinished = true; }
   });
-  await page.route("**/api/quotes/basket-preview", route => {
+  await routeBasketQuote(page, route => {
     const request = route.request().postDataJSON() as BasketPreviewRequest;
     requests.push(request);
     if (request.mode !== "issue-exact-in") return route.fallback();
@@ -257,7 +258,7 @@ test("fresh Backend basket MAX preserves its canonical vector despite stale warm
       driverToken: xautAsset, driverAmount: "4000000", maximumAmountsIn: canonicalAmounts,
       netCygldOut: "159840000000000000000" } });
   });
-  await page.route("**/api/quotes/basket-preview", route => {
+  await routeBasketQuote(page, route => {
     const request = route.request().postDataJSON() as BasketPreviewRequest;
     requests.push(request);
     expect(request.mode).toBe("issue-exact-in");
@@ -417,16 +418,7 @@ test("an exhausted Core cap leaves CYGLD redemption usable", async ({ page }) =>
 
 test("an exhausted Core model does not block a qualified market winner", async ({ page }) => {
   await installCapacity(page, 250n);
-  await page.route("**/api/quotes/trade/stream", route => {
-    const request = route.request().postDataJSON();
-    return route.fulfill({ contentType: "application/x-ndjson", body: [
-      JSON.stringify({ type: "model", value: { namespace: "trade", intent: { ...request, deadline: undefined }, models: [
-        { strategy: "core", value: { revision: 1, intent: { ...coreIntentRequest(request), deadline: undefined }, protocol: { context, state: supplyState(250n) }, routes: [], whole: [] } },
-      ] } }),
-      JSON.stringify({ type: "provider-error", strategy: "core", code: "issuance-cap-exceeded", error: "Core is full" }),
-      JSON.stringify({ type: "complete", value: marketTradeFixture(request) }), "",
-    ].join("\n") });
-  });
+  await page.route("**/api/quotes/universal-exact-input", route => route.fulfill({ json: marketUniversalFixture(route.request().postDataJSON()) }));
   await page.goto("/en");
   await page.locator('main button[aria-haspopup="dialog"]').first().click();
   await page.getByPlaceholder("Search currency...").fill("PAXG");
@@ -450,7 +442,7 @@ for (const path of ["token", "basket"]) for (const exhausted of [true, false]) t
   } };
   if (path === "token") await routeCoreIntent(page, route => route.fulfill({ contentType: "application/x-ndjson",
     body: JSON.stringify({ type: "error", ...failure }) + "\n" }));
-  else await page.route("**/api/quotes/basket-preview", route => route.fulfill({ status: 422, json: failure }));
+  else await routeBasketQuote(page, route => route.fulfill({ status: 422, json: failure }));
   await page.goto("/en");
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
   if (path === "basket") {
@@ -475,15 +467,13 @@ for (const path of ["token", "basket"]) for (const exhausted of [true, false]) t
 test("insufficient market liquidity remains explicit when Core capacity is exhausted", async ({ page }) => {
   await installCapacity(page, 250n);
   await installReadOnlyWallet(page);
-  await page.route("**/api/quotes/trade/stream", route => route.fulfill({ contentType: "application/x-ndjson", body: [
-    JSON.stringify({ type: "provider-error", strategy: "core", code: "issuance-cap-exceeded", error: "Private Core diagnostic" }),
-    JSON.stringify({ type: "error", code: "quote-insufficient-liquidity", error: "Private Market diagnostic" }), "",
-  ].join("\n") }));
+  await page.route("**/api/quotes/universal-exact-input", route => route.fulfill({ status: 422,
+    json: { code: "quote-insufficient-liquidity", error: "Private Market diagnostic" } }));
   await page.goto("/en");
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
   await choose(page, "WETH");
   await page.locator("#sell-amount").fill("1");
-  await expect(page.getByRole("button", { name: "There is not enough market liquidity for this amount. Reduce the amount.", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "The Market does not have enough liquidity to fill this amount. Reduce the amount.", exact: true })).toBeDisabled();
   await expect(page.getByTestId("cygld-purchase-capacity")).toHaveCount(0);
   await expect(page.getByText(/Private (Core|Market) diagnostic/)).toHaveCount(0);
 });
@@ -526,7 +516,7 @@ test("a capped Core quote displays its actual net execution and retains the fund
   await expect(page.getByTestId("cygld-purchase-capacity")).toHaveCount(0);
   await page.getByRole("button", { name: /Total fee/ }).click();
   await expect(page.getByTestId("swap-maximum-input")).toHaveCount(0);
-  await expect(page.getByTestId("swap-minimum-output")).toContainText("188.768908336865677216 CYGLD");
+  await expect(page.getByTestId("swap-minimum-output")).toContainText("186.881219253497020443 CYGLD");
 });
 
 for (const width of [1280, 390]) {
@@ -555,7 +545,7 @@ for (const width of [1280, 390]) {
 }
 
 for (const side of ["sell"] as ("sell" | "buy")[]) {
-  test(`connected ${side} MAX uses the wallet budget while Core refunds the capped remainder`, async ({ page }) => {
+  test(`connected ${side} MAX uses the wallet budget with disclosed protocol retention after continuation`, async ({ page }) => {
     await installCapacity(page); await installReadOnlyWallet(page);
     const requests = await routeCapQuotes(page);
     await page.goto("/en"); await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
@@ -570,7 +560,7 @@ for (const side of ["sell"] as ("sell" | "buy")[]) {
     await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: /Total fee/ }).click();
     await expect(page.getByTestId("swap-maximum-input")).toHaveCount(0);
-    await expect(page.getByTestId("swap-minimum-output")).toContainText("199.8 CYGLD");
+    await expect(page.getByTestId("swap-minimum-output")).toContainText("197.802 CYGLD");
   });
 }
 

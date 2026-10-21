@@ -282,6 +282,7 @@ function bootstrapTradeDisplay(
       snapshot.values.sellAmount = input.value;
       snapshot.values.buyAmount = "...";
       snapshot.values.quoteComplete = "false";
+      snapshot.values.retentionDisclosure = snapshot.values.retentionDisclosurePlain ?? "";
       snapshot.values.evaluationStatus = /^(?:0*[.,]?0*)?$/.test(input.value.trim()) ? "empty" : "pending";
       if (evaluationPanel) evaluationPanel.dataset.tradeEvaluation = snapshot.values.evaluationStatus;
       for (const output of presentation.querySelectorAll<HTMLElement>('[data-trade-basket-output], [data-trade-display="buyAmount"]')) {
@@ -315,7 +316,7 @@ function bootstrapTradeDisplay(
       }
       for (const node of presentation.querySelectorAll<HTMLElement>("[data-trade-display]")) {
         const key = node.dataset.tradeDisplay;
-        if (key && (["buyAmount", "sellEquivalent", "buyEquivalent"].includes(key) || key.startsWith("fee"))) {
+        if (key && (["buyAmount", "sellEquivalent", "buyEquivalent", "retentionDisclosure"].includes(key) || key.startsWith("fee"))) {
           node.textContent = snapshot.values[key];
         }
       }

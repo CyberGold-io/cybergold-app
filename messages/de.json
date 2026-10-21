@@ -61,6 +61,10 @@
     "disconnectFailedDescription": "Wallet konnte nicht getrennt werden. Versuchen Sie es erneut."
   },
   "Home": {
+    "exactInputRetentionDisclosure": "Der gesamte Eingabebetrag wird bereitgestellt. Nach den geplanten Konvertierungen verbleibende Eingaben behält Helpers als Protokollgebühr für seinen Eigentümer. Sie erhalten die gesamte endgültige Ausgabe unter Einhaltung des angezeigten Mindestbetrags.",
+    "estimatedRetainedCharge": "Geschätzte einbehaltene Gebühr",
+    "retainedProtocolCharge": "Einbehaltene Protokollgebühr",
+    "retainedCustodian": "Verwahrer der Gebühr",
     "redeemOutputTooSmall": "Der gewünschte Auszahlungsbetrag ist für eine Einlösung zu klein.",
     "reduceAmountToBalance": "Verringern Sie den Tauschbetrag auf Ihr verfügbares Guthaben.",
     "authorizationUnavailable": "Die Token-Freigabe ist derzeit nicht verfügbar. Versuchen Sie es später erneut.",
@@ -187,7 +191,7 @@
     "quoteRpcUnavailable": "RPC-Fehler: Der Verbindungsdienst zur Blockchain ist nicht verfügbar. Versuchen Sie es erneut.",
     "quoteTimedOut": "Die Kursberechnung hat das Zeitlimit überschritten. Versuchen Sie es erneut.",
     "quoteNoRoute": "Für diesen Betrag ist keine Tauschroute verfügbar.",
-    "quoteInsufficientLiquidity": "Die Marktliquidität reicht für diesen Betrag nicht aus. Verringern Sie den Betrag.",
+    "quoteInsufficientLiquidity": "Der Market verfügt nicht über genügend Liquidität für diesen Betrag. Verringern Sie den Betrag.",
     "purchaseSpending": "Ausgaben",
     "purchaseSpendingLimited": "Dieses Angebot kann nicht das gesamte Budget nutzen. Die Ausgabekapazität oder die verfügbare Marktliquidität kann die Ausgaben begrenzen.",
     "purchaseBudgetLabel": "Ihr Budget",

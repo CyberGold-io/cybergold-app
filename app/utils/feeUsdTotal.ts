@@ -4,10 +4,12 @@ import type { erc20Token } from "../config/tokens";
 type FeesLike = {
   protocolFeeCygld: bigint;
   helperFeeCygld: bigint;
+  marketFeeCygld?: bigint;
 };
 
 type ComputeTotalFeeUsdParams = {
   activeFees?: FeesLike;
+  retainedInputCharges?: readonly { currency: string; amount: string }[];
   cygldDecimals: number;
   cygldPriceUsd?: number;
   cygldTokenId: string;
@@ -62,6 +64,19 @@ export function computeTotalFeeUsd(
         ? Number(formatUnits(activeFees.helperFeeCygld, cygldDecimals)) * normalizedCygldUsdPrice
         : undefined
     );
+  }
+
+  if ((activeFees.marketFeeCygld ?? 0n) > 0n) addPricedFee(normalizedCygldUsdPrice !== undefined
+    ? Number(formatUnits(activeFees.marketFeeCygld!, cygldDecimals)) * normalizedCygldUsdPrice : undefined);
+
+  for (const charge of params.retainedInputCharges ?? []) {
+    if (BigInt(charge.amount) === 0n) continue;
+    const token = charge.currency.toLowerCase() === "0x0000000000000000000000000000000000000000"
+      ? [...params.tokenAddressMap.values()].find(row => row.symbol.toUpperCase() === "WETH")
+      : params.tokenAddressMap.get(charge.currency.toLowerCase());
+    const price = token && params.prices?.[token.id];
+    addPricedFee(token && price !== undefined && Number.isFinite(price)
+      ? Number(formatUnits(BigInt(charge.amount), token.decimals)) * price : undefined);
   }
 
   if (networkFeeWei !== undefined && networkFeeWei > 0n) {

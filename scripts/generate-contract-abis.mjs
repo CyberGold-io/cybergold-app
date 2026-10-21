@@ -15,6 +15,8 @@ const marketSource = marketSourceArgument >= 0
   ? process.argv[marketSourceArgument + 1] : process.env.CYBERGOLD_HELPERS_MARKET_ABI_SOURCE;
 
 const specs = [
+  { source: path.resolve(root, "app/contracts/abi-inputs/helpersTradeExactInput.json"),
+    output: path.resolve(root, "app/contracts/generated/helpersTradeExactInput.ts"), prefix: "HELPERS_TRADE_EXACT_INPUT", compiledInterface: true },
   {
     source: path.resolve(root, "../cybergold-protocol/generated/abi/CoreDiamond.json"),
     output: path.resolve(root, "app/contracts/generated/coreDiamond.ts"),
@@ -27,13 +29,13 @@ const specs = [
   },
   {
     source: helpersSource ? path.resolve(helpersSource)
-      : path.resolve(root, "../cybergold-helpers/generated/abi/HelpersDiamond.json"),
+      : path.resolve(root, "app/contracts/abi-inputs/HelpersDiamond.json"),
     output: path.resolve(root, "app/contracts/generated/helpersDiamond.ts"),
     prefix: "HELPERS_DIAMOND",
   },
   {
     source: marketSource ? path.resolve(marketSource)
-      : path.resolve(root, "../cybergold-helpers/generated/abi/HelpersMarket.json"),
+      : path.resolve(root, "app/contracts/abi-inputs/HelpersMarket.json"),
     output: path.resolve(root, "app/contracts/generated/helpersMarket.ts"),
     prefix: "HELPERS_MARKET",
   },
@@ -45,6 +47,9 @@ const specs = [
 ];
 
 function render(spec, artifact) {
+  if (spec.compiledInterface) return "// Generated from compiled ITradeExactInput. Do not edit by hand.\n"
+    + `export const ${spec.prefix}_ABI = ${JSON.stringify(artifact.abi, null, 2)} as const;\n\n`
+    + `export const ${spec.prefix}_FUNCTIONS = ${JSON.stringify(artifact.methodIdentifiers, null, 2)} as const;\n`;
   if (
     !artifact.interface ||
     typeof artifact.interface.interfaceId !== "string" ||

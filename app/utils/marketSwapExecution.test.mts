@@ -67,18 +67,18 @@ function fixture(options: { rejection?: boolean; simulationFailure?: boolean; al
   return { events, signing, simulations, transactions, permissions, modes, rejected, configuration, submit: hook.submit };
 }
 
-for (const side of ["buy", "sell"] as const) for (const mode of ["exact-in", "exact-out"] as const) {
+for (const side of ["buy", "sell"] as const) for (const mode of ["exact-out"] as const) {
   test(`${side} ${mode} signs the inclusive native lot and targets its own market selector`, async () => {
     const quote = marketQuoteResult({ ...marketFixtureQuote, side, mode,
       tokenIn: side === "buy" ? marketFixtureQuote.tokenOut : marketFixtureQuote.tokenIn,
       params: { ...marketFixtureQuote.params, side: side === "buy" ? 0 : 1, amount: "1002", bound: "1234" } });
     const value = fixture(); await value.submit(quote, owner);
-    const expectedLot = mode === "exact-in" ? 1002n : 1234n;
+    const expectedLot = 1234n;
     const signed = value.signing[0] as { message: { value: bigint; spender: string; owner: string } };
     assert.equal(signed.message.value, expectedLot); assert.equal(signed.message.spender, helpers); assert.equal(signed.message.owner, owner);
     assert.deepEqual(value.permissions, [{ token: quote.value.tokenIn, owner }]);
     assert.deepEqual(value.modes, [mode]); assert.deepEqual(value.events, ["signature", "simulation", "transaction"]);
-    assert.equal(value.transactions[0].functionName, mode === "exact-in" ? "swapExactInput" : "swapExactOutput");
+    assert.equal(value.transactions[0].functionName, "swapExactOutput");
     assert.equal(value.transactions[0].account, owner); assert.equal(value.transactions[0].address, helpers);
     const [params, authorization] = value.transactions[0].args as [typeof quote.params, { mode: number; nativePermit: { value: bigint } }];
     assert.equal(params, quote.params); assert.equal(params.routedInput, 1000n); assert.equal(params.feeCygld, 1n);
@@ -88,18 +88,18 @@ for (const side of ["buy", "sell"] as const) for (const mode of ["exact-in", "ex
 
 test("native signature rejection requests neither another approval nor a swap", async () => {
   const value = fixture({ rejection: true });
-  await assert.rejects(value.submit(marketQuoteResult(marketFixtureQuote), owner), value.rejected);
+  await assert.rejects(value.submit(marketQuoteResult({ ...marketFixtureQuote, mode:"exact-out" }), owner), value.rejected);
   assert.deepEqual(value.events, ["signature"]); assert.equal(value.simulations.length, 0); assert.equal(value.transactions.length, 0);
 });
 
 test("actual signed-call failure prevents transaction confirmation", async () => {
   const value = fixture({ simulationFailure: true });
-  await assert.rejects(value.submit(marketQuoteResult(marketFixtureQuote), owner), /signed call reverted/);
+  await assert.rejects(value.submit(marketQuoteResult({ ...marketFixtureQuote, mode:"exact-out" }), owner), /signed call reverted/);
   assert.deepEqual(value.events, ["signature", "simulation"]); assert.equal(value.transactions.length, 0);
 });
 
 test("sufficient Helpers allowance reuses its ordinary funding path without another permit", async () => {
-  const value = fixture({ allowance: 1002n }); await value.submit(marketQuoteResult(marketFixtureQuote), owner);
+  const value = fixture({ allowance: BigInt(marketFixtureQuote.params.bound) }); await value.submit(marketQuoteResult({ ...marketFixtureQuote, mode:"exact-out" }), owner);
   assert.equal(value.signing.length, 0); assert.deepEqual(value.modes, []);
   assert.equal((value.transactions[0].args as [unknown, { mode: number }])[1].mode, 0);
 });
@@ -107,7 +107,7 @@ test("sufficient Helpers allowance reuses its ordinary funding path without anot
 const changedHelpers = "0x0000000000000000000000000000000000000009" as const;
 test("a quote retains its Helpers and concrete route adapter when bootstrap selection changes", async () => {
   const value = fixture({ configuredHelpers: changedHelpers });
-  const quote = { ...marketQuoteResult(marketFixtureQuote), deployment: { core: helpers, helpers, adapter: marketFixtureQuote.params.adapter as viem.Address } };
+  const quote = { ...marketQuoteResult({ ...marketFixtureQuote, mode:"exact-out" }), deployment: { core: helpers, helpers, adapter: marketFixtureQuote.params.adapter as viem.Address } };
   await value.submit(quote, owner);
   assert.equal((value.signing[0].message as { spender: string }).spender, helpers);
   assert.equal(value.transactions[0].address, helpers);
@@ -119,7 +119,7 @@ test("configuration refresh while the wallet prompt is open keeps the prepared t
   let release!: () => void;
   const signatureWait = new Promise<void>(resolve => { release = resolve; });
   const value = fixture({ signatureWait });
-  const submitted = value.submit(marketQuoteResult(marketFixtureQuote), owner);
+  const submitted = value.submit(marketQuoteResult({ ...marketFixtureQuote, mode:"exact-out" }), owner);
   await new Promise<void>(resolve => setTimeout(resolve, 0));
   assert.equal(value.signing.length, 1); assert.equal(value.transactions.length, 0);
   value.configuration.addresses.helpers = changedHelpers;
@@ -130,6 +130,6 @@ test("configuration refresh while the wallet prompt is open keeps the prepared t
 
 test("fresh permit facts for another Helpers target fail before a wallet prompt", async () => {
   const value = fixture({ observedHelpers: changedHelpers });
-  await assert.rejects(value.submit(marketQuoteResult(marketFixtureQuote), owner), /permit spender changed/);
+  await assert.rejects(value.submit(marketQuoteResult({ ...marketFixtureQuote, mode:"exact-out" }), owner), /permit spender changed/);
   assert.deepEqual(value.events, []); assert.deepEqual(value.signing, []); assert.deepEqual(value.transactions, []);
 });

@@ -1,10 +1,8 @@
+import { universalFixture } from "./fixtures/universal-exact-input";
+import { marketUniversalFixture } from "./fixtures/market-quotes";
 import { expect, test, type Page } from "./fixtures/app-test";
 import { protocolAddresses } from "../fixtures/protocol-configuration";
 import { context, install } from "./fixtures/token-quotes";
-import { marketTradeFixture } from "./fixtures/market-quotes";
-import { coreIntentRequest, tradeFixture } from "./fixtures/trade-core";
-import { intentFixture } from "./fixtures/quote-intent";
-import type { TradeQuoteRequest } from "../../app/utils/tradeQuote";
 
 const owner = "0x0000000000000000000000000000000000000011";
 const paxg = "0x45804880de22913dafe09f4980848ece6ecbaf78";
@@ -95,7 +93,7 @@ test("cold configuration leaves the entire trading shell and searchable picker v
 test("known token controls and safety labels remain visible while independent data is pending", async ({ page }) => {
   await install(page);
   const held = await Promise.all(["**/api/protocol/facts", "**/api/gold", "**/api/fx",
-    "**/api/pools/**", "**/api/quotes/trade/**"].map(pattern => hold(page, pattern)));
+    "**/api/pools/**", "**/api/quotes/**"].map(pattern => hold(page, pattern)));
   try {
     await page.goto("/en"); await selectPaxg(page);
     await page.locator("#sell-amount").fill("1");
@@ -120,13 +118,11 @@ for (const strategy of ["core", "market"] as const) {
     await page.route("**/api/quotes/trade/model", route => route.fulfill({ json: {
       namespace: "trade", intent: route.request().postDataJSON(), models: [],
     } }));
-    await page.route("**/api/quotes/trade/stream", async route => {
-      requests++; const request = route.request().postDataJSON() as TradeQuoteRequest;
+    await page.route("**/api/quotes/universal-exact-input", async route => {
+      requests++; const request = route.request().postDataJSON();
       await pending;
-      const coreRequest = coreIntentRequest(request);
-      const value = strategy === "market" ? marketTradeFixture(request)
-        : tradeFixture(intentFixture(coreRequest), coreRequest);
-      await route.fulfill({ contentType: "application/x-ndjson", body: JSON.stringify({ type: "complete", value }) + "\n" });
+      const value = strategy === "market" ? marketUniversalFixture(request) : universalFixture(request);
+      await route.fulfill({ json: value });
     });
     try {
       await page.goto("/en"); await selectPaxg(page); await openFees(page);

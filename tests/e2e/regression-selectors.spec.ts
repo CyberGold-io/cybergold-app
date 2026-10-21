@@ -17,8 +17,8 @@ test("regression helpers select tokens and preserve input-driven quotes on the c
   await getMainInput(page, "buy").click();
   await expect(getMainInput(page, "buy")).toHaveJSProperty("tagName", "OUTPUT");
   await expect(getMainInput(page, "sell")).toHaveValue("1");
-  await expect.poll(async () => (await quoteObservations(page)).some(row => row.request.mode === "exact-in"
-    && row.request.amount === "1000000" && row.terminal?.type === "complete")).toBe(true);
+  await expect.poll(async () => (await quoteObservations(page)).some(row => row.request.intent === 0
+    && (row.request.inputs as {amount:string}[])[0].amount === "1000000" && row.terminal?.type === "complete")).toBe(true);
   expect(observed.intents.every(request => request.mode === "issue-exact-in")).toBe(true);
   await page.getByRole("button", { name: "Reverse swap direction" }).click();
   await expect(getMainInput(page, "sell")).toHaveValue("");

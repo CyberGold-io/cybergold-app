@@ -139,12 +139,20 @@ export function repetitionManifest(input: { repetitions: number; concurrency: nu
 }
 
 /** Test assertions over the actual clicked request, not a second quotation. */
-export function assertMatrixIntent(scenario: MatrixScenario, observation: { intent?: import('../../app/utils/tradeQuote.ts').TradeQuoteRequest; basketRequest?: import('../../app/utils/basketPreview.ts').BasketPreviewRequest }, config: ProtocolConfiguration) {
+export function assertMatrixIntent(scenario: MatrixScenario, observation: { intent?: import('../../app/utils/tradeQuote.ts').TradeQuoteRequest; basketRequest?: import('../../app/utils/basketPreview.ts').BasketPreviewRequest; universalQuote?: import('../../app/utils/universalExactInput.ts').UniversalExactInputQuote }, config: ProtocolConfiguration) {
   const fail = () => { throw new Error('matrix-intent-mismatch'); };
   if (scenario.asset !== 'BASKET') {
     const intent = observation.intent, counter = configuredToken(config, scenario.asset === 'ETH' ? 'WETH' : scenario.asset);
     if (!intent || counter.type !== 'erc20' || intent.side !== scenario.side || intent.mode !== scenario.inputMode || intent.amount !== scenario.amountRaw
       || intent.counterToken.toLowerCase() !== counter.address.toLowerCase() || intent.native !== (scenario.asset === 'ETH')) fail();
+    return;
+  }
+  if (observation.universalQuote) {
+    const plan = observation.universalQuote.plan;
+    if (plan.intent !== (scenario.side === 'buy' ? 2 : 3)) return fail();
+    if (scenario.side === 'buy') {
+      if (plan.inputs.length !== scenario.basketAmounts?.length || !plan.inputs.every((row,index) => row.amount === scenario.basketAmounts![index] && row.currency.toLowerCase() === scenario.basketAssets?.[index].toLowerCase())) fail();
+    } else if (plan.inputs.length !== 1 || plan.inputs[0].amount !== scenario.amountRaw || plan.inputs[0].currency.toLowerCase() !== config.contracts.core?.toLowerCase()) fail();
     return;
   }
   const request = observation.basketRequest;

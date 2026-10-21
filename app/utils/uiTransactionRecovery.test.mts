@@ -126,11 +126,11 @@ test("a late predecessor hash or cancellation cannot retarget the current attemp
 test("the actual redemption flow awaits its signature before reaching a pre-submission failure", async () => {
   const local = localPage();
   try {
-    const source = readFileSync(new URL("../hooks/flows/shared/useRedemptionExecution.ts", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../hooks/flows/shared/useUniversalExactInputExecution.ts", import.meta.url), "utf8");
     const parsed = ts.createSourceFile("flow.ts", source, ts.ScriptTarget.Latest, true);
     let callback: ts.Expression | undefined;
     const visit = (node: ts.Node) => {
-      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "submitRedemption"
+      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === "submit"
         && node.initializer && ts.isCallExpression(node.initializer)) callback = node.initializer.arguments[0];
       ts.forEachChild(node, visit);
     };
@@ -141,15 +141,15 @@ test("the actual redemption flow awaits its signature before reaching a pre-subm
     const requested = new Promise<void>(resolve => { signatureStarted = resolve; });
     const submit = vm.runInNewContext(ts.transpile(`const submit = ${callback.getText(parsed)}; submit;`,
       { target: ts.ScriptTarget.ES2022 }), {
-      HELPERS_DIAMOND_ADDRESS: `0x${"1".repeat(40)}`, requireProtocolAddress: (value: unknown) => value,
-      signCygldPermit: async (args: { walletConfirmationTracker: { requestNext: (kind: string) => void } }) => {
+      structuredClone, exactInputPlan:(value:unknown)=>value, exactInputPermissions:()=>[],exactInputFunding:()=>({}),exactInputNativeValue:()=>0n,emptyTokenPermit:{},
+      preparePurchaseAuthorization: async (args: { walletConfirmationTracker: { requestNext: (kind: string) => void } }) => {
         args.walletConfirmationTracker.requestNext("signature"); signatureStarted(); await signature;
-        return { value: 1n };
+        return { inputs:[], permit2:{} };
       },
       estimateSignedContractFee: async () => { throw new Error("pre-submission read failed"); },
       writeContractAsync: async () => { broadcasts++; throw new Error("must not broadcast"); },
-    }) as (args: unknown) => Promise<unknown>;
-    const pending = submit({ owner: `0x${"2".repeat(40)}`, operation: "redeemToTokenExactIn", grossCygldIn: 1n,
+    }) as (quote:unknown,args: unknown) => Promise<unknown>;
+    const pending = submit({routeFamily:"core",deployment:{helpers:`0x${"1".repeat(40)}`},plan:{}},{ owner: `0x${"2".repeat(40)}`, operation: "redeemToTokenExactIn", grossCygldIn: 1n,
       request: {}, diagnosticStage: swap.stage, walletConfirmationTracker: { requestNext: swap.walletStep } })
       .catch(error => { swap.failed(error); });
     await requested;

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { CORE_DIAMOND_ABI } from "../contracts/generated/coreDiamond.ts";
+import { HELPERS_TRADE_EXACT_INPUT_ABI } from "../contracts/generated/helpersTradeExactInput.ts";
 import { HELPERS_DIAMOND_ABI } from "../contracts/generated/helpersDiamond.ts";
 import {
   GOVERNANCE_DIAMOND_ABI,
@@ -162,7 +163,7 @@ test("Core discovery and outcome events carry asset/current-state fields only", 
   }
 });
 
-test("Helpers exposes one generic current-state redemption family", () => {
+test("Helpers preserves current-state previews and universal redemption binding", () => {
   assert.deepEqual(
     componentNames(
       findEntry(helpersAbi, "function", "previewRedeemToBasketExactIn")
@@ -184,13 +185,9 @@ test("Helpers exposes one generic current-state redemption family", () => {
     ),
     ["minimumAmountOut", "projectedCoreOutputs", "fees"]
   );
-  assert.deepEqual(
-    componentNames(
-      findEntry(helpersAbi, "function", "redeemToBasketExactInWithPermit")
-        .inputs?.[0]
-    ),
-    ["grossCygldIn", "recipient", "expectedCoreOutputs"]
-  );
+  assert.equal(helpersAbi.some(entry=>entry.type==="function"&&entry.name==="redeemToBasketExactInWithPermit"),false);
+  assert.deepEqual(componentNames(findEntry(HELPERS_TRADE_EXACT_INPUT_ABI,"function","executeExactInput").inputs?.[0]),
+    ["intent","inputs","outputCurrency","recipient","deadline","minimumOutput","body"]);
 
   const serialized = JSON.stringify(helpersAbi);
   assert.doesNotMatch(

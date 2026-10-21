@@ -3,15 +3,12 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const writeSources = [
-  "../hooks/cybergold-helpers/useIssueFromBasketExactInWithPermit2.ts",
   "../hooks/cybergold-helpers/useIssueFromBasketExactOutWithPermit2.ts",
   "../hooks/cybergold-helpers/useIssueFromTokenExactOutWithPermit2.ts",
-  "../hooks/cybergold-helpers/useRedeemToBasketExactInWithPermit.ts",
-  "../hooks/cybergold-helpers/useRedeemToTokenExactInWithPermit.ts",
   "../hooks/flows/shared/usePermit2Transfer.ts",
   "../hooks/flows/shared/usePurchaseAuthorization.ts",
   "../hooks/flows/shared/useBasketPurchaseExecution.ts",
-  "../hooks/flows/shared/useRedemptionExecution.ts",
+  "../hooks/flows/shared/useUniversalExactInputExecution.ts",
   "../hooks/flows/shared/useCygldPermit.ts",
   "../[locale]/governance/_hooks/useDiamondGovernanceActions.ts",
   "../[locale]/governance/_components/GovernanceClient.tsx",

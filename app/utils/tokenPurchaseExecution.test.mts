@@ -230,6 +230,29 @@ test("a warm Permit2 setup needs only the exact per-trade signature and purchase
   assert.equal(value.executions[0].name, "permit2");
 });
 
+test("universal funding requests an exact Permit2 setup allowance and exact signature", async () => {
+  const value = fixture({ ...context, authorization: { kind: "none", confidence: "observed" } });
+  const result = await value.authorize([{ token, amount: ceiling }], { exactApproval: true });
+  assert.deepEqual(value.approvals, [ceiling]);
+  assert.equal((value.signed[0].message as { permitted: { amount: bigint }[] }).permitted[0].amount, ceiling);
+  assert.equal(result.permit2.permit.permitted[0].amount, ceiling);
+});
+
+test("universal USDT setup clears only insufficient allowance then grants the exact lot", async () => {
+  const value = fixture({ ...context, authorization: { kind: "none", confidence: "observed" } },
+    { permit2Allowance: 10n });
+  await value.authorize([{ token: tokenAddresses.USDT, amount: ceiling }], { exactApproval: true });
+  assert.deepEqual(value.approvals, [0n, ceiling]);
+});
+
+test("universal funding reuses sufficient setup allowance without revocation", async () => {
+  const value = fixture({ ...context, authorization: { kind: "none", confidence: "observed" } },
+    { permit2Allowance: viem.maxUint256 });
+  await value.authorize([{ token, amount: ceiling }], { exactApproval: true });
+  assert.deepEqual(value.approvals, []);
+  assert.equal((value.signed[0].message as { permitted: { amount: bigint }[] }).permitted[0].amount, ceiling);
+});
+
 test("a singleton native signature and singleton execution use the prepared SDK groups", async () => {
   const value = fixture(); const groups: unknown[][] = [], operations: string[] = [];
   await value.submit({ walletBatch: { mode: "requests", approvals: [],

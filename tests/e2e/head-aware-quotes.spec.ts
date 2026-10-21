@@ -37,7 +37,7 @@ test("a long exact quote completes across head changes, then resumes refresh and
   // retaining the displayed incumbent. Explicit selected-plan revalidation is
   // a separate API operation, rather than silently pinning this refresh to Core.
   const refreshed = observed.rawIntents.at(-1) as TradeQuoteRequest;
-  expect(refreshed).toMatchObject({ side: "buy", mode: "exact-in", amount: "1000000000000000000" });
+  expect(refreshed).toMatchObject({ intent:0,inputs:[{amount:"1000000000000000000"}] });
   expect(refreshed.retainedPlan).toBeUndefined();
   expect("orderedAssets" in refreshed).toBe(false);
   await expect(computed).toHaveText("1");
@@ -112,7 +112,10 @@ test("unchanged heads cause no quote/fee refresh; same-height replacement refres
   const computed = page.locator("#buy-amount");
   await expect(computed).not.toHaveAttribute("aria-busy", "true");
   await expect(computed).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
-  await expect(computed).toHaveText("1"); // Completed execution quote, after its initial display estimate.
+  await expect(computed).toHaveText("1");
+  await expect(page.getByTestId("exact-input-retention-disclosure")).toBeVisible();
+  await expect(page.getByRole("button",{name:"Swap currencies",exact:true})).toBeEnabled();
+  await expect(computed).not.toHaveAttribute("aria-busy", "true"); // Complete plan, after advisory/debounce.
   // Wallet-free gas starts at mount; development Strict Mode can cancel and
   // restart that fetch before the display settles. Later reads stay head-driven.
   await expect.poll(() => fees).toBeGreaterThan(0);

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { encodeAbiParameters, encodeEventTopics, zeroAddress, type Address, type Hex } from "viem";
+import { HELPERS_TRADE_EXACT_INPUT_ABI } from "../contracts/generated/helpersTradeExactInput.ts";
 import { HELPERS_DIAMOND_ABI } from "../contracts/generated/helpersDiamond.ts";
 import { HELPERS_MARKET_ABI } from "../contracts/generated/helpersMarket.ts";
 import { tradeReceipt, tradeRefundEvidence } from "./tradeReceipt.ts";
@@ -67,4 +68,36 @@ test("refund evidence excludes other emitters, payers, unrelated events and unde
     { ...refund, data: "0x" as Hex }, unrelated, refund];
   assert.deepEqual(tradeRefundEvidence(events, tradeHelpers, tradeOwner), [{ asset: tradeCounter, amount: "8" }]);
   assert.deepEqual(tradeRefundEvidence([], tradeHelpers, tradeOwner), []);
+});
+
+function universalLog(intent = 0, payer: Address = tradeOwner, address: Address = tradeHelpers) {
+  const event = HELPERS_TRADE_EXACT_INPUT_ABI.find(entry => entry.type === "event" && entry.name === "ExactInputExecuted")!;
+  const result = { acquiredInputs: [{ currency: zeroAddress, amount: 100n }],
+    stages: [{ branch: 0n, stage: 0n, inputCurrency: tradeCounter, outputCurrency: tradeCore,
+      fundedInput: 100n, returnedInput: 110n, consumedInput: 0n, inputGain: 10n, amountOut: 200n }],
+    recipientOutputs: [{ kind: 0, token: tradeCore, id: 0n, amount: 200n }],
+    recoveryShares: [{ kind: 1, token: tradeHelpers, id: BigInt(tradeCounter), amount: 7n }],
+    retainedInputs: [{ branch: 0n, stage: 0n, currency: tradeCounter, amount: 110n }],
+    coreProtocolFeeCygld: 3n, coreHelpersFeeCygld: 4n, marketFeeCygld: 5n,
+    retainedCustodian: tradeHelpers, feeBeneficiaryAtSettlement: tradeOwner };
+  return { address, topics: encodeEventTopics({ abi: HELPERS_TRADE_EXACT_INPUT_ABI, eventName: "ExactInputExecuted", args: { payer, recipient: tradeOwner } }) as readonly Hex[],
+    data: encodeAbiParameters(event.inputs.filter(input => !input.indexed), [intent, result]) };
+}
+
+test("universal aggregate wins over underlying Core logs and preserves retained physical input/gain once", () => {
+  const core = log("Issued", { payer: tradeOwner, recipient: tradeOwner, inputToken: zeroAddress,
+    inputUsed: 999n, netCygldOut: 999n, protocolFeeCygld: 999n, helperFeeCygld: 999n });
+  const measured = tradeReceipt([core, universalLog(), core], tradeHelpers, tradeOwner, "universal", zeroAddress)!;
+  assert.equal(measured.inputUsed, 100n); assert.equal(measured.amountOut, 200n);
+  assert.equal(measured.protocolFeeCygld, 3n); assert.equal(measured.helperFeeCygld, 4n); assert.equal(measured.marketFeeCygld, 5n);
+  assert.equal(measured.inputRefund, 0n); assert.equal(measured.retainedInputs![0].currency.toLowerCase(), tradeCounter);
+  assert.equal(measured.retainedInputs![0].amount, 110n); assert.equal(measured.stages![0].inputGain, 10n);
+  assert.equal(measured.recoveryShareAmounts[0], 7n);
+});
+
+test("universal receipt requires the captured Helpers and payer; basket outputs keep vector semantics", () => {
+  assert.equal(tradeReceipt([universalLog(0, tradeHelpers)], tradeHelpers, tradeOwner, "universal", zeroAddress), undefined);
+  assert.equal(tradeReceipt([universalLog(0, tradeOwner, tradeOwner)], tradeHelpers, tradeOwner, "universal", zeroAddress), undefined);
+  const basket = tradeReceipt([universalLog(3)], tradeHelpers, tradeOwner, "universal", zeroAddress)!;
+  assert.equal(basket.amountOut, 0n); assert.equal(basket.recipientOutputs![0].amount, 200n);
 });

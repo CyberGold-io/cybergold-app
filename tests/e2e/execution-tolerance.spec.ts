@@ -1,7 +1,7 @@
 import { protocolConfigurationFixture, protocolAddresses } from "../fixtures/protocol-configuration";
 import { expect, test, type Page } from "./fixtures/app-test";
-import { decodeAbiParameters, decodeFunctionData, maxUint256, parseAbiParameters } from "viem";
-import { HELPERS_ABI_ISSUE_FROM_TOKEN } from "../../app/contracts/cybergold-helpers/issueFacet";
+import { decodeFunctionData, maxUint256 } from "viem";
+import { HELPERS_EXECUTION_ABI } from "../../app/contracts/cybergold-helpers/execution";
 import { choose, context, install } from "./fixtures/token-quotes";
 import { routeWalletBalances } from "./fixtures/wallet-balances";
 
@@ -111,13 +111,11 @@ test("redemption uses the slider's selected minimum in final calldata", async ({
   await expect(swap).toBeEnabled(); await swap.click();
   const transactions = () => page.evaluate(() => (window as unknown as { __toleranceTransactions: Submitted[] }).__toleranceTransactions);
   await expect.poll(async () => (await transactions()).length).toBe(1);
-  const decoded = decodeFunctionData({ abi: HELPERS_ABI_ISSUE_FROM_TOKEN, data: (await transactions())[0].data });
-  expect(decoded.functionName).toBe("redeemToNativeExactIn");
-  const params = decoded.args![0] as { minimumAmountOut: bigint; grossCygldIn: bigint };
-  expect(params.grossCygldIn).toBe(unit); expect(params.minimumAmountOut).toBe(unit * 9975n / 10000n);
-  const legs = decoded.args![1] as readonly { data: `0x${string}` }[];
-  const [, minimumOutput] = decodeAbiParameters(parseAbiParameters("bytes,uint256,uint256,bool"), legs[0].data);
-  expect(minimumOutput).toBe(unit * 9975n / 10000n);
+  const decoded = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: (await transactions())[0].data });
+  expect(decoded.functionName).toBe("executeExactInput");
+  const params = decoded.args![0] as { minimumOutput: bigint; inputs: readonly { amount: bigint }[] };
+  expect(params.inputs[0].amount).toBe(unit); expect(params.minimumOutput).toBe(unit * 9975n / 10000n);
+
 });
 
 for (const width of [1280, 390]) {
@@ -159,7 +157,7 @@ test("fees accordion owns tolerance, retains its value and shows only the active
   const slider = page.getByRole("slider", { name: "Adjust execution tolerance", exact: true });
   await expect(field).toHaveValue("1");
   await expect(slider).toHaveAttribute("min", "0"); await expect(slider).toHaveAttribute("max", "1");
-  await expect(page.getByTestId("swap-minimum-output")).toContainText("1 CYGLD");
+  await expect(page.getByTestId("swap-minimum-output")).toContainText("0.99 CYGLD");
   await expect(page.getByTestId("swap-maximum-input")).toHaveCount(0);
   await expect.poll(() => observed.intents.at(-1)?.mode).toBe("issue-exact-in");
   const feePanel = page.getByText(/^Protocol fee/).locator("..").locator("..");
@@ -182,7 +180,7 @@ test("fees accordion owns tolerance, retains its value and shows only the active
 
 });
 
-for (const side of ["issue", "redeem"] as const) test(`${side}: a Backend default adapter omitted from configuration stays concrete in Core execution and its existing approval check`, async ({ page }) => {
+for (const side of ["issue", "redeem"] as const) test(`${side}: a complete universal plan binds execution without caller-selected adapter calldata`, async ({ page }) => {
   const observed = await installSyntheticWallet(page);
   const approvalAdapters: string[] = [];
   await page.route("**/api/governance/helpers-facts**", async route => {
@@ -193,6 +191,7 @@ for (const side of ["issue", "redeem"] as const) test(`${side}: a Backend defaul
   await page.route("**/api/protocol/config", route => route.fulfill({ json: {
     ...protocolConfigurationFixture, contracts: { ...protocolConfigurationFixture.contracts, uniswapAdapter: null },
     adapter: { status: "unavailable", encoding: null, observation: null },
+    universalExactInput: {adapter:protocolAddresses.adapter,encoding:"uniswap-routing-v1",settlementPolicy:"protocol-retained-input"},
   } }));
   await page.goto("/en");
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
@@ -211,11 +210,11 @@ for (const side of ["issue", "redeem"] as const) test(`${side}: a Backend defaul
   await expect(swap).toBeEnabled(); await swap.click();
   const transactions = () => page.evaluate(() => (window as unknown as { __toleranceTransactions: Submitted[] }).__toleranceTransactions);
   await expect.poll(async () => (await transactions()).length).toBe(1);
-  // This existing code/approval check happens after Swap captures the winner,
-  // before wallet submission, and uses that winner's concrete adapter.
-  expect(approvalAdapters).toContain(protocolAddresses.adapter);
-  const decoded = decodeFunctionData({ abi: HELPERS_ABI_ISSUE_FROM_TOKEN, data: (await transactions())[0].data });
-  expect(decoded.functionName).toBe(side === "issue" ? "issueFromNativeExactOut" : "redeemToNativeExactIn");
-  const legs = decoded.args![side === "issue" ? 2 : 1] as readonly { adapter: string }[];
-  expect(legs[0].adapter.toLowerCase()).toBe(protocolAddresses.adapter);
+  // The adapter is bound by the deployed facet. The universal selector has no
+  // caller-selected adapter field and adds no redundant App approval read.
+  expect(approvalAdapters).toEqual([]);
+  const decoded = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: (await transactions())[0].data });
+  expect(decoded.functionName).toBe("executeExactInput");
+  const plan=decoded.args![0] as {intent:number;inputs:readonly{amount:bigint}[]};
+  expect(plan.intent).toBe(side === "issue" ? 0 : 1);expect(plan.inputs[0].amount).toBe(unit);
 });

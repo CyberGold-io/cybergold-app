@@ -1,3 +1,4 @@
+import { routeBasketQuote } from "./fixtures/universal-exact-input";
 import { routeCoreIntent } from "./fixtures/trade-core";
 import { selectBasket } from "./fixtures/swap-selection";
 import { expect, test } from "./fixtures/app-test";
@@ -13,8 +14,14 @@ const labels = {
   fr: { search: "Rechercher une devise...", reverse: "Inverser le sens de l’échange", fees: "Frais totaux" },
   de: { search: "Währung suchen...", reverse: "Tauschrichtung umkehren", fees: "Gesamtgebühr" },
 };
+const liquidityMessages = {
+  en: "The Market does not have enough liquidity to fill this amount. Reduce the amount.",
+  fr: "Le Market ne dispose pas de liquidités suffisantes pour ce montant. Réduisez le montant.",
+  de: "Der Market verfügt nicht über genügend Liquidität für diesen Betrag. Verringern Sie den Betrag.",
+};
 const cases = [
   ...(["en", "fr", "de"] as const).map(locale => ({ locale, code: "insufficient-protocol-supply", message: messages[locale] })),
+  ...(["en", "fr", "de"] as const).map(locale => ({ locale, code: "quote-insufficient-liquidity", message: liquidityMessages[locale] })),
   { locale: "en" as const, code: "redemption-supply-exceeded", message: "The CYGLD input exceeds the available supply for redemption." },
   { locale: "en" as const, code: "redemption-capacity-exceeded", message: "The requested Core outputs exceed the available redemption capacity." },
 ];
@@ -26,7 +33,7 @@ for (const { locale, code, message } of cases) for (const path of ["token", "bas
         JSON.stringify({ type: "error", code, error: "private diagnostic", correlationId: "fixture" }) + "\n" }));
     } else {
       await basketInstall(page);
-      await page.route("**/api/quotes/basket-preview", route => route.fulfill({ status: 503, json: {
+      await routeBasketQuote(page, route => route.fulfill({ status: 503, json: {
         code, error: "private diagnostic", correlationId: "fixture" } }));
     }
     await page.goto(`/${locale}`);

@@ -3,6 +3,8 @@ import { context, install } from "./fixtures/token-quotes";
 import { coreIntentRequest, tradeFixture } from "./fixtures/trade-core";
 import { intentFixture } from "./fixtures/quote-intent";
 import { marketTradeFixture } from "./fixtures/market-quotes";
+import { universalFixture, tradeRequestFromUniversal } from "./fixtures/universal-exact-input";
+import type { UniversalExactInputRequest } from "../../app/utils/universalExactInput";
 import { selectBasket } from "./fixtures/swap-selection";
 import { protocolAddresses, tokenAddresses } from "../fixtures/protocol-configuration";
 import type { TradeQuote, TradeQuoteRequest } from "../../app/utils/tradeQuote";
@@ -41,8 +43,8 @@ async function wallet(page: Page) {
   }, { owner });
   await page.route("**/api/account/wallet-balances*", route => route.fulfill({ json: { context, holder: owner,
     native: { status: "success", value: String(100n * unit) }, tokens: [
-      { id: "paxg", address: tokenAddresses.PAXG, balance: { status: "success", value: String(40n * unit) } },
-      { id: "xaut", address: tokenAddresses.XAUT, balance: { status: "success", value: String(40n * 10n ** 6n) } },
+      { id: "paxg", address: tokenAddresses.PAXG, balance: { status: "success", value: String(400n * unit) } },
+      { id: "xaut", address: tokenAddresses.XAUT, balance: { status: "success", value: String(400n * 10n ** 6n) } },
       { id: "cygld", address: protocolAddresses.core, balance: { status: "success", value: String(100n * unit) } },
     ] } }));
 }
@@ -70,6 +72,14 @@ function quotedPurchase(strategy: "core" | "market", request: TradeQuoteRequest)
   return tradeFixture(providerQuote, coreRequest);
 }
 
+/** Keep the universal acquisition Q even when the selected AMM only consumes part of it. */
+function universalPurchase(request: UniversalExactInputRequest, value: TradeQuote) {
+  const remainder = BigInt(request.inputs[0].amount) - BigInt(value.quotedInput);
+  return universalFixture(request, { routeFamily: value.strategy, quotedOutput: value.quotedOutput,
+    outputMinimum: value.outputMinimum,
+    retainedInputs: remainder > 0n ? [{ currency: request.inputs[0].currency, amount: String(remainder), branch: 0, stage: 0 }] : [] });
+}
+
 async function selectToken(page: Page, symbol = "PAXG") {
   await page.locator('main button[aria-haspopup="dialog"]').first().click();
   await page.getByPlaceholder("Search currency...").fill(symbol);
@@ -82,16 +92,18 @@ async function fixture(page: Page, strategy: "core" | "market") {
     fetchedAt: new Date().toISOString(), stale: false } }));
   let held = false, count = 0;
   const releases: (() => void)[] = [];
-  await page.route("**/api/quotes/trade/stream", async route => {
+  await page.route("**/api/quotes/universal-exact-input", async route => {
+    const request: UniversalExactInputRequest = route.request().postDataJSON();
+    if (request.intent >= 2) return route.fallback();
     count++;
     if (held) await new Promise<void>(resolve => releases.push(resolve));
-    const value = quotedPurchase(strategy, route.request().postDataJSON());
-    await route.fulfill({ contentType: "application/x-ndjson", body: JSON.stringify({ type: "complete", value }) + "\n" });
+    const value = quotedPurchase(strategy, tradeRequestFromUniversal(request));
+    await route.fulfill({ json: universalPurchase(request, value) });
   });
   return { hold: () => { held = true; }, release: () => { held = false; releases.splice(0).forEach(resolve => resolve()); }, count: () => count };
 }
 
-for (const strategy of ["core", "market"] as const) test(`${strategy} purchase always shows one spending field and highlights a limited budget`, async ({ page }) => {
+for (const strategy of ["core", "market"] as const) test(`${strategy} purchase shows the complete exact input and discloses a retained remainder`, async ({ page }) => {
   await page.setViewportSize({ width: strategy === "market" ? 390 : 1280, height: 950 });
   await fixture(page, strategy);
   await page.goto("/en");
@@ -109,13 +121,11 @@ for (const strategy of ["core", "market"] as const) test(`${strategy} purchase a
   await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "empty");
   await expectThemeColor(page, value, "--text-input");
   await page.locator("#sell-amount").fill("100");
-  await expect(value).toHaveText("30 PAXG");
-  await expect(equivalent).toHaveText("~ 933.10 g of gold • $93 310.43");
-  await expect(value).toHaveAttribute("data-limited", "true");
+  await expect(value).toHaveText("100 PAXG");
+  await expect(equivalent).toHaveText("~ 3.11 kg of gold • $311 034.77");
+  await expect(value).toHaveAttribute("data-limited", "false");
+  await expect(page.getByTestId("exact-input-retention-disclosure")).toContainText("70 PAXG");
   await value.focus();
-  await expect(spending.getByRole("tooltip")).toBeVisible();
-  await expect(spending.getByRole("tooltip")).toContainText(/issuance capacity.*market liquidity/i);
-  await page.locator("#sell-amount").focus();
   await expect(spending.getByRole("tooltip")).toBeHidden();
   await expect(page.getByText("Estimated spend", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Maximum spend", { exact: true })).toHaveCount(0);
@@ -180,17 +190,16 @@ for (const strategy of ["core", "market"] as const) test(`${strategy} XAUt purch
     await expect(spending.locator('[data-trade-display="purchaseSpendingEquivalent"]')).toHaveText("…");
     await expect(value).toHaveAttribute("data-limited", "false");
     observed.release();
-    await expect(value).toHaveText("30 XAUt");
-    await expect(value).toHaveAttribute("data-limited", "true");
-    await value.focus();
-    await expect(spending.getByRole("tooltip")).toBeVisible();
+    await expect(value).toHaveText("100 XAUt");
+    await expect(value).toHaveAttribute("data-limited", "false");
+    await expect(page.getByTestId("exact-input-retention-disclosure")).toContainText("70 XAUt");
   } finally { observed.release(); }
 });
 
 for (const { strategy, freshBalance, stage } of [
-  { strategy: "core", freshBalance: "31", stage: "network" },
-  { strategy: "market", freshBalance: "31", stage: "network" },
-  { strategy: "core", freshBalance: "30.1", stage: "balance" },
+  { strategy: "core", freshBalance: "101", stage: "network" },
+  { strategy: "market", freshBalance: "101", stage: "network" },
+  { strategy: "core", freshBalance: "99", stage: "balance" },
 ] as const) test(`${strategy} submission checks the selected funding ceiling against a fresh ${freshBalance} PAXG balance`, async ({ page }) => {
   await fixture(page, strategy);
   const failedStages: string[] = [];
@@ -207,7 +216,7 @@ for (const { strategy, freshBalance, stage } of [
     // The read-only fixture never reaches signing or submission.
     await page.evaluate(() => window.dispatchEvent(new Event("budget-fixture-wrong-chain")));
     await route.fulfill({ json: { context, holder: owner, native: { status: "success", value: String(100n * unit) }, tokens: [
-      { id: "paxg", address: tokenAddresses.PAXG, balance: { status: "success", value: freshBalance === "30.1" ? String(301n * unit / 10n) : String(31n * unit) } },
+      { id: "paxg", address: tokenAddresses.PAXG, balance: { status: "success", value: freshBalance === "99" ? String(99n * unit) : String(101n * unit) } },
     ] } });
   });
   await page.goto("/en");
@@ -219,13 +228,13 @@ for (const { strategy, freshBalance, stage } of [
   await expect.poll(() => failedStages).toEqual([stage]);
 });
 
-test("a partial purchase retains its spending across reload and clears old terms on a pre-hydration edit", async ({ page }) => {
+test("a universal purchase retains its complete acquisition across reload and clears old terms on a pre-hydration edit", async ({ page }) => {
   const observed = await fixture(page, "core");
   const hydrationErrors: string[] = [];
   page.on("console", message => { if (/hydrat|didn't match/i.test(message.text())) hydrationErrors.push(message.text()); });
   await page.goto("/en"); await selectToken(page);
   await page.locator("#sell-amount").fill("100");
-  await expect(page.getByTestId("purchase-spending")).toContainText("30 PAXG");
+  await expect(page.getByTestId("purchase-spending")).toContainText("100 PAXG");
   await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("cybergold:trade-display:v1:31337:en") ?? "null")?.values.purchaseSpendingVisible)).toBe("true");
   let releaseScripts!: () => void;
   const scripts = new Promise<void>(resolve => { releaseScripts = resolve; });
@@ -236,18 +245,20 @@ test("a partial purchase retains its spending across reload and clears old terms
     const cached = page.getByTestId("trade-cached-view");
     await expect(cached).toBeVisible();
     await expect(page.locator('[data-testid="buy-wallet-balance"], [data-trade-display="buyBalance"]')).toHaveCount(0);
-    await expect(cached.locator('[data-trade-display="sellBalance"]')).toHaveText("40 PAXG");
+    await expect(cached.locator('[data-trade-display="sellBalance"]')).toHaveText("400 PAXG");
     await expect(cached.locator("[data-trade-spending]")).toBeVisible();
     await expect(cached.locator('[data-trade-display="spendAmountLabel"]')).toHaveText("Your budget");
-    await expect(cached.locator('[data-trade-display="purchaseSpendingValue"]')).toHaveText("30 PAXG");
-    await expect(cached.locator('[data-trade-display="purchaseSpendingEquivalent"]')).toHaveText("~ 933.10 g of gold • $93 310.43");
-    await expect(cached.locator("[data-trade-spending-value]")).toHaveAttribute("data-limited", "true");
+    await expect(cached.locator('[data-trade-display="purchaseSpendingValue"]')).toHaveText("100 PAXG");
+    await expect(cached.locator('[data-trade-display="retentionDisclosure"]')).toContainText("70 PAXG");
+    await expect(cached.locator('[data-trade-display="purchaseSpendingEquivalent"]')).toHaveText("~ 3.11 kg of gold • $311 034.77");
+    await expect(cached.locator("[data-trade-spending-value]")).toHaveAttribute("data-limited", "false");
     await expect(cached.locator("[data-trade-evaluation]")).toHaveAttribute("data-trade-evaluation", "confirmed");
-    await expectThemeColor(page, cached.locator("[data-trade-spending-value]"), "--text-amber");
+    await expectThemeColor(page, cached.locator("[data-trade-spending-value]"), "--text-input");
     await expect(cached.locator('[data-trade-display="sellAmount"]')).toBeEditable();
     await cached.locator('[data-trade-display="sellAmount"]').fill("101");
     await expect(cached.locator("[data-trade-spending]")).toBeVisible();
     await expect(cached.locator('[data-trade-display="purchaseSpendingValue"]')).toHaveText("…");
+    await expect(cached.locator('[data-trade-display="retentionDisclosure"]')).not.toContainText("70 PAXG");
     await expect(cached.locator('[data-trade-display="purchaseSpendingEquivalent"]')).toHaveText("…");
     await expect(cached.locator("[data-trade-spending-value]")).toHaveAttribute("data-limited", "false");
     await expect(cached.locator("[data-trade-evaluation]")).toHaveAttribute("data-trade-evaluation", "pending");
@@ -259,8 +270,8 @@ test("a partial purchase retains its spending across reload and clears old terms
     await expect(cached).toBeHidden();
     await expect(page.locator("#sell-amount")).toHaveValue("101");
     observed.release();
-    await expect(page.getByTestId("purchase-spending")).toContainText("30 PAXG");
-    await expect(page.getByTestId("purchase-spending").locator('[data-trade-display="purchaseSpendingEquivalent"]')).toHaveText("~ 933.10 g of gold • $93 310.43");
+    await expect(page.getByTestId("purchase-spending")).toContainText("101 PAXG");
+    await expect(page.getByTestId("purchase-spending").locator('[data-trade-display="purchaseSpendingEquivalent"]')).toHaveText("~ 3.14 kg of gold • $314 145.12");
     expect(hydrationErrors).toEqual([]);
   } finally { releaseScripts(); observed.release(); }
 });
@@ -285,7 +296,7 @@ test("an affordable purchase budget never flashes a wallet warning while its quo
     await expect(page.locator("#sell-amount")).not.toHaveClass(/text-text-amber/);
     await expect(page.locator("[data-trade-action]")).toBeDisabled();
     observed.release();
-    await expect(page.getByTestId("purchase-spending")).toContainText("30 PAXG");
+    await expect(page.getByTestId("purchase-spending")).toContainText("100 PAXG");
     await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
     const quoted = observed.count();
     observed.hold();
@@ -295,7 +306,7 @@ test("an affordable purchase budget never flashes a wallet warning while its quo
     await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
     await expect(page.locator("#sell-amount")).toHaveValue("100");
     await expect(page.locator("#execution-tolerance")).toHaveValue("0.5");
-    await expect(page.getByTestId("purchase-spending")).toContainText("30 PAXG");
+    await expect(page.getByTestId("purchase-spending")).toContainText("100 PAXG");
     await expect(page.locator("#sell-wallet-balance-warning")).toHaveCount(0);
     await expect(page.locator("#sell-amount")).not.toHaveClass(/text-text-amber/);
     await expect(page.locator("[data-trade-action]")).toBeDisabled();
@@ -308,10 +319,10 @@ test("an affordable purchase budget never flashes a wallet warning while its quo
     await expect(page.locator("[data-trade-action]")).toBeDisabled();
     observed.release();
     await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
-    await expect(page.getByTestId("purchase-spending").locator('[data-trade-display="purchaseSpendingValue"]')).toHaveText("30 PAXG");
+    await expect(page.getByTestId("purchase-spending").locator('[data-trade-display="purchaseSpendingValue"]')).toHaveText("100 PAXG");
     await page.getByRole("button", { name: "Reverse swap direction", exact: true }).click();
     observed.hold();
-    await page.locator("#sell-amount").fill("200");
+    await page.locator("#sell-amount").fill("500");
     await expect(page.locator("#sell-wallet-balance-warning")).toHaveCount(1);
     await expect(page.locator("#sell-amount")).toHaveClass(/text-text-amber/);
   } finally { observed.release(); }
@@ -360,13 +371,12 @@ async function plateauFixture(page: Page, strategy: "core" | "market", bounded =
     const request = route.request().postDataJSON();
     await route.fulfill({ json: packet(request) });
   });
-  await page.route("**/api/quotes/trade/stream", async route => {
+  await page.route("**/api/quotes/universal-exact-input", async route => {
+    const request: UniversalExactInputRequest = route.request().postDataJSON();
+    if (request.intent >= 2) return route.fallback();
     quoteRequests++;
     if (quoteHeld) await new Promise<void>(resolve => quoteReleases.push(resolve));
-    const request = route.request().postDataJSON();
-    await route.fulfill({ contentType: "application/x-ndjson", body:
-      JSON.stringify({ type: "model", value: packet(request) }) + "\n" +
-      JSON.stringify({ type: "complete", value: quote(request) }) + "\n" });
+    await route.fulfill({ json: universalPurchase(request, quote(tradeRequestFromUniversal(request))) });
   });
   return { hold: () => { modelHeld = true; quoteHeld = true; }, change: () => { changed = true; },
     releaseModel: () => { modelHeld = false; modelReleases.splice(0).forEach(resolve => resolve()); },
@@ -375,7 +385,7 @@ async function plateauFixture(page: Page, strategy: "core" | "market", bounded =
 }
 
 for (const strategy of ["core", "market"] as const) for (const editedBudget of ["0.5", "2"] as const)
-  test(`${strategy} capped budget edit 1 → ${editedBudget} immediately reuses the Backend range while both requests are pending`, async ({ page }) => {
+  test(`${strategy} capped budget edit 1 → ${editedBudget} reuses only Backend output capacity and retains its complete exact input while both requests are pending`, async ({ page }) => {
   const observed = await plateauFixture(page, strategy);
   if (strategy === "market") await page.addInitScript(() => localStorage.setItem("theme", "dark"));
   await page.goto("/en"); await selectToken(page);
@@ -385,14 +395,14 @@ for (const strategy of ["core", "market"] as const) for (const editedBudget of [
   const evaluation = page.locator("#swapsection");
   const quotedValues = page.locator('#buy-amount, [data-trade-spending-value], [data-trade-display="purchaseSpendingEquivalent"], [data-trade-display="buyEquivalent"]');
   await input.fill("1");
-  await expect(spending).toHaveText("0.030334978745396727 PAXG");
+  await expect(spending).toHaveText("1 PAXG");
   await expect(output).toHaveText("0.936");
   await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
   await expect(evaluation).toHaveAttribute("data-trade-evaluation", "confirmed");
-  await expectThemeColor(page, spending, "--text-amber");
+  await expectThemeColor(page, spending, "--text-input");
   await expectThemeColor(page, output, "--text-input");
   await expect(page.locator('[data-testid="buy-wallet-balance"], [data-trade-display="buyBalance"]')).toHaveCount(0);
-  await expect(page.getByTestId("sell-wallet-balance")).toHaveText("40 PAXG");
+  await expect(page.getByTestId("sell-wallet-balance")).toHaveText("400 PAXG");
   const value = await equivalent.textContent();
   const clockStart = new Date();
   await page.clock.install({ time: clockStart });
@@ -402,10 +412,10 @@ for (const strategy of ["core", "market"] as const) for (const editedBudget of [
   try {
     await input.fill(editedBudget);
     await expect.poll(async () => { await page.clock.runFor(0); return spending.textContent(); })
-      .toBe("0.030334978745396727 PAXG");
+      .toBe(`${editedBudget} PAXG`);
     await expect(output).toHaveText("0.936");
-    await expect(equivalent).toHaveText(value!);
-    await expect(spending).toHaveAttribute("data-limited", "true");
+    await expect(equivalent).not.toHaveText(value!);
+    await expect(spending).toHaveAttribute("data-limited", "false");
     await expect(evaluation).toHaveAttribute("data-trade-evaluation", "pending");
     await expectThemeColor(page, quotedValues, "--text-input-disabled");
     await expect(page.locator("[data-trade-action]")).toBeDisabled();
@@ -414,7 +424,7 @@ for (const strategy of ["core", "market"] as const) for (const editedBudget of [
     await page.clock.runFor(150);
     await expect.poll(observed.quoteRequests).toBeGreaterThan(before);
     await expect(output).toHaveText("0.936");
-    await expect(spending).toHaveText("0.030334978745396727 PAXG");
+    await expect(spending).toHaveText(`${editedBudget} PAXG`);
     await expect(page.locator("[data-trade-action]")).toBeDisabled();
     // Receiving another display model does not confirm an executable quote.
     const modelResponse = page.waitForResponse(response => new URL(response.url()).pathname === "/api/quotes/trade/model");
@@ -425,18 +435,18 @@ for (const strategy of ["core", "market"] as const) for (const editedBudget of [
     await expectThemeColor(page, quotedValues, "--text-input-disabled");
     await expect(page.locator("[data-trade-action]")).toBeDisabled();
     observed.change(); observed.release();
-    await expect.poll(async () => { await page.clock.runFor(0); return spending.textContent(); }).toBe("0.02 PAXG");
+    await expect.poll(async () => { await page.clock.runFor(0); return spending.textContent(); }).toBe(`${editedBudget} PAXG`);
     await expect(output).toHaveText("0.6");
     await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
     await expect(evaluation).toHaveAttribute("data-trade-evaluation", "confirmed");
-    await expectThemeColor(page, spending, "--text-amber");
+    await expectThemeColor(page, spending, "--text-input");
     await expectThemeColor(page, output, "--text-input");
     await test.info().attach("capped-range-reuse", { contentType: "application/json", body: JSON.stringify({
       strategy, budgetBefore: "1", budgetAfter: editedBudget, spendingRaw: String(plateauSpending), outputRaw: String(plateauOutput),
-      immediateLogicalMilliseconds: 0, heldFreshEndpoints: ["/api/quotes/trade/model", "/api/quotes/trade/stream"],
-      modelRequests: observed.modelRequests(), quoteRequests: observed.quoteRequests(), freshSpending: "0.02 PAXG", freshOutput: "0.6 CYGLD",
+      immediateLogicalMilliseconds: 0, heldFreshEndpoints: ["/api/quotes/trade/model", "/api/quotes/universal-exact-input"],
+      modelRequests: observed.modelRequests(), quoteRequests: observed.quoteRequests(), freshSpending: `${editedBudget} PAXG`, freshOutput: "0.6 CYGLD",
       pendingColor: "--text-input-disabled", modelAloneConfirms: false,
-      scope: "Backend-supplied advisory range; no transaction submitted" }) });
+      scope: "Backend advisory output capacity; universal acquisition stays exact Q; no transaction submitted" }) });
   } finally { observed.release(); await page.clock.resume(); }
 });
 
@@ -446,7 +456,7 @@ test("a Backend capped range is not reused outside its budgets or for another in
   const input = page.locator("#sell-amount"), output = page.locator("#buy-amount");
   const spending = page.getByTestId("purchase-spending").locator("[data-trade-spending-value]");
   await input.fill("1");
-  await expect(spending).toHaveText("0.030334978745396727 PAXG");
+  await expect(spending).toHaveText("1 PAXG");
   await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
   observed.hold();
   try {

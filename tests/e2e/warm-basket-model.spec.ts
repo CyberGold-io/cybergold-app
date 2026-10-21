@@ -1,3 +1,4 @@
+import { routeBasketQuote } from "./fixtures/universal-exact-input";
 import { selectBasket } from "./fixtures/swap-selection";
 import { expect, test } from "./fixtures/app-test";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
@@ -17,7 +18,7 @@ for(const mode of ["redeem-exact-in"]) for(const candidate of [false,true]) for(
   const success=<T,>(value:T)=>({status:"success",value});
   await page.route("**/api/protocol/facts",route=>route.fulfill({json:{context:{...context,blockTimestamp:"1790800000"},basketModel:candidate?{context,state:snapshot}:null,core:"0x00000000000000000000000000000000000000a1",helpers:"0x00000000000000000000000000000000000000b2",basket:{assets:success([asset,other]),targetsPpm:success(["600000","400000"]),goldRefGramsFp18:success(["31103476800000000000","31103476800000000000"]),cygldPerUnitFp18:success(["31103476800000000000","31103476800000000000000000000000"]),metadata:[{address:asset,decimals:success(18),name:success("First Gold"),symbol:success("PAXG")},{address:other,decimals:success(6),name:success("Second Gold"),symbol:success("GOLD2")}]},reference:success("2000000000000000000"),fees:{issuancePpm:success("1000"),helpersPpm:success("0")},pause:success(false)}}));
   let requests=0,completed=false;
-  await page.route("**/api/quotes/basket-preview",async route=>{requests++;await new Promise(r=>setTimeout(r,250));const result=JSON.parse(JSON.stringify(row.actual).replaceAll("basketAsset1",asset).replaceAll("basketAsset2",other));await route.fulfill({json:{mode,context,helpers:"0x00000000000000000000000000000000000000b2",result}});completed=true;});
+  await routeBasketQuote(page,async route=>{requests++;await new Promise(r=>setTimeout(r,250));const result=JSON.parse(JSON.stringify(row.actual).replaceAll("basketAsset1",asset).replaceAll("basketAsset2",other));await route.fulfill({json:{mode,context,helpers:"0x00000000000000000000000000000000000000b2",result}});completed=true;});
   await page.goto("/en");await selectBasket(page);
   if(mode.startsWith("redeem"))await page.getByRole("button",{name:"Reverse swap direction"}).click();
   const input=page.locator('input[inputmode="decimal"]:not(#execution-tolerance):visible').first();
