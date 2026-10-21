@@ -6,10 +6,12 @@ import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguratio
 import type { ProtocolFacts } from "../../app/utils/protocolFacts.ts";
 import type { BasketPreview, BasketPreviewRequest } from "../../app/utils/basketPreview.ts";
 import type { TradeQuote, TradeQuoteRequest } from "../../app/utils/tradeQuote.ts";
+import type { UniversalExactInputQuote, UniversalExactInputRequest } from "../../app/utils/universalExactInput.ts";
 import { diagnosticReferences, safeDiagnosticReferences } from "../../app/utils/diagnosticReferences.ts";
 import { QuotePreviewError, knownQuoteError } from "../../app/utils/quoteErrors.ts";
 import { basketFacts, configuredToken, ScenarioUnavailableError, tradeScenarios, type Scenario } from "./scenarios.ts";
-import { failureResult, matchesBasketIntent, requireInvariant, resultFor, tokenRequest, validateBasket, validateTrade, type ScenarioResult } from "./regression.ts";
+import { applyUniversalExactInputQuote, failureResult, requireInvariant, resultFor, validateBasket, validateTrade, type ScenarioResult } from "./regression.ts";
+import { browserQuoteMatcher } from "./browserQuoteObservation.ts";
 import { installQuoteObservation, quoteObservations, type QuoteObservation } from "./quoteObservation.ts";
 import { observedBasketProviderEvidence, providerSummaries, planDigest, type ProviderQuote } from "./providerEvidence.ts";
 import { activeScenarios, type MatrixScenario, type ValuationSnapshot } from "./matrix.ts";
@@ -39,10 +41,7 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
       try {
         if (scenario.sizingError) throw new ScenarioUnavailableError(scenario.sizingError);
         result.executionStage = "ui-prepare-navigation";
-        await page.goto("/en", { timeout: 45_000, waitUntil: "domcontentloaded" });
-        // This existing wallet control is only visible once the App mounts.
-        // Waiting for it prevents clicking a server-rendered picker before its
-        // React handlers are attached on a cold deployed page.
+        await page.goto("/en", { timeout: 45_000, waitUntil: "load" });
         result.executionStage = "ui-prepare-wallet";
         await page.getByRole("button", { name: "Connect Wallet", exact: true }).waitFor({ state: "visible" });
         result.executionStage = "ui-prepare-tokens";
@@ -54,7 +53,6 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
         result.executionStage = "ui-prepare-amount";
         const input = basketEdited ? await ensureBasketInputEditable(page, editedSide) : getMainInput(page, editedSide);
         await input.click();
-        const intended = scenario.asset === "BASKET" ? undefined : tokenRequest(scenario, config, config.contracts.helpers!);
         const assets = scenario.asset === "BASKET" ? basketFacts(facts).assets : [];
         const firstAsset = config.tokens.find(token => token.type === "erc20" && token.address.toLowerCase() === assets[0]?.toLowerCase());
         if (basketEdited && !firstAsset) throw new ScenarioUnavailableError("basket-token-decimals-unavailable");
@@ -62,15 +60,7 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
           basketEdited ? firstAsset!.decimals : configuredToken(config, "CYGLD").decimals)) : "0";
         // Clicking selects the amount mode. Only a positive submitted request
         // is eligible; a preceding warm/model request cannot satisfy the case.
-        const matches = (observation: QuoteObservation) => {
-          if (observation.path !== (scenario.asset === "BASKET" ? "/api/quotes/basket-preview" : "/api/quotes/trade/stream")) return false;
-          const body = observation.request;
-          if (scenario.asset === "BASKET") return matchesBasketIntent(body, scenario, basketAmount, assets);
-          return body && body.mode === scenario.inputMode
-            && (!intended || body.amount === intended.amount && body.side === intended.side
-              && typeof body.counterToken === "string" && body.counterToken.toLowerCase() === intended.counterToken.toLowerCase() && body.native === intended.native)
-            && (typeof body.amount === "string" ? BigInt(body.amount) > 0n : true);
-        };
+        const matches = browserQuoteMatcher(scenario, config, basketAmount, assets);
         result.executionStage = "ui-prepare-quote";
         const before = (await quoteObservations(page)).length;
         await input.fill(scenario.displayAmount);
@@ -90,19 +80,22 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
         if (!observation?.terminal) throw new ScenarioUnavailableError("quote-stream-interrupted");
         const observed = observation!, request = observed.request, terminal = observed.terminal!;
         result.refs = safeDiagnosticReferences({ ...diagnosticReferences(terminal), requestId: observed.requestId });
-        if (scenario.size) result.providers = scenario.asset === "BASKET"
+        if (scenario.size && scenario.inputMode !== "exact-in") result.providers = scenario.asset === "BASKET"
           ? observedBasketProviderEvidence([observed], scenario as MatrixScenario, config.contracts.core ?? undefined)
           : providerSummaries(terminal.type === "complete" ? terminal.value as ProviderQuote : terminal as Partial<ProviderQuote>);
         if (terminal.type === "error") throw knownQuoteError(terminal)
           ?? new QuotePreviewError(observed.status >= 400 ? "quote-service-unavailable" : "quote-unavailable", "quote-unavailable", result.refs);
         if (observed.status < 200 || observed.status >= 300) throw new QuotePreviewError("quote-service-unavailable", "quote-service-unavailable", result.refs);
-        if (scenario.asset === "BASKET") {
+        if (scenario.inputMode === "exact-in") {
+          const value = terminal.value as UniversalExactInputQuote;
+          applyUniversalExactInputQuote(result, value, (request as UniversalExactInputRequest).inputs);
+          result.refs = { ...diagnosticReferences(value), ...result.refs };
+          result.deployment = { core: config.contracts.core as `0x${string}`, helpers: value.deployment.helpers as `0x${string}`, adapter: value.deployment.adapter as `0x${string}` };
+        } else if (scenario.asset === "BASKET") {
           const value = terminal.value as BasketPreview;
           result.bounds = validateBasket(value, request as BasketPreviewRequest, assets);
           result.refs = { ...diagnosticReferences(value), ...result.refs };
-          result.actualStrategy = "core"; result.quotedOperation = buy
-            ? scenario.inputMode === "exact-in" ? "issueFromBasketExactIn" : "issueFromBasketExactOut"
-            : "redeemToBasketExactIn";
+          result.actualStrategy = "core"; result.quotedOperation = buy ? "issueFromBasketExactOut" : "redeemToBasketExactIn";
           result.context = value.context; result.selectedPlan = safeSelectedPlan({ ...value, basketRequest: request }, 'core');
           if (config.contracts.core) result.quoteTerms = basketQualityTerms(value, request as BasketPreviewRequest, config.contracts.core);
           if (scenario.size && result.providers) result.providers.core.bounds = result.bounds;
@@ -113,7 +106,7 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
           result.bounds = validateTrade(quote, request as TradeQuoteRequest); result.actualStrategy = quote.strategy;
           result.quoteTerms = tradeQualityTerms(quote); result.selectedPlan = safeSelectedPlan(quote.providerQuote, quote.strategy, quote);
           if (scenario.size) Object.assign(result, { selectedProvider: quote.strategy, planDigest: planDigest(quote), executionAttempted: false, transactionDisposition: "not-submitted" }); result.context = quote.context;
-          result.quotedOperation = quote.strategy === "market" ? scenario.inputMode === "exact-in" ? "swapExactInput" : "swapExactOutput"
+          result.quotedOperation = quote.strategy === "market" ? "swapExactOutput"
             : buy ? scenario.asset === "ETH" ? "issueFromNativeExactOut" : "issueFromTokenExactOut"
               : scenario.asset === "ETH" ? "redeemToNativeExactIn" : "redeemToTokenExactIn";
         }

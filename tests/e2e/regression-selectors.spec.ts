@@ -1,8 +1,30 @@
-import { expect, test } from "./fixtures/app-test";
+import { expect, test, type Page } from "./fixtures/app-test";
 import { install as installTokens } from "./fixtures/token-quotes";
 import { install as installBasket } from "./fixtures/basket-quotes";
 import { ensureBasketInputEditable, getMainInput, getTokenButton, selectToken, showAllSellTokens } from "../metamask/token-flows/helpers";
 import { installQuoteObservation, quoteObservations } from "../trading/quoteObservation";
+import { browserQuoteMatcher } from "../trading/browserQuoteObservation";
+import { applyUniversalExactInputQuote, resultFor } from "../trading/regression";
+import { tradeScenarios, type Scenario } from "../trading/scenarios";
+import { protocolConfigurationFixture, tokenAddresses } from "../fixtures/protocol-configuration";
+import type { UniversalExactInputQuote, UniversalExactInputRequest } from "../../app/utils/universalExactInput";
+
+/** Qualify the request/response emitted by the real UI with the deployed runner's reader. */
+async function checkUniversalObservation(page: Page, scenario: Scenario, basketAmount = "0", assets: readonly string[] = []) {
+  const matches = browserQuoteMatcher(scenario, protocolConfigurationFixture, basketAmount, assets);
+  await expect.poll(async () => (await quoteObservations(page)).some(row => matches(row) && row.terminal?.type === "complete")).toBe(true);
+  const observation = (await quoteObservations(page)).find(row => matches(row) && row.terminal?.type === "complete")!;
+  const result = resultFor(scenario, "browser");
+  applyUniversalExactInputQuote(result, observation.terminal!.value as UniversalExactInputQuote, (observation.request as UniversalExactInputRequest).inputs);
+  expect(result.quotedOperation).toBe("executeExactInput");
+  expect(result.selectedProvider).toBe("universal");
+  expect(result.providers).toBeUndefined();
+  expect(result.planDigest).toMatch(/^[a-f0-9]{64}$/);
+  return result;
+}
+const scenarioFor = (asset: Scenario["asset"], side: Scenario["side"], displayAmount: string): Scenario => ({
+  ...tradeScenarios.find(row => row.asset === asset && row.side === side && row.inputMode === "exact-in" && row.requestedStrategy === "core")!, displayAmount,
+});
 
 test("regression helpers select tokens and preserve input-driven quotes on the current App DOM", async ({ page }) => {
   await page.addInitScript(installQuoteObservation as () => void);
@@ -19,6 +41,8 @@ test("regression helpers select tokens and preserve input-driven quotes on the c
   await expect(getMainInput(page, "sell")).toHaveValue("1");
   await expect.poll(async () => (await quoteObservations(page)).some(row => row.request.intent === 0
     && (row.request.inputs as {amount:string}[])[0].amount === "1000000" && row.terminal?.type === "complete")).toBe(true);
+  const purchase = await checkUniversalObservation(page, scenarioFor("USDC", "buy", "1"));
+  expect(purchase.bounds!.inputMaximum).toBe("1000000");
   expect(observed.intents.every(request => request.mode === "issue-exact-in")).toBe(true);
   await page.getByRole("button", { name: "Reverse swap direction" }).click();
   await expect(getMainInput(page, "sell")).toHaveValue("");
@@ -26,21 +50,28 @@ test("regression helpers select tokens and preserve input-driven quotes on the c
   await selectToken(page, "buy", "ETH");
   await expect(getTokenButton(page, "sell", "CYGLD")).toBeVisible();
   await expect(getTokenButton(page, "buy", "ETH")).toBeVisible();
+  await getMainInput(page, "sell").fill("1");
+  const sale = await checkUniversalObservation(page, scenarioFor("ETH", "sell", "1"));
+  expect(sale.bounds!.inputMaximum).toBe("1000000000000000000");
 });
 
 test("regression token picker stays selectable after an input-driven basket quote", async ({ page }) => {
+  await page.addInitScript(installQuoteObservation as () => void);
   await installBasket(page);
   await page.goto("/en");
   await selectToken(page, "sell", "BASKET");
   await (await ensureBasketInputEditable(page, "sell")).fill("2");
   await expect(getMainInput(page, "buy")).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
   await expect(getTokenButton(page, "sell", "BASKET")).toBeVisible();
+  const issued = await checkUniversalObservation(page, scenarioFor("BASKET", "buy", "2"), "2000000000000000000", [tokenAddresses.PAXG]);
+  expect(issued.bounds!.inputMaximum).toBe("2000000000000000000");
   await selectToken(page, "sell", "PAXG");
   await expect(getMainInput(page, "sell")).toBeVisible();
   await expect(getTokenButton(page, "sell", "PAXG")).toBeVisible();
 });
 
 test("regression basket output remains a read-only estimate when focused or clicked", async ({ page }) => {
+  await page.addInitScript(installQuoteObservation as () => void);
   const observed = await installBasket(page);
   await page.goto("/en");
   await selectToken(page, "sell", "CYGLD");
@@ -51,5 +82,7 @@ test("regression basket output remains a read-only estimate when focused or clic
   await output.focus(); await expect(output).not.toBeFocused(); await output.click();
   await expect(output).toHaveJSProperty("tagName", "OUTPUT");
   await expect(getMainInput(page, "sell")).toHaveValue("1");
+  const redeemed = await checkUniversalObservation(page, scenarioFor("BASKET", "sell", "1"), "1000000000000000000", [tokenAddresses.PAXG]);
+  expect(redeemed.bounds!.outputMinimum).toEqual(["990000000000000000"]);
   expect(observed.timings.filter(row => row.mode.startsWith("redeem")).every(row => row.mode === "redeem-exact-in")).toBe(true);
 });

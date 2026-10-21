@@ -399,7 +399,8 @@ http.request = https.request = () => { throw new Error("external-network-forbidd
 syncBuiltinESMExports();
 const ending = ${JSON.stringify(ending)}, encoder = new TextEncoder(), operations = [];
 let calls = 0, navigations = 0;
-const request = tokenRequest(tradeScenarios[0], config, config.contracts.helpers);
+const scenario = tradeScenarios.find(row => row.id === "core-issue-paxg-exact-out");
+const request = tokenRequest(scenario, config, config.contracts.helpers);
 const scope = { location: { href: "https://fixture.invalid/en" }, fetch: async () => {
   const index = ++calls;
   if (ending === "deferred-headers" && index === 2) await new Promise(resolve => setTimeout(resolve, 250));
@@ -432,7 +433,7 @@ const page = { setDefaultTimeout() {}, addInitScript: async () => {}, close: asy
 chromium.launch = async () => ({ newPage: async () => page, close: async () => {} });
 const { observeBrowserQuotes } = await import(${JSON.stringify(source("../../tests/trading/browserQuotes.ts"))});
 const started = performance.now();
-const [result] = await observeBrowserQuotes("https://fixture.invalid", config, {});
+const [result] = await observeBrowserQuotes("https://fixture.invalid", config, {}, [scenario]);
 await Promise.all(operations);
 assert.ok(performance.now() - started < 5000);
 writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify({ result, calls }));
@@ -496,9 +497,9 @@ import { installQuoteObservation } from ${JSON.stringify(source("../../tests/tra
 import { fetchQuoteStream } from ${JSON.stringify(source("./quoteStream.ts"))};
 http.request = https.request = () => { throw new Error("external-network-forbidden"); };
 syncBuiltinESMExports();
-const mode = ${JSON.stringify(mode)}, scenario = scenarios.tradeScenarios.find(row => row.id === "core-redeem-paxg-exact-in");
+const mode = ${JSON.stringify(mode)}, scenario = scenarios.tradeScenarios.find(row => row.id === "core-redeem-paxg-exact-out");
 const request = tokenRequest(scenario, config, config.contracts.helpers), encoder = new TextEncoder();
-const terminal = { type: "complete", value: coreTrade("sell", "exact-in") };
+const terminal = { type: "complete", value: { ...coreTrade("sell", "exact-out"), quotedOutput: request.amount, outputMinimum: request.amount } };
 validateTrade(terminal.value, request);
 const ids = ["e9eb96b2-8ecf-429d-9e08-244f43257e8e", "eb3e6932-a2af-4303-a09e-35831f864a1d"];
 let calls = 0, terminalDeadline, pollCalls = 0;
@@ -553,7 +554,7 @@ const page = { setDefaultTimeout() {}, addInitScript: async () => {}, close: asy
 };
 chromium.launch = async () => ({ newPage: async () => page, close: async () => {} });
 const { observeBrowserQuotes } = await import(${JSON.stringify(source("../../tests/trading/browserQuotes.ts"))});
-const [result] = await observeBrowserQuotes("https://fixture.invalid", config, {});
+const [result] = await observeBrowserQuotes("https://fixture.invalid", config, {}, [scenario]);
 await replacement; await Promise.all(operations); await new Promise(resolve => setImmediate(resolve));
 writeFileSync(${JSON.stringify(resultPath)}, JSON.stringify({ result, calls, terminalDeadline, pollCalls,
   observations: scope.__cybergoldTradeObservations, callerAborted: controllers.map(value => value.signal.aborted) }));
