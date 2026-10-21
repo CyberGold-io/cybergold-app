@@ -5,7 +5,7 @@ import { ensureBasketInputEditable, getMainInput, getSwapButton, openFeeDetails,
 import { readFile, writeFile, rename } from "node:fs/promises";
 import { type Address, type Hex } from "viem";
 import { configuredToken, basketFacts, ScenarioUnavailableError } from "../trading/scenarios";
-import { checkpointExecutionStage, failureResult, originFetch, readJson, requireInvariant, resultFor, type ExecutionStage, type ScenarioResult, type UiObservationPhase } from "../trading/regression";
+import { checkpointExecutionStage, originFetch, readJson, requireInvariant, resultFor, type ExecutionStage, type ScenarioResult, type UiObservationPhase } from "../trading/regression";
 import { observeUiReceipt } from "../trading/uiReceipt";
 import { assertCapturedTradeInput } from "../trading/planAssertions";
 import { armUiQuoteCapture, basketAmountControls, capturedUiQuote, displayedUiAmount, quoteAssets } from "../trading/uiQuoteCapture";
@@ -23,13 +23,14 @@ import { installSelectionCapture, selectionCaptures, captureSelection, captureBa
 import { installQuoteObservation, quoteObservations } from "../trading/quoteObservation";
 import { safeDiagnosticReferences } from "../../app/utils/diagnosticReferences";
 import { installUiSwapObservation, uiSwapObservation } from "../trading/uiSwapObservation";
-import { confirmedTransactionText, createUiQuoteDiagnostics, isUiCompletionDeadlineError, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion, uiSwapTerminalFailure } from "../trading/uiDiagnostics";
+import { confirmedTransactionText, createUiQuoteDiagnostics, isUiCompletionDeadlineError, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion, uiSetupFailure, uiSwapTerminalFailure } from "../trading/uiDiagnostics";
 import { enrichResultQuality } from "../trading/quoteQuality";
 import { safeWalletClickError, type UiConfirmationDiagnostic } from "../trading/runnerDiagnostics";
 import { readWalletUiState } from "../trading/walletUiState";
 import { privateSandboxPhase, privateSandboxScenarios, privateSandboxSelection, sandboxIsolation, scenarioIsolation, type SandboxIsolation } from "../trading/privateSandbox";
 import { cleanupOwnedWalletRequest, closeOwnedWalletContext, isWalletRequestCleanupError, walletRequestContextClosedError } from "../trading/walletRequestLifecycle";
 import { hasUiReceiptOutcome, observeUiReceiptUntilDeadline, recoverUiTransaction, uiWalletRequestSettled } from "../trading/uiTransactionRecovery";
+import { waitForUiSwapReady } from "../trading/uiQuotePreparation";
 import { regressionPolicy, unexpectedFailure } from "../trading/runPolicy";
 
 async function approveUntilMined(page: Page, submitted: () => boolean, observe: () => Promise<void> = async () => {},
@@ -98,6 +99,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   let activeConfirmationDeadline: number | undefined;
   let setupComplete = false;
   let setupRefs = {};
+  const setupQuoteEvidence: Pick<ScenarioResult, "refs" | "reason" | "quoteDiagnostics"> = {};
   let config: ProtocolConfiguration;
   let valuation: Awaited<ReturnType<typeof readValuation>> | undefined;
   const runPolicy = regressionPolicy(process.env.TRADE_REGRESSION_RUN_POLICY);
@@ -135,18 +137,19 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   page.on("request", request => {
     const path = new URL(request.url()).pathname;
     const current = activeResult();
+    const quoteEvidence = current ?? (!setupComplete ? setupQuoteEvidence : undefined);
     if (path === "/api/rpc") genericRequests.push(request.url());
-    if (current && !activeSwapAttempt && path.startsWith("/api/quotes/")) {
+    if (quoteEvidence && !activeSwapAttempt && path.startsWith("/api/quotes/")) {
       try {
         if (activeQuoteDiagnostics?.request(path, request.postDataJSON(), request.headers()["x-cybergold-attempt-id"]))
-          Object.assign(current, activeQuoteDiagnostics.snapshot());
+          Object.assign(quoteEvidence, activeQuoteDiagnostics.snapshot());
       } catch { /* Optional diagnostics never alter an ordinary quote request. */ }
     }
     if (path === "/api/diagnostics") {
       const event = request.postDataJSON();
       if (!setupComplete && ["quote", "swap"].includes(event?.operation)) setupRefs = { ...setupRefs, ...safeDiagnosticReferences(event) };
-      if (current && !activeSwapAttempt && activeQuoteDiagnostics?.diagnostic(event))
-        Object.assign(current, activeQuoteDiagnostics.snapshot());
+      if (quoteEvidence && !activeSwapAttempt && activeQuoteDiagnostics?.diagnostic(event))
+        Object.assign(quoteEvidence, activeQuoteDiagnostics.snapshot());
       if (!activeSwapAttempt && event?.operation === "swap" && event.outcome === "started") activeSwapAttempt = event.attemptId;
       if (current && event?.operation === "swap" && event.attemptId === activeSwapAttempt)
         current.refs = { ...current.refs, ...safeDiagnosticReferences(event) };
@@ -219,17 +222,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     await checkpoint("ui-prepare-details");
     await openFeeDetails(page);
     await checkpoint("ui-prepare-swap");
-    await uiPreparationAssertion("ui-swap-not-enabled", async () => {
-      if (!scenario) return expect(await getSwapButton(page)).toBeEnabled({ timeout: 60000 });
-      await expect.poll(async () => {
-        const matches = (await quoteObservations(page)).filter(row => scenario.asset === "BASKET"
-          ? row.path === "/api/quotes/basket-preview" && row.request.mode === `${scenario.side === "buy" ? "issue" : "redeem"}-${scenario.inputMode}`
-          : row.path === "/api/quotes/trade/stream" && row.request.side === scenario.side && row.request.mode === scenario.inputMode && row.request.amount === scenario.amountRaw);
-        // Observe the original request's terminal within the existing readiness
-        // window; do not launch a second provider search or delay product readiness.
-        return Boolean(matches.at(-1)?.terminal) && await (await getSwapButton(page)).isEnabled();
-      }, { timeout: 60000 }).toBe(true);
-    });
+    await waitForUiSwapReady(page, config, scenario);
   }
   async function releaseUiRequest(result: ScenarioResult) {
     if (helpersHash) result.transactionHash = helpersHash;
@@ -381,6 +374,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   // Exercise wallet cancellation with funded collateral. ETH route readiness
   // belongs to its matrix cases, rather than every scenario's shared setup.
   const rejectionPurchase = setupPurchase(config, valuation!, "0.25", "fixture-wallet-rejection");
+  try { activeQuoteDiagnostics = createUiQuoteDiagnostics(rejectionPurchase, config); } catch { /* Optional evidence cannot change setup. */ }
   await prepare("PAXG", "CYGLD", rejectionPurchase.displayAmount);
   const beforeRejected = await readWalletBalances(page, ["cygld"]);
   await checkpoint("setup-rejection-submit");
@@ -601,8 +595,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   expect(results.filter(result => result.status !== "pass").map(result => ({ id: result.id, status: result.status, code: result.code }))).toEqual([]);
   } catch (error) {
     if (!setupComplete) for (const [index, result] of results.entries()) results[index] = {
-      ...failureResult({ ...result, refs: { ...result.refs, ...setupRefs } }, error),
-      code: error instanceof errors.TimeoutError ? "ui-setup-timeout" : "ui-setup-failed",
+      ...uiSetupFailure(result, error, { ...setupQuoteEvidence, refs: { ...result.refs, ...setupRefs, ...setupQuoteEvidence.refs } }),
     };
     await persist();
     throw error;

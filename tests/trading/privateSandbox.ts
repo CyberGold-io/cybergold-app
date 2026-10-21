@@ -3,6 +3,8 @@ import type { TradeQuote, TradeQuoteRequest } from '../../app/utils/tradeQuote.t
 import type { MatrixScenario } from './matrix.ts';
 import type { QuoteObservation } from './quoteObservation.ts';
 import type { SelectionCapture } from './providerEvidence.ts';
+import { browserQuoteMatcher } from './browserQuoteObservation.ts';
+import type { UniversalExactInputQuote } from '../../app/utils/universalExactInput.ts';
 
 export type PrivateSandboxPhase = 'prepare' | 'winner' | 'alternate';
 export type SandboxIsolation = {
@@ -35,6 +37,12 @@ export function privateSandboxScenarios(scenarios: MatrixScenario[], phase: Priv
 /** Preserve the original browser request when UI preparation failed before click. */
 export function privateSandboxSelection(observations: readonly QuoteObservation[], scenario: MatrixScenario,
   configuration: ProtocolConfiguration): SelectionCapture | undefined {
+  if (scenario.inputMode === 'exact-in') {
+    const matches = browserQuoteMatcher(scenario, configuration, scenario.amountRaw ?? '0', scenario.basketAssets ?? []);
+    const observed = observations.findLast(row => matches(row) && row.terminal?.type === 'complete');
+    if (observed) return { universalQuote: structuredClone(observed.terminal!.value as UniversalExactInputQuote),
+      deployment: protocolConfigurationValues(configuration).addresses };
+  }
   if (scenario.asset === 'BASKET') return undefined;
   const observed = observations.findLast(row => row.path === '/api/quotes/trade/stream'
     && row.request.side === scenario.side && row.request.mode === scenario.inputMode
