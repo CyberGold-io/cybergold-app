@@ -4,6 +4,8 @@ export const quoteErrorKeys = {
   "insufficient-protocol-supply": "quoteProtocolSupplyExceeded",
   "issuance-cap-exceeded": "quoteIssuanceCapExceeded",
   "redemption-supply-exceeded": "quoteRedemptionSupplyExceeded",
+  "insufficient-reserve-balance": "quoteInsufficientReserveBalance",
+  "insufficient-recovery-shares": "quoteInsufficientRecoveryShares",
   "redemption-capacity-exceeded": "quoteRedemptionCapacityExceeded",
   "rpc-rate-limit": "quoteRpcRateLimit",
   "rpc-timeout": "quoteRpcTimeout",
@@ -58,6 +60,8 @@ export function knownQuoteError(value: unknown): QuotePreviewError | undefined {
     'insufficient-protocol-supply': 'The Core redemption exceeds available supply or redemption capacity.',
     'issuance-cap-exceeded': 'The issuance amount exceeds the CYGLD supply limit.',
     'redemption-supply-exceeded': 'The CYGLD input exceeds the available supply for redemption.',
+    'insufficient-reserve-balance': 'The requested output exceeds the available collateral reserve.',
+    'insufficient-recovery-shares': 'The requested recovery output exceeds the available Core-attached shares.',
     'redemption-capacity-exceeded': 'The requested Core outputs exceed the available redemption capacity.',
   };
   if (typeof code === "string" && Object.hasOwn(quoteErrorKeys, code)) return new QuotePreviewError(code as Code, messages[code as Code] ?? code, diagnosticReferences(value), quoteDiagnostics(value), constraint);

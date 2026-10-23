@@ -23,6 +23,8 @@ const cases = [
   ...(["en", "fr", "de"] as const).map(locale => ({ locale, code: "insufficient-protocol-supply", message: messages[locale] })),
   ...(["en", "fr", "de"] as const).map(locale => ({ locale, code: "quote-insufficient-liquidity", message: liquidityMessages[locale] })),
   { locale: "en" as const, code: "redemption-supply-exceeded", message: "The CYGLD input exceeds the available supply for redemption." },
+  { locale: "en" as const, code: "insufficient-reserve-balance", message: "The requested output exceeds the available collateral reserve." },
+  { locale: "en" as const, code: "insufficient-recovery-shares", message: "The requested recovery output exceeds the available Core-attached shares." },
   { locale: "en" as const, code: "redemption-capacity-exceeded", message: "The requested Core outputs exceed the available redemption capacity." },
 ];
 for (const { locale, code, message } of cases) for (const path of ["token", "basket"]) {
