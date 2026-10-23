@@ -1,7 +1,7 @@
 {
   "repository": "CyberGold-io/cybergold-backend",
   "version": "0.1.0",
-  "commit": "93e408ccc280a4b51ea622a85c3417b540b934ed",
+  "commit": "9d469a232a5b4dd6c69e34eefe19576a7e87d7c1",
   "files": {
     "http.d.ts": {
       "sha256": "6946fd0828e76617aa6f18138456b61ca12f67a5eaf74b9070f13fae2d98c9fe"
