@@ -109,6 +109,8 @@
     "quoteProcessing": "Angebot wird vorbereitet...",
     "quoteProtocolSupplyExceeded": "Die Core-Rücknahme überschreitet das verfügbare Angebot oder die Rücknahmekapazität.",
     "quoteRedemptionSupplyExceeded": "Der CYGLD-Eingabebetrag überschreitet das für die Rücknahme verfügbare Angebot.",
+    "quoteInsufficientReserveBalance": "Der angeforderte Ausgabebetrag überschreitet die verfügbare Sicherheitenreserve.",
+    "quoteInsufficientRecoveryShares": "Der angeforderte Recovery-Ausgabebetrag überschreitet die verfügbaren, dem Core zugeordneten Anteile.",
     "quoteRedemptionCapacityExceeded": "Die angeforderten Core-Ausgabebeträge überschreiten die verfügbare Rücknahmekapazität.",
     "quoteIssuanceCapExceeded": "Der Ausgabebetrag übersteigt die CYGLD-Mengenbegrenzung.",
     "cygldAvailableToBuy": "Kaufbar: {amount} CYGLD",

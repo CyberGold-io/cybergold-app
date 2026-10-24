@@ -103,7 +103,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: CyberGold-io/cybergold-protocol
-          ref: 16a66bd1276f3029888f03be144df632046ad93e
+          ref: 33d2f7f1ac8b1baad2e34c0c21c88d28835b11ef
           path: cybergold-protocol
           persist-credentials: false
 

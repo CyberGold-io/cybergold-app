@@ -97,6 +97,15 @@ test("generated modules preserve each diamond's ERC-165 advertisement policy", (
   assert.equal(STAKING_DIAMOND_ERC165_ADVERTISED, true);
 });
 
+test("Core release ABI distinguishes three no-argument shortage errors", () => {
+  const errors = new Map<string, readonly unknown[]>(CORE_DIAMOND_ABI
+    .filter(item => item.type === "error").map(item => [item.name, item.inputs]));
+  for (const name of ["InsufficientCygldSupply", "InsufficientReserveBalance", "InsufficientRecoveryShares"]) {
+    assert.deepEqual(errors.get(name), [], `${name} must remain a no-argument diagnostic`);
+  }
+  assert.equal(errors.has("InsufficientSupply"), false);
+});
+
 
 test("universal Helpers candidate ABI contains 43 base, one Market exact-output and one universal function", async () => {
   const { HELPERS_EXECUTION_ABI } = await import("../contracts/cybergold-helpers/execution.ts");

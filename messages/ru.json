@@ -116,6 +116,8 @@
     "quoteProtocolSupplyExceeded": "Погашение Core превышает доступное предложение или возможность погашения.",
     "quoteIssuanceCapExceeded": "Объём выпуска превышает лимит предложения CYGLD.",
     "quoteRedemptionSupplyExceeded": "Входной объём CYGLD превышает предложение, доступное для погашения.",
+    "quoteInsufficientReserveBalance": "Запрошенный выходной объём превышает доступный резерв обеспечения.",
+    "quoteInsufficientRecoveryShares": "Запрошенный объём долей восстановления превышает доступные доли, закреплённые за Core.",
     "quoteRedemptionCapacityExceeded": "Запрошенные выходные объёмы Core превышают доступную возможность погашения.",
     "reverseSwapDirection": "Изменить направление обмена",
     "quoteEstimate": "Оценка — подготовка окончательной котировки",
