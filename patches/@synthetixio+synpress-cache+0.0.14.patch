@@ -1,0 +1,36 @@
+diff --git a/node_modules/@synthetixio/synpress-cache/src/utils/importWalletSetupFile.ts b/node_modules/@synthetixio/synpress-cache/src/utils/importWalletSetupFile.ts
+--- a/node_modules/@synthetixio/synpress-cache/src/utils/importWalletSetupFile.ts
++++ b/node_modules/@synthetixio/synpress-cache/src/utils/importWalletSetupFile.ts
+@@ -5,7 +5,7 @@
+ const WalletSetupModule = z.object({
+   default: z.object({
+     hash: z.string(),
+-    fn: z.function().returns(z.promise(z.void()))
++    fn: z.function({ output: z.promise(z.void()) })
+   })
+ })
+ 
+diff --git a/node_modules/@synthetixio/synpress-cache/dist/index.js b/node_modules/@synthetixio/synpress-cache/dist/index.js
+--- a/node_modules/@synthetixio/synpress-cache/dist/index.js
++++ b/node_modules/@synthetixio/synpress-cache/dist/index.js
+@@ -180,7 +180,7 @@
+ var WalletSetupModule = z.object({
+   default: z.object({
+     hash: z.string(),
+-    fn: z.function().returns(z.promise(z.void()))
++    fn: z.function({ output: z.promise(z.void()) })
+   })
+ });
+ async function importWalletSetupFile(walletSetupFilePath) {
+diff --git a/node_modules/@synthetixio/synpress-cache/dist/cli/index.js b/node_modules/@synthetixio/synpress-cache/dist/cli/index.js
+--- a/node_modules/@synthetixio/synpress-cache/dist/cli/index.js
++++ b/node_modules/@synthetixio/synpress-cache/dist/cli/index.js
+@@ -789,7 +789,7 @@
+ var WalletSetupModule = z.object({
+   default: z.object({
+     hash: z.string(),
+-    fn: z.function().returns(z.promise(z.void()))
++    fn: z.function({ output: z.promise(z.void()) })
+   })
+ });
+ async function importWalletSetupFile(walletSetupFilePath) {

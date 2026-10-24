@@ -1,0 +1,71 @@
+diff --git a/node_modules/@synthetixio/synpress-metamask/types/type/Network.d.ts b/node_modules/@synthetixio/synpress-metamask/types/type/Network.d.ts
+--- a/node_modules/@synthetixio/synpress-metamask/types/type/Network.d.ts
++++ b/node_modules/@synthetixio/synpress-metamask/types/type/Network.d.ts
+@@ -5,18 +5,6 @@
+     chainId: z.ZodNumber;
+     symbol: z.ZodString;
+     blockExplorerUrl: z.ZodOptional<z.ZodString>;
+-}, "strip", z.ZodTypeAny, {
+-    symbol: string;
+-    name: string;
+-    rpcUrl: string;
+-    chainId: number;
+-    blockExplorerUrl?: string | undefined;
+-}, {
+-    symbol: string;
+-    name: string;
+-    rpcUrl: string;
+-    chainId: number;
+-    blockExplorerUrl?: string | undefined;
+-}>;
++}, z.core.$strip>;
+ export type Network = z.infer<typeof NetworkValidation>;
+ //# sourceMappingURL=Network.d.ts.map
+\ No newline at end of file
+diff --git a/node_modules/@synthetixio/synpress-metamask/types/type/Network.d.ts.map b/node_modules/@synthetixio/synpress-metamask/types/type/Network.d.ts.map
+--- a/node_modules/@synthetixio/synpress-metamask/types/type/Network.d.ts.map
++++ b/node_modules/@synthetixio/synpress-metamask/types/type/Network.d.ts.map
+@@ -1 +1 @@
+-{"version":3,"file":"Network.d.ts","sourceRoot":"","sources":["../../src/type/Network.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,CAAC,EAAE,MAAM,KAAK,CAAA;AAEvB,eAAO,MAAM,iBAAiB;;;;;;;;;;;;;;;;;;EAM5B,CAAA;AAEF,MAAM,MAAM,OAAO,GAAG,CAAC,CAAC,KAAK,CAAC,OAAO,iBAAiB,CAAC,CAAA"}
+\ No newline at end of file
++{"version":3,"file":"Network.d.ts","sourceRoot":"","sources":["../../src/type/Network.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,CAAC,EAAE,MAAM,KAAK,CAAA;AAEvB,eAAO,MAAM,iBAAiB;;;;;;iBAM5B,CAAA;AAEF,MAAM,MAAM,OAAO,GAAG,CAAC,CAAC,KAAK,CAAC,OAAO,iBAAiB,CAAC,CAAA"}
+\ No newline at end of file
+diff --git a/node_modules/@synthetixio/synpress-metamask/types/type/GasSettings.d.ts b/node_modules/@synthetixio/synpress-metamask/types/type/GasSettings.d.ts
+--- a/node_modules/@synthetixio/synpress-metamask/types/type/GasSettings.d.ts
++++ b/node_modules/@synthetixio/synpress-metamask/types/type/GasSettings.d.ts
+@@ -1,24 +1,8 @@
+ import { z } from 'zod';
+-export declare const GasSettingValidation: z.ZodUnion<[z.ZodLiteral<"low">, z.ZodLiteral<"market">, z.ZodLiteral<"aggressive">, z.ZodLiteral<"site">, z.ZodEffects<z.ZodObject<{
++export declare const GasSettingValidation: z.ZodUnion<readonly [z.ZodLiteral<"low">, z.ZodLiteral<"market">, z.ZodLiteral<"aggressive">, z.ZodLiteral<"site">, z.ZodObject<{
+     maxBaseFee: z.ZodNumber;
+     priorityFee: z.ZodNumber;
+     gasLimit: z.ZodOptional<z.ZodNumber>;
+-}, "strip", z.ZodTypeAny, {
+-    maxBaseFee: number;
+-    priorityFee: number;
+-    gasLimit?: number | undefined;
+-}, {
+-    maxBaseFee: number;
+-    priorityFee: number;
+-    gasLimit?: number | undefined;
+-}>, {
+-    maxBaseFee: number;
+-    priorityFee: number;
+-    gasLimit?: number | undefined;
+-}, {
+-    maxBaseFee: number;
+-    priorityFee: number;
+-    gasLimit?: number | undefined;
+-}>]>;
++}, z.core.$strip>]>;
+ export type GasSettings = z.input<typeof GasSettingValidation>;
+ //# sourceMappingURL=GasSettings.d.ts.map
+\ No newline at end of file
+diff --git a/node_modules/@synthetixio/synpress-metamask/types/type/GasSettings.d.ts.map b/node_modules/@synthetixio/synpress-metamask/types/type/GasSettings.d.ts.map
+--- a/node_modules/@synthetixio/synpress-metamask/types/type/GasSettings.d.ts.map
++++ b/node_modules/@synthetixio/synpress-metamask/types/type/GasSettings.d.ts.map
+@@ -1 +1 @@
+-{"version":3,"file":"GasSettings.d.ts","sourceRoot":"","sources":["../../src/type/GasSettings.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,CAAC,EAAE,MAAM,KAAK,CAAA;AAEvB,eAAO,MAAM,oBAAoB;;;;;;;;;;;;;;;;;;;;IAqB/B,CAAA;AAEF,MAAM,MAAM,WAAW,GAAG,CAAC,CAAC,KAAK,CAAC,OAAO,oBAAoB,CAAC,CAAA"}
+\ No newline at end of file
++{"version":3,"file":"GasSettings.d.ts","sourceRoot":"","sources":["../../src/type/GasSettings.ts"],"names":[],"mappings":"AAAA,OAAO,EAAE,CAAC,EAAE,MAAM,KAAK,CAAA;AAEvB,eAAO,MAAM,oBAAoB;;;;mBAqB/B,CAAA;AAEF,MAAM,MAAM,WAAW,GAAG,CAAC,CAAC,KAAK,CAAC,OAAO,oBAAoB,CAAC,CAAA"}
+\ No newline at end of file
