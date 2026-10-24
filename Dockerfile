@@ -12,6 +12,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./
+COPY patches ./patches
 
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --no-audit --no-fund
