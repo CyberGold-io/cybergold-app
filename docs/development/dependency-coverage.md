@@ -28,14 +28,14 @@ policy. The configuration must reach the default branch before GitHub starts
 using it. Dependabot security alerts describe the default branch, and remain
 open until the corresponding fix is promoted through the normal release path.
 
-CI audits all npm dependency scopes through
-`node scripts/check-dependency-audit.mjs`, which runs
-`npm audit --json --audit-level=low`.
-This includes vulnerable development tools that the former `--omit=dev` check
-excluded, and also fails on moderate and low findings apart from the specific
-owner-accepted exception below. npm's advisory view is
-not identical to GitHub's alert view; the source audit and default-branch
-alert status remain separate results.
+CI audits all npm dependency scopes directly with
+`npm audit --audit-level=info`. This includes development tools that the former
+`--omit=dev` check excluded. Every reported severity, including informational
+findings, fails the audit; npm also reports audit service and process failures
+as errors. There is no advisory allowlist. The `info` threshold preserves the
+former wrapper's rejection of every finding after retiring its sole exception.
+npm's advisory view is not identical to GitHub's alert view; the source audit
+and default-branch alert status remain separate results.
 
 The separate `Dependabot alerts` workflow checks every open GitHub alert on
 `main` pushes, daily, and on manual request. Its read-only token retrieves all
@@ -45,22 +45,21 @@ from pull-request checks and the deployment aggregate: outstanding alerts on
 `main` cannot deadlock the feature and `dev` changes needed to fix them.
 No alert is dismissed or excluded by an advisory allowlist.
 
-### October 3 accepted development exception
+### Retired braces development exception
 
 The owner accepted [GHSA-vfj7-8cjw-p6xm](https://github.com/advisories/GHSA-vfj7-8cjw-p6xm)
-for development dependencies on October 3, 2026. This `braces` stack-exhaustion
-advisory was published September 18 and reviewed/updated October 2; no patched
-release is available. It reaches the existing Next.js lint tooling through
-`micromatch` and `fast-glob`. The production audit is clean, and the standalone
-App output excludes this tooling. Crafted nested patterns can still crash the
-development tool; this exception accepts that risk, not a repaired dependency.
+for development dependencies on October 3, 2026, when no patched release was
+available. The `braces` stack-exhaustion advisory reached Next.js lint tooling
+through `micromatch` and `fast-glob`; the exception covered only development
+instances and parents affected solely by that advisory.
 
-The wrapper reports the accepted advisory and its affected development parents.
-Every reported instance must be development-only in the npm lockfile, and every
-underlying cause must resolve to that exact advisory. A production instance,
-another advisory, or an audit service/process error still fails the existing
-audit job. GitHub Dependabot alerts remain visible and are not dismissed. Remove
-the exception when a supported remediation becomes available.
+GitHub withdrew the advisory on October 23 because it was not considered
+practically exploitable. Fresh checks on October 24 report zero vulnerabilities
+in the raw all-scope npm audit and zero open App Dependabot alerts. The exception
+is therefore retired: CI now uses npm's native audit command, and the custom
+allowlist wrapper and its exception-specific tests are removed. No dependency
+version or lockfile change is needed. Installed `braces` remains at 3.0.3; the
+withdrawal corrects the advisory assessment rather than changing that code.
 
 Docker base images are outside the npm audit. Dependabot Docker proposals
 track the root image references; they do not constitute a vulnerability scan

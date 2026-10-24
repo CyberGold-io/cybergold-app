@@ -237,7 +237,7 @@ jobs:
           node-version: 26.10.0
 
       - name: Audit production and development dependencies
-        run: node scripts/check-dependency-audit.mjs
+        run: npm audit --audit-level=info
 
   quality:
     name: quality
