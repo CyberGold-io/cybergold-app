@@ -109,6 +109,8 @@
     "quoteProcessing": "Quote processing...",
     "quoteProtocolSupplyExceeded": "The Core redemption exceeds available supply or redemption capacity.",
     "quoteRedemptionSupplyExceeded": "The CYGLD input exceeds the available supply for redemption.",
+    "quoteInsufficientReserveBalance": "The requested output exceeds the available collateral reserve.",
+    "quoteInsufficientRecoveryShares": "The requested recovery output exceeds the available Core-attached shares.",
     "quoteRedemptionCapacityExceeded": "The requested Core outputs exceed the available redemption capacity.",
     "quoteIssuanceCapExceeded": "The issuance amount exceeds the CYGLD supply limit.",
     "cygldAvailableToBuy": "Available: {amount} CYGLD",

@@ -4,7 +4,7 @@ doc_type: portal
 status: active
 owner: app-maintainer
 created: 2026-07-11
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-24
 canonical_for: App documentation navigation
 ---
 
@@ -15,7 +15,7 @@ canonical_for: App documentation navigation
 | [Root README](../README.md) | active | App maintainer | 2026-10-11 |
 | [Contributor guide](../CONTRIBUTING.md) | active | App maintainer | 2026-10-11 |
 | [Branch and promotion workflow](development/branch-workflow.md) | active | App maintainer | 2026-10-11 |
-| [Dependency coverage](development/dependency-coverage.md) | active | App maintainer | 2026-09-26 |
+| [Dependency coverage](development/dependency-coverage.md) | active | App maintainer | 2026-10-24 |
 | [Runtime profiles](development/runtime-profiles.md) | active | App maintainer | 2026-07-11 |
 | [Frontend and swap audit](development/frontend-swap-audit.md) | active | App maintainer | 2026-10-05 |
 | [Environment configuration](architecture/environment.md) | active | App maintainer | 2026-09-20 |

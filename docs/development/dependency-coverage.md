@@ -4,8 +4,8 @@ doc_type: development-guide
 status: active
 owner: app-maintainer
 created: 2026-09-26
-last_reviewed: 2026-10-03
-canonical_for: App dependency manifest coverage and September 2026 remediation limits
+last_reviewed: 2026-10-24
+canonical_for: App dependency manifest coverage and reviewed remediation limits
 ---
 
 # App dependency coverage and remediation
@@ -68,6 +68,127 @@ of every operating-system package installed inside the image. The separately
 published Protocol/Helpers ABI artifacts and remote services are also outside
 this npm inventory. Their owning release and image checks remain necessary;
 Dependabot npm coverage is not a general supply chain attestation.
+
+## October 24 Zod compatibility patches
+
+The dependency candidate uses the genuine upstream `zod 4.6.7` package for
+[GHSA-mrhx-c7xc-m3w5](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5).
+Its bounded-collection fix runs before element validation. No Zod source is
+modified, and its vulnerable `zod/v3` compatibility export is not substituted
+for the fixed implementation. This advisory has no accepted audit exception.
+
+The installed Synpress packages still declare Zod 3. The local compatibility
+patches preserve their `0.0.14` version and wallet-test APIs:
+
+- [Synpress Cache](../../patches/@synthetixio+synpress-cache+0.0.14.patch)
+  replaces the removed `.returns()` builder with
+  `z.function({ output: z.promise(z.void()) })` in its source importer and both
+  published bundles. Wallet setup still validates its hash and function,
+  forwards its arguments, rejects non-void results, and propagates failures.
+- [Synpress MetaMask](../../patches/@synthetixio+synpress-metamask+0.0.14.patch)
+  regenerates the Network and GasSettings declarations and declaration maps
+  against Zod 4 from unchanged source validators. Its runtime validation rules
+  stay the same.
+
+Both patches derive from the installed official npm distributions and retain
+their [Synpress MIT notice](../../patches/SYNPRESS-LICENSE.txt). The upstream
+[wallet importer](https://github.com/synpress/synpress/blob/dev/packages/cache/src/utils/importWalletSetupFile.ts)
+still uses the old builder. Remove these patches when reviewed upstream
+releases support the fixed Zod API; requalify the actual importer and MetaMask
+validators when changing their parent versions. The existing all-scope audit
+continues to report unrelated findings and service errors normally.
+
+The production wallet dependencies use the same fixed implementation. Their
+patches retain the existing RainbowKit connector list and provider behavior:
+
+- [AppKit Wallet 1.7.8](../../patches/@reown+appkit-wallet+1.7.8.patch)
+  makes the existing optional RPC response and two optional RPC parameter
+  fields explicit, and flattens three existing union chains without changing
+  their alternatives or order. Numeric and string chain IDs and the existing
+  `{ message }` error payload remain supported. Its generated declarations use
+  Zod 4 rather than the incompatible Zod 3 class signatures.
+- [CDP SDK 1.51.0](../../patches/@coinbase+cdp-sdk+1.51.0.patch)
+  supplies the string key schema explicitly to the typed-data record and adds
+  a public ABI type annotation for portable declarations. Genuine Zod 4.6.7
+  already accepts its old record call at runtime, but its TypeScript signature
+  requires both arguments. ESM and CommonJS policy validators and the policy
+  declarations/maps are regenerated from the included source.
+- [ABIType 1.3.0](../../patches/abitype+1.3.0.patch) is selected for the
+  installed 1.x consumers; its published peer range supports Zod 4. Its public
+  TypedData annotation prevents declaration emission from expanding an invalid
+  index-signature combination. Both official runtime entry points are retained
+  byte for byte; the patch changes the source annotation and generated types
+  and declaration map, plus the ESM debug map.
+
+The AppKit source comes from the exact
+[`@reown/appkit-wallet@1.7.8` tag](https://github.com/reown-com/appkit/tree/c2e3e52181b723c220935ea7e4ebd1e73c4d9ea2/packages/wallet/src),
+not newer unmerged wire-protocol changes. Its
+[Apache-2.0 notice](../../patches/APPKIT-WALLET-LICENSE.txt) is retained.
+CDP uses the source included in the official `@coinbase/cdp-sdk@1.51.0` npm
+package, with its [MIT notice](../../patches/COINBASE-CDP-SDK-LICENSE.txt).
+ABIType uses the official `abitype@1.3.0` npm package and retains its
+[MIT notice](../../patches/ABITYPE-LICENSE.txt). Newer AppKit licensing and
+provider releases are not adopted by these patches.
+
+Runtime qualification uses actual exported schemas and nonempty valid/invalid
+frame, address, ABI and policy data. Generated declarations are additionally
+compiled with TypeScript 5.9.3, `strict: true` and `skipLibCheck: false`, and
+checked by an independent typed consumer. A CDP/Zod 4 schema composed with an
+ABIType/Zod 3 schema throws on ordinary valid addresses and ABI policies; the
+resolved graph must therefore use genuine Zod 4 consistently. Package version
+or constructor-only checks do not establish this compatibility.
+
+Two upstream validation differences are recorded: Zod 4 accepts an RFC-valid
+apostrophe in an email address that the installed Zod 3 rejected, and ABIType
+1.3.0 rejects malformed Solidity parameter identifiers previously accepted by
+its partial regex match. The migration adds no email pattern, client-side
+limits, relay restrictions or wallet policy to reproduce those old outcomes.
+
+For future regeneration, use the pinned TypeScript compiler with a temporary
+project-root configuration such as the following ABIType declaration build:
+
+```json
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler",
+    "strict": true, "skipLibCheck": false, "esModuleInterop": true,
+    "declaration": true, "emitDeclarationOnly": true, "declarationMap": true,
+    "rootDir": "node_modules/abitype/src", "outDir": "rebuild/abitype-types",
+    "types": ["node"]
+  },
+  "files": ["node_modules/abitype/src/zod.ts"]
+}
+```
+
+Run `node node_modules/typescript/lib/tsc.js -p zod-rebuild.json` after saving
+that temporary configuration. Rebuild ABIType declarations first so CDP
+consumes its public Zod 4 declarations. For AppKit, set `rootDir` to
+`node_modules/@reown/appkit-wallet` and include
+`src/W3mFrameSchema.ts`, `src/W3mFrameConstants.ts` and
+`src/W3mFrameTypes.ts` beneath that root. For CDP, use
+`node_modules/@coinbase/cdp-sdk/src` and include
+`policies/evmSchema.ts`, `policies/solanaSchema.ts` and `policies/types.ts`.
+Use separate temporary output directories. An isolated strict AppKit rebuild
+also supplies the official `@types/big.js@7.0.0` declarations for AppKit
+Common's existing `big.js` import; this is build tooling, not a new production
+dependency or an ignored type error.
+
+For the changed AppKit/CDP runtime files, use the same source inputs with
+`emitDeclarationOnly: false`, `declaration: false` and `sourceMap: true`.
+CDP's separate CommonJS build uses `module: CommonJS` and
+`moduleResolution: Node`; verify the actual CommonJS entry with Node rather
+than copying ESM output into that directory. Preserve ABIType's official
+runtimes. Replace only the reviewed files named in each patch, retain the
+corresponding maps, regenerate the package patch, and test a clean `npm ci`.
+Remove temporary configuration/output files. Requalify the installed ESM and
+CommonJS schemas and strict declaration consumer whenever these parents
+change, then run the existing App source and browser checks.
+
+The pinned patch installer runs through the ordinary npm postinstall hook.
+Docker dependency stages copy `patches/` before `npm ci`, so local, CI and
+container builds use the same reviewed changes. Installing with lifecycle
+scripts disabled does not apply the patches. Source qualification remains
+separate from the existing Sandbox and Mainnet acceptance workflow.
 
 ## September 27 runtime candidate
 

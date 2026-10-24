@@ -75,14 +75,50 @@ test('capacity causes retain safe producer facts in HTTP, stream, scenario and p
 test('specific redemption names and legacy ambiguity are clear and localized without upstream text', () => {
   for (const locale of ['en', 'fr', 'de', 'ru']) {
     const messages = JSON.parse(readFileSync(new URL(`../../messages/${locale}.json`, import.meta.url), 'utf8')).Home;
-    for (const code of ['redemption-supply-exceeded', 'redemption-capacity-exceeded', 'issuance-cap-exceeded', 'insufficient-protocol-supply']) {
+    const descriptions = new Set<string>();
+    for (const code of ['redemption-supply-exceeded', 'insufficient-reserve-balance', 'insufficient-recovery-shares', 'redemption-capacity-exceeded', 'issuance-cap-exceeded', 'insufficient-protocol-supply']) {
       const error = knownQuoteError({ code, error: 'private-provider-text', constraint: { kind: 'redemption-capacity', quantity: 'core-output-minima' } })!;
-      assert.equal(error.code, code); assert.equal(typeof quoteErrorMessage(error, key => messages[key]), 'string');
+      const description = quoteErrorMessage(error, key => messages[key]);
+      assert.equal(error.code, code); assert.equal(typeof description, 'string');
+      assert.ok(description.length > 0);
+      descriptions.add(description);
       assert.doesNotMatch(error.message, /private/);
     }
+    assert.equal(descriptions.size, 6, `${locale}: resource shortages and legacy ambiguity must stay distinct`);
   }
   assert.match(knownQuoteError({ code: 'insufficient-protocol-supply' })!.message, /supply or redemption capacity/);
 });
+
+for (const code of ['redemption-supply-exceeded', 'insufficient-reserve-balance', 'insufficient-recovery-shares', 'insufficient-protocol-supply'] as const) {
+  for (const transport of ['http', 'stream'] as const) test(`${code} survives ${transport} and bounded diagnostic projections`, async () => {
+    const snapshot = { providerQualifications: { provider: 'core', attempts: 1,
+      rows: [{ attempt: 1, stage: 'final-preview', outcome: 'rejected', code }] },
+      routeWave: { mode: 'exact-in', legs: { count: 1,
+        rows: [{ index: 0, failureCounts: [{ code, count: 1 }], bestPools: [] }] } } };
+    const requestId = 'e2668ad3-e650-4847-af92-247a39bdb36f';
+    const payload = { type: 'error', code, requestId, error: 'private-provider-url',
+      quoteDiagnostics: { ...snapshot, privatePayload: 'private-provider-url' } };
+    let error: unknown;
+    if (transport === 'http') error = await quoteResponseError(Response.json(payload, { status: 422 }));
+    else {
+      try { await fetchQuoteStream('/api/quotes/intent/stream', {}, new AbortController().signal, () => {},
+        (async () => new Response(JSON.stringify(payload) + '\n')) as typeof fetch); }
+      catch (cause) { error = cause; }
+    }
+    assert.ok(error instanceof QuotePreviewError);
+    assert.equal(error.code, code);
+    assert.equal(error.constraint, undefined, 'no resource quantities are invented from a no-argument error');
+    assert.deepEqual(quoteDiagnostics(error), snapshot);
+    const events: ClientDiagnostic[] = [], quotes = createQuoteDiagnostics(event => events.push(event));
+    quotes.observe({ strategy: 'core' }, 'failed', error);
+    assert.equal(events[0].errorClassification, code);
+    assert.equal(events[0].requestId, requestId);
+    const result = failureResult(resultFor(tradeScenarios[0], 'api'), error);
+    assert.equal(result.code, code);
+    assert.deepEqual(result.quoteDiagnostics, snapshot);
+    assert.doesNotMatch(JSON.stringify({ error, events, result }), /private-provider/);
+  });
+}
 
 test("service connection, request, stream and RPC failures are not conflated", async () => {
   assert.equal((await quoteResponseError(Response.json({}, { status: 429 }))).code, "quote-request-limit");

@@ -264,7 +264,6 @@ export function WalletBalanceModal({ isOpen, onClose, returnFocusRef, onDisconne
             }
             if (!payload) throw new FaucetRequestError(response.status, "INVALID_RESPONSE");
 
-            await refreshWalletBalances();
             if (faucetRequestRef.current?.requestId === requestId) {
                 faucetRequestRef.current = null;
             }
@@ -281,6 +280,9 @@ export function WalletBalanceModal({ isOpen, onClose, returnFocusRef, onDisconne
             ].filter(Boolean).join(" ");
             toast.error(t("fundFailed"), { description });
         } finally {
+            // A failed request may still have assigned some assets. Balance
+            // read errors keep their own feedback and never change funding's outcome.
+            await Promise.allSettled([refreshWalletBalances()]);
             setIsFundingWallet(false);
         }
     };

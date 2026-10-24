@@ -53,7 +53,9 @@ async function install(page: Page, handleFaucet: FaucetHandler) {
   const origin = new URL(test.info().project.use.baseURL ?? "http://localhost:3000").origin;
   await page.route("**/*", async route => {
     const request = route.request(), url = new URL(request.url());
-    if (url.pathname === "/api/faucet") {
+    if (url.pathname === "/api/protocol/config") {
+      await route.fallback();
+    } else if (url.pathname === "/api/faucet") {
       expect(request.method()).toBe("POST");
       expect(request.headers()["authorization"]).toBeUndefined();
       requests.push(request.postDataJSON());
@@ -168,6 +170,62 @@ test("pending funding survives wallet-panel reopening and a confirmed success cl
   await expect.poll(() => requests.length).toBe(3);
   await expect(fund).toBeEnabled();
   expect(requests[2].requestId).not.toBe(requests[1].requestId);
+});
+
+for (const outcome of ["success", "uncertain", "transport-error"] as const) {
+  test(`funding ${outcome} refreshes displayed balances before the button is ready again`, async ({ page }) => {
+    let fundingSettled = false;
+    const requests = await install(page, async route => {
+      fundingSettled = true;
+      if (outcome === "transport-error") await route.abort("failed");
+      else await route.fulfill(outcome === "success"
+        ? { json: { address: account, ethWei: "10000000000000000000", tokens: [] } }
+        : { status: 409, json: { code: "REQUEST_UNCERTAIN", error: privateMessage, correlationId: reference } });
+    });
+    let finishRefresh: (() => void) | undefined;
+    let refreshed = false;
+    const context = { chainId: chain, blockNumber: "100", blockHash: `0x${"a".repeat(64)}`,
+      blockTimestamp: "1790800000", observedAt: "2026-10-01T00:00:00Z" };
+    await page.route("**/api/account/wallet-balances?**", async route => {
+      if (fundingSettled) {
+        refreshed = true;
+        await new Promise<void>(resolve => { finishRefresh = resolve; });
+      }
+      await route.fulfill({ json: { context, holder: account,
+        native: { status: "success", value: fundingSettled ? "10000000000000000000" : "3000000000000000000" }, tokens: [] } });
+    });
+    const panel = await openWallet(page);
+    await expect(panel.getByText("3.000 ETH", { exact: true })).toBeVisible();
+    await panel.getByRole("button", { name: labels.en.fund, exact: true }).click();
+    await expect.poll(() => refreshed).toBe(true);
+    await expect(panel.getByRole("button", { name: "Funding...", exact: true })).toBeDisabled();
+    finishRefresh!();
+    await expect(panel.getByText("10.000 ETH", { exact: true })).toBeVisible();
+    await expect(panel.getByRole("button", { name: labels.en.fund, exact: true })).toBeEnabled();
+    if (outcome === "success") {
+      await expect(panel.getByRole("alert")).toHaveCount(0);
+      await expect(page.getByText(labels.en.funded, { exact: true })).toBeVisible();
+    } else await expect(panel.getByRole("alert")).toContainText(labels.en.uncertain);
+    expect(requests).toHaveLength(1);
+  });
+}
+
+test("a balance refresh outage preserves successful funding feedback", async ({ page }) => {
+  let fundingSettled = false;
+  await install(page, route => {
+    fundingSettled = true;
+    return route.fulfill({ json: { address: account, ethWei: "10000000000000000000", tokens: [] } });
+  });
+  await page.route("**/api/account/wallet-balances?**", route => fundingSettled
+    ? route.fulfill({ status: 503, json: { error: "Fixture balance read unavailable" } })
+    : route.fallback());
+  const panel = await openWallet(page);
+  const fund = panel.getByRole("button", { name: labels.en.fund, exact: true });
+  await fund.click();
+  await expect(fund).toBeEnabled();
+  await expect(page.getByText(labels.en.funded, { exact: true })).toBeVisible();
+  await expect(panel.getByRole("alert")).toHaveCount(0);
+  await expect(panel.getByText("Wallet balances unavailable", { exact: true })).toBeVisible();
 });
 
 for (const outcome of ["copied", "failed"] as const) {
