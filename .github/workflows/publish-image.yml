@@ -72,7 +72,6 @@ jobs:
     env:
       TARGET: ${{ needs.build.outputs.target }}
       CONFIG_IMAGE_ID: ${{ needs.build.outputs.config_image_id }}
-      DOCKER_CONFIG: ${{ runner.temp }}/app-publish-docker
     steps:
       - name: Check out publication tooling from the exact admitted App commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -92,8 +91,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GHCR_TOKEN: ${{ github.token }}
+          DOCKER_CONFIG: ${{ runner.temp }}/app-publish-docker
         run: bash scripts/publish-release-image.sh "$TARGET" "$RUNNER_TEMP/app-image-download/app-image-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.docker.tar"
 
       - name: Remove registry credentials
         if: always()
+        env:
+          DOCKER_CONFIG: ${{ runner.temp }}/app-publish-docker
         run: docker logout ghcr.io >/dev/null 2>&1 || true
