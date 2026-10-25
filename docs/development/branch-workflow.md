@@ -4,7 +4,7 @@ doc_type: development-guide
 status: active
 owner: app-maintainer
 created: 2026-08-14
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-25
 canonical_for: CyberGold App feature integration and dev-to-main promotion
 ---
 
@@ -60,12 +60,39 @@ separate bot or exclusive merger service. Maintainers verify the selected
 hosted protections during rollout; this document alone does not establish that
 they are active.
 
-PR jobs do not dispatch deployment. Successful admitted `dev` push CI requests
-publication through the existing private Ops delivery path, followed by
-automatic shared Sandbox adoption. `main` uses the established Mainnet path.
+PR jobs do not publish images. A completed successful App CI push run on
+`dev` or `main` starts `publish-image.yml` in this public repository using
+standard GitHub-hosted runners. It checks the exact green CI run and current
+branch head, builds without registry credentials using the public settings in
+`deploy/public-build/`, then publishes the immutable image and updates the
+mapped private GHCR package's `desired` tag. `dev` maps to Sandbox; `main` maps
+to Mainnet. The branch head is checked before build and registry publication.
+
+Ordinary App releases do not dispatch a workflow in private Ops, check out Ops,
+or require its cross-repository token. Ops continues to own host deployment,
+private runtime configuration, backend placement and candidate health. Its
+existing host controller discovers `desired` and adopts the exact digest.
 CI success, image publication and actual host adoption are separate results;
-maintainers check the served version and exercise the integrated change before
-promotion. The shared Sandbox contains several accepted features at once.
+maintainers check the App image-publication workflow, the served version and
+the integrated behavior before promotion.
+
+The image packages remain private and keep their existing names. Before the
+first release, grant this App repository Write access under each package's
+**Manage Actions access**, and copy the public
+`NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` Actions variable from Ops to App.
+`publish-image.yml` uses the repository's `GITHUB_TOKEN` with `packages: write`
+only in the publication job. Workflow-run triggers use the workflow on the
+default branch: merge this workflow through `dev` into `main` before expecting
+it to handle later completed App CI runs. No server runtime update is needed;
+the images retain the profile, source and runtime labels already consumed by
+the host controller. `io.cybergold.profile.sha256` identifies the checked-in
+public build profile; private runtime configuration keeps its separate host
+identity. The shared Sandbox contains several accepted features at once.
+
+The build transfers its image through a one-day Actions artifact. Readers of
+this public repository can download that archive, which contains public App
+code and public build settings. Private runtime configuration stays on the
+host; the two GHCR packages retain their private access controls.
 
 Public contributors can use local source fixtures and submit PRs without Ops
 access or shared credentials. Maintainers handle deployment evidence and

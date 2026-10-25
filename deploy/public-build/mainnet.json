@@ -1,0 +1,11 @@
+{
+  "id": "mainnet/b2b-server-mainnet-indexed-dapp-only",
+  "buildTarget": "runner",
+  "environment": {
+    "NEXT_PUBLIC_CHAIN_ID": "1",
+    "NEXT_PUBLIC_CHAIN_NAME": "Ethereum Mainnet",
+    "NEXT_PUBLIC_WALLET_RPC_URL": "https://ethereum-rpc.publicnode.com",
+    "NEXT_PUBLIC_BLOCK_EXPLORER_URL": "https://etherscan.io",
+    "NEXT_PUBLIC_FORK_FAUCET_ENABLED": "0"
+  }
+}

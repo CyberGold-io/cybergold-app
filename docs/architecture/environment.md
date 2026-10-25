@@ -96,8 +96,8 @@ in that project. Reown permits localhost development; use a separately allowed
 HTTPS origin when testing a phone against a workstation.
 
 Direct local launches read the value from `.env.local`. Hosted image publication
-reads the same-named **Actions variable in cybergold-ops**, passes it through the
-generated public environment and compiles it into the App. Changing a running
+reads the same-named **Actions variable in cybergold-app**, passes it through the
+public build environment and compiles it into the App. Changing a running
 container's environment cannot replace the browser-bundled ID: rebuild and
 deliver the image. An empty value leaves injected browser wallets available;
 it does not use RainbowKit's shared example project or offer relay-based pairing.
