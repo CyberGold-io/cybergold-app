@@ -84,6 +84,11 @@ for (const branch of ["dev", "main"]) {
       f.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID="public-test-project";
       const result=f.run("build-release-image.sh",[f.target],checkout);
       assert.equal(result.status,0,result.stderr);
+      // Raw artifact uploads use the file basename, ignoring the action's name input.
+      const outputs=Object.fromEntries(readFileSync(f.env.GITHUB_OUTPUT,"utf8").trim().split("\n").map(line=>line.split("=")));
+      assert.equal(path.basename(outputs.archive_path),"app-image-456-1.docker.tar");
+      assert.equal(outputs.archive_name,path.basename(outputs.archive_path));
+      assert.equal(readFileSync(outputs.archive_path,"utf8"),"inert test image");
       const build=f.commands().find(c=>c[1]==="build");
       assert.ok(build.includes("linux/amd64"));
       assert.ok(build.includes(`io.cybergold.app.commit=${f.env.RELEASE_APP_COMMIT}`));
