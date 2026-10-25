@@ -54,7 +54,6 @@ jobs:
       - name: Transfer the exact current-run image archive
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: app-image-${{ github.run_id }}-${{ github.run_attempt }}.docker.tar
           path: ${{ steps.build.outputs.archive_path }}
           archive: false
           overwrite: false

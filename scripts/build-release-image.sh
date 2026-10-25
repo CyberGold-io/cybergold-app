@@ -42,6 +42,6 @@ CYBERGOLD_SOURCE_COMMIT="$app_commit" bash "$root/scripts/build-public-image.sh"
   --label 'org.opencontainers.image.source=https://github.com/CyberGold-io/cybergold-app' \
   --label "org.opencontainers.image.revision=$app_commit"
 image_id="$(docker image inspect --format '{{.Id}}' "$image_tag")"
-archive_path="${RUNNER_TEMP:?RUNNER_TEMP is required}/app-image.docker.tar"
+archive_path="${RUNNER_TEMP:?RUNNER_TEMP is required}/app-image-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.docker.tar"
 docker image save --output "$archive_path" "$image_id"
 printf 'archive_path=%s\nconfig_image_id=%s\n' "$archive_path" "$image_id" >>"${GITHUB_OUTPUT:?GITHUB_OUTPUT is required}"
