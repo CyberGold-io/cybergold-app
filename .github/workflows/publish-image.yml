@@ -27,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
     outputs:
       target: ${{ steps.authority.outputs.target }}
       config_image_id: ${{ steps.build.outputs.config_image_id }}
@@ -66,6 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      actions: read
       packages: write
     env:
       TARGET: ${{ needs.build.outputs.target }}
