@@ -1,0 +1,11 @@
+{
+  "id": "forks/b2b-server-sandbox-indexed-dapp-only",
+  "buildTarget": "development",
+  "environment": {
+    "NEXT_PUBLIC_CHAIN_ID": "31338",
+    "NEXT_PUBLIC_CHAIN_NAME": "CyberGold Sandbox Fork",
+    "NEXT_PUBLIC_WALLET_RPC_URL": "https://rpc-fork.cybergold.io/",
+    "NEXT_PUBLIC_BLOCK_EXPLORER_URL": "https://etherscan.io",
+    "NEXT_PUBLIC_FORK_FAUCET_ENABLED": "1"
+  }
+}

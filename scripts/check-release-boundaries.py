@@ -8,6 +8,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
+RELEASE_WORKFLOW = ROOT / ".github" / "workflows" / "publish-image.yml"
 DOCKERFILE = ROOT / "Dockerfile"
 NODE_BASE = (
     "node:26.10.0-bookworm-slim@sha256:"
@@ -37,7 +38,6 @@ try:
     dependency_review = workflow.split("  dependency-review:\n", 1)[1].split(
         "  secret-scan:\n", 1
     )[0]
-    dispatch = workflow.split("  dispatch_b2b_deployment:\n", 1)[1]
 except IndexError as exc:
     raise SystemExit("ERROR: App CI trust-boundary jobs are unavailable") from exc
 
@@ -90,50 +90,45 @@ for expected in (
     if expected not in dependency_review:
         fail(f"the dependency-review availability boundary is missing: {expected}")
 
-dispatch_condition = (
-    "    if: >-\n"
-    "      ${{\n"
-    "        !cancelled()\n"
-    "        && github.event_name == 'push'\n"
-    "        && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')\n"
-    "        && needs.quality.result == 'success'\n"
-    "        && needs['secret-scan'].result == 'success'\n"
-    "      }}\n"
-)
-if dispatch_condition not in dispatch:
-    fail(
-        "the B2B dispatch job must continue past skipped quality ancestors and "
-        "require successful quality and secret-scan results"
-    )
-for dependency in ("quality", "secret-scan"):
-    if f"      - {dependency}\n" not in dispatch:
-        fail(f"the B2B dispatch job must need {dependency}")
 if "      - branch_policy\n" not in workflow.split("  quality:\n", 1)[1].split(
     "  dependency-review:\n", 1
 )[0]:
     fail("the aggregate quality job must require branch-policy admission")
-if "GH_TOKEN: ${{ secrets.CYBERGOLD_XREPO_TOKEN }}" not in dispatch:
-    fail("the B2B dispatch job must use the existing cross-repository token")
+if "secrets." in workflow or "gh workflow run" in workflow:
+    fail("App CI must not dispatch private Ops or receive deployment secrets")
+
+release = RELEASE_WORKFLOW.read_text(encoding="utf-8")
 for expected in (
-    "refs/heads/main)\n              target=mainnet",
-    "refs/heads/dev)\n              target=sandbox",
-    "gh workflow run publish-b2b-app.yml",
-    "--repo CyberGold-io/cybergold-ops",
-    "--ref main",
-    '-f "target=${target}"',
-    '-f "app_commit=${GITHUB_SHA}"',
-    '-f "app_ci_run_id=${GITHUB_RUN_ID}"',
+    "  workflow_run:\n",
+    "    workflows: [App CI]",
+    "    types: [completed]",
+    "    branches: [dev, main]",
+    "github.event.workflow_run.event == 'push'",
+    "github.event.workflow_run.conclusion == 'success'",
+    "github.event.workflow_run.head_repository.full_name == 'CyberGold-io/cybergold-app'",
+    "group: app-image-publication-${{ github.event.workflow_run.head_branch }}",
+    "cancel-in-progress: false",
+    "RELEASE_APP_COMMIT: ${{ github.event.workflow_run.head_sha }}",
+    "RELEASE_CI_RUN_ID: ${{ github.event.workflow_run.id }}",
+    "digest-mismatch: error",
 ):
-    if expected not in dispatch:
-        fail(f"the B2B dispatch contract is missing: {expected}")
-if "pull_request_target:" in workflow:
-    fail("pull_request_target must not expose the B2B dispatch credential")
-if workflow.count("secrets.") != trusted.count("secrets.") + dispatch.count("secrets."):
-    fail("a PR-runnable App job must not reference Actions secrets")
+    if expected not in release:
+        fail(f"the public App publication contract is missing: {expected}")
+build, publish = release.split("  build:\n", 1)[1].split("  publish:\n", 1)
+if "packages: write" in build or "GHCR_TOKEN" in build:
+    fail("the App image build must not receive registry write authority")
+if "      packages: write\n" not in publish:
+    fail("the App image publisher needs its package write scope")
+if "    needs: build\n" not in publish:
+    fail("the App publisher must consume the completed image build")
+if "secrets." in release or "cybergold-ops" in release:
+    fail("public App publication must not require private Ops sources or secrets")
+if "pull_request_target:" in workflow + release:
+    fail("pull_request_target must not expose App publication authority")
 
 checkout_blocks = [
     segment.split("\n      - ", 1)[0]
-    for segment in workflow.split("uses: actions/checkout@")[1:]
+    for segment in (workflow + release).split("uses: actions/checkout@")[1:]
 ]
 if not checkout_blocks or any("persist-credentials: false" not in block for block in checkout_blocks):
     fail("every App checkout must disable persisted credentials")
@@ -149,7 +144,7 @@ for expected_build_identity_line in (
 ):
     if expected_build_identity_line not in dockerfile:
         fail(
-            "the App image build must project the exact Ops-provided App commit: "
+            "the App image build must project the exact admitted App commit: "
             f"{expected_build_identity_line}"
         )
 

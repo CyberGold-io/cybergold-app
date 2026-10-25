@@ -5,6 +5,7 @@ source_dir="${1:?source directory}"
 image_tag="${2:?local image tag}"
 target="${3:-runner}"
 public_env="${4:?public build environment file}"
+shift 4
 source_commit="${CYBERGOLD_SOURCE_COMMIT:-}"
 if [[ -z "$source_commit" ]]; then
   source_commit="$(python3 - "$source_dir" <<'SOURCE_ID'
@@ -29,4 +30,5 @@ DOCKER_BUILDKIT=1 docker build --platform linux/amd64 \
   --secret "id=app_public_env,src=$public_env" \
   --build-arg "CYBERGOLD_APP_COMMIT=$source_commit" \
   --build-arg "CYBERGOLD_PUBLIC_ENV_SHA256=$public_env_sha256" \
+  "$@" \
   --tag "$image_tag" "$source_dir"
