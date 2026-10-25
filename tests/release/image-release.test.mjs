@@ -87,6 +87,7 @@ for (const branch of ["dev", "main"]) {
       // Raw artifact uploads use the file basename, ignoring the action's name input.
       const outputs=Object.fromEntries(readFileSync(f.env.GITHUB_OUTPUT,"utf8").trim().split("\n").map(line=>line.split("=")));
       assert.equal(path.basename(outputs.archive_path),"app-image-456-1.docker.tar");
+      assert.equal(outputs.archive_name,path.basename(outputs.archive_path));
       assert.equal(readFileSync(outputs.archive_path,"utf8"),"inert test image");
       const build=f.commands().find(c=>c[1]==="build");
       assert.ok(build.includes("linux/amd64"));
