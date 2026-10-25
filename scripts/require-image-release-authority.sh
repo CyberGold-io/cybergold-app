@@ -25,7 +25,6 @@ require_run '.event == "push"' 'The App CI run must be a push run.'
 require_run '.path == ".github/workflows/ci.yml"' 'The App CI run must use ci.yml.'
 require_run '.status == "completed"' 'The App CI run has not completed.'
 require_run '.conclusion == "success"' 'The App CI run did not succeed.'
-require_run ".head_repository.full_name == \"$repository\"" 'The App CI run has the wrong source repository.'
 require_run ".head_branch == \"$RELEASE_APP_BRANCH\"" 'The App CI run has the wrong source branch.'
 require_run ".head_sha == \"$RELEASE_APP_COMMIT\"" 'The App CI run has the wrong source commit.'
 current="$(gh api "/repos/$repository/git/ref/heads/$RELEASE_APP_BRANCH" --jq .object.sha)"

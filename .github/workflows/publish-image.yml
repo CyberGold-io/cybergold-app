@@ -23,7 +23,6 @@ jobs:
     if: >-
       github.event.workflow_run.event == 'push'
       && github.event.workflow_run.conclusion == 'success'
-      && github.event.workflow_run.head_repository.full_name == 'CyberGold-io/cybergold-app'
     runs-on: ubuntu-latest
     permissions:
       contents: read

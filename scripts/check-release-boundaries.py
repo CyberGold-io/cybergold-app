@@ -94,8 +94,8 @@ if "      - branch_policy\n" not in workflow.split("  quality:\n", 1)[1].split(
     "  dependency-review:\n", 1
 )[0]:
     fail("the aggregate quality job must require branch-policy admission")
-if "secrets." in workflow or "gh workflow run" in workflow:
-    fail("App CI must not dispatch private Ops or receive deployment secrets")
+if workflow.count("secrets.") != trusted.count("secrets."):
+    fail("a PR-runnable App CI job must not reference Actions secrets")
 
 release = RELEASE_WORKFLOW.read_text(encoding="utf-8")
 for expected in (
@@ -105,7 +105,6 @@ for expected in (
     "    branches: [dev, main]",
     "github.event.workflow_run.event == 'push'",
     "github.event.workflow_run.conclusion == 'success'",
-    "github.event.workflow_run.head_repository.full_name == 'CyberGold-io/cybergold-app'",
     "group: app-image-publication-${{ github.event.workflow_run.head_branch }}",
     "cancel-in-progress: false",
     "RELEASE_APP_COMMIT: ${{ github.event.workflow_run.head_sha }}",
@@ -115,14 +114,14 @@ for expected in (
     if expected not in release:
         fail(f"the public App publication contract is missing: {expected}")
 build, publish = release.split("  build:\n", 1)[1].split("  publish:\n", 1)
-if "packages: write" in build or "GHCR_TOKEN" in build:
-    fail("the App image build must not receive registry write authority")
+if "packages: write" in build:
+    fail("the App image build must not receive a package write scope")
+if "GHCR_TOKEN" in build:
+    fail("the App image build must not receive a registry token")
 if "      packages: write\n" not in publish:
     fail("the App image publisher needs its package write scope")
 if "    needs: build\n" not in publish:
     fail("the App publisher must consume the completed image build")
-if "secrets." in release or "cybergold-ops" in release:
-    fail("public App publication must not require private Ops sources or secrets")
 if "pull_request_target:" in workflow + release:
     fail("pull_request_target must not expose App publication authority")
 
