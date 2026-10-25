@@ -66,7 +66,7 @@ standard GitHub-hosted runners. It checks the exact green CI run and current
 branch head, builds without registry credentials using the public settings in
 `deploy/public-build/`, then publishes the immutable image and updates the
 mapped private GHCR package's `desired` tag. `dev` maps to Sandbox; `main` maps
-to Mainnet. An older commit cannot move `desired` after its branch advances.
+to Mainnet. The branch head is checked before build and registry publication.
 
 Ordinary App releases do not dispatch a workflow in private Ops, check out Ops,
 or require its cross-repository token. Ops continues to own host deployment,
@@ -88,6 +88,11 @@ the images retain the profile, source and runtime labels already consumed by
 the host controller. `io.cybergold.profile.sha256` identifies the checked-in
 public build profile; private runtime configuration keeps its separate host
 identity. The shared Sandbox contains several accepted features at once.
+
+The build transfers its image through a one-day Actions artifact. Readers of
+this public repository can download that archive, which contains public App
+code and public build settings. Private runtime configuration stays on the
+host; the two GHCR packages retain their private access controls.
 
 Public contributors can use local source fixtures and submit PRs without Ops
 access or shared credentials. Maintainers handle deployment evidence and

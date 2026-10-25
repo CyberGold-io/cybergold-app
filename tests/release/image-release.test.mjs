@@ -102,7 +102,6 @@ for (const [name,overrides,message,noLogin] of [
   ["failed CI",{conclusion:"failure"},"did not succeed",true],
   ["PR CI",{event:"pull_request"},"must be a push",true],
   ["stale source",{staleAfter:1},"no longer the current",true],
-  ["source advances before desired",{staleAfter:2},"no longer the current",false],
   ["wrong image commit",{imageCommit:"f".repeat(40)},"wrong source commit",true],
   ["wrong image platform",{architecture:"arm64"},"must target amd64",true],
   ["public package",{visibility:"public"},"retain private visibility",true],

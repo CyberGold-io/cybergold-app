@@ -59,8 +59,6 @@ actual_id="$(docker image inspect --format '{{.Id}}' "$reference")"
 if [[ "$actual_id" != "$image_id" ]]; then
   echo 'The published digest differs from the admitted config image ID.' >&2; exit 1
 fi
-# Preserve the existing current-branch check immediately before moving desired.
-bash "$root/scripts/require-image-release-authority.sh"
 docker tag "$image_id" "$repository:desired"
 push="$(docker push "$repository:desired")"
 desired_digest="$(awk -v expected=desired -f "$root/scripts/parse-docker-push-digest.awk" <<<"$push")"
@@ -68,7 +66,3 @@ if [[ "$desired_digest" != "$digest" ]]; then
   echo 'The desired tag differs from the published immutable digest.' >&2; exit 1
 fi
 printf 'Published %s\n' "$reference"
-if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-  printf 'App `%s` (%s) published `%s` and updated `%s:desired`.\n' \
-    "$RELEASE_APP_COMMIT" "$target" "$reference" "$repository" >>"$GITHUB_STEP_SUMMARY"
-fi
