@@ -147,7 +147,7 @@ test("a failed background quote read preserves the latest completed output and f
   const before = await page.getByTestId("trade-live-view").evaluate((root, keys) => Object.fromEntries(keys.map(key =>
     [key, root.querySelector(`[data-trade-display="${key}"]`)?.textContent?.trim() ?? ""])), slots);
   let failedReads = 0;
-  await page.route("**/api/quotes/universal-exact-input", async route => {
+  await page.route("**/api/economic-quotes", async route => {
     failedReads++;
     await route.fulfill({ status: 503, json: { error: "Fresh quote is temporarily unavailable" } });
   });

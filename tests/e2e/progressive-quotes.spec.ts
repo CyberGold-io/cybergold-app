@@ -12,9 +12,9 @@ async function controlled(page: Page, advisory = true) {
   const pending: { route: Route; input: UniversalExactInputRequest }[] = [];
   const failed: string[] = [];
   page.on("requestfailed", request => {
-    if (new URL(request.url()).pathname === "/api/quotes/universal-exact-input") failed.push(request.postData()!);
+    if (new URL(request.url()).pathname === "/api/economic-quotes") failed.push(request.postData()!);
   });
-  await page.route("**/api/quotes/universal-exact-input", route => { pending.push({ route, input: route.request().postDataJSON() }); });
+  await page.route("**/api/economic-quotes", route => { pending.push({ route, input: route.request().postDataJSON() }); });
   const complete = async (phase: "first" | "better" = "first", index = pending.length - 1) => {
     const { route, input } = pending[index];
     const value = intentFixture(coreIntentRequest({ ...input, side: input.intent === 0 ? "buy" : "sell", mode: "exact-in",

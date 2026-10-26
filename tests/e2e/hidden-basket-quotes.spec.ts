@@ -12,7 +12,7 @@ test("basket quotes wait while hidden and resume once visible", async ({ page })
     document.dispatchEvent(new Event("visibilitychange"));
   });
   let quotes = 0;
-  page.on("request", request => { if (new URL(request.url()).pathname === "/api/quotes/universal-exact-input") quotes++; });
+  page.on("request", request => { if (new URL(request.url()).pathname === "/api/economic-quotes") quotes++; });
   await page.getByRole("textbox", { name: "Sell amount (PAXG)", exact: true }).fill("1");
   await page.clock.fastForward(601_000);
   expect(quotes).toBe(0);

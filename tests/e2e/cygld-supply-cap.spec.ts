@@ -418,7 +418,7 @@ test("an exhausted Core cap leaves CYGLD redemption usable", async ({ page }) =>
 
 test("an exhausted Core model does not block a qualified market winner", async ({ page }) => {
   await installCapacity(page, 250n);
-  await page.route("**/api/quotes/universal-exact-input", route => route.fulfill({ json: marketUniversalFixture(route.request().postDataJSON()) }));
+  await page.route("**/api/economic-quotes", route => route.fulfill({ json: marketUniversalFixture(route.request().postDataJSON()) }));
   await page.goto("/en");
   await page.locator('main button[aria-haspopup="dialog"]').first().click();
   await page.getByPlaceholder("Search currency...").fill("PAXG");
@@ -467,7 +467,7 @@ for (const path of ["token", "basket"]) for (const exhausted of [true, false]) t
 test("insufficient market liquidity remains explicit when Core capacity is exhausted", async ({ page }) => {
   await installCapacity(page, 250n);
   await installReadOnlyWallet(page);
-  await page.route("**/api/quotes/universal-exact-input", route => route.fulfill({ status: 422,
+  await page.route("**/api/economic-quotes", route => route.fulfill({ status: 422,
     json: { code: "quote-insufficient-liquidity", error: "Private Market diagnostic" } }));
   await page.goto("/en");
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();

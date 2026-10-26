@@ -2,6 +2,18 @@ import { parseUnits } from 'viem';
 import type { ProtocolConfiguration } from '../../app/utils/protocolConfiguration.ts';
 import { configuredToken } from './scenarios.ts';
 import { repetitionManifest } from './matrix.ts';
+import { quoteErrorKeys } from '../../app/utils/quoteErrors.ts';
+
+export type QuoterBenchmarkApiFailure = { httpStatus?: number; apiCode?: keyof typeof quoteErrorKeys };
+/** Failure reports keep recognized public codes/status, never upstream prose. */
+export function quoterBenchmarkApiFailure(error: unknown): QuoterBenchmarkApiFailure {
+  const value = error as { httpStatus?: unknown; code?: unknown } | null;
+  const result: QuoterBenchmarkApiFailure = {};
+  if (typeof value?.httpStatus === 'number' && Number.isInteger(value.httpStatus) && value.httpStatus >= 100 && value.httpStatus <= 599)
+    result.httpStatus = value.httpStatus;
+  if (typeof value?.code === 'string' && Object.hasOwn(quoteErrorKeys, value.code)) result.apiCode = value.code as keyof typeof quoteErrorKeys;
+  return result;
+}
 
 export type QuoterProducerTimings = {
   timeToFirstWholePlanMs?: number; searchMs?: number; totalMs?: number; selectionReason?: string;
@@ -62,6 +74,7 @@ export type QuoterBenchmarkRow = QuoterBenchmarkAttempt & {
   status: 'pass' | 'fail'; stage: 'prepare' | 'measure'; cache?: CacheConditionObservation;
   setupMs: number; clientRequestMs?: number; result?: QuoterBenchmarkMeasurement;
   code?: 'preparation-failed' | 'quote-failed' | 'timeout';
+  httpStatus?: QuoterBenchmarkApiFailure['httpStatus']; apiCode?: QuoterBenchmarkApiFailure['apiCode'];
   errorClass?: 'Error' | 'TypeError' | 'RangeError' | 'SyntaxError' | 'AbortError' | 'TimeoutError';
   estimateError?: OutputError; referenceGap?: OutputError;
 };
@@ -109,7 +122,8 @@ export async function runQuoterBenchmark(definition: QuoterBenchmarkDefinition,
           const name = error instanceof Error ? error.name : 'Error';
           row.errorClass = (['Error', 'TypeError', 'RangeError', 'SyntaxError', 'AbortError', 'TimeoutError'] as const)
             .find(value => value === name) ?? 'Error';
-          row.code = ['AbortError', 'TimeoutError'].includes(row.errorClass) ? 'timeout'
+          Object.assign(row, quoterBenchmarkApiFailure(error));
+          row.code = ['AbortError', 'TimeoutError'].includes(row.errorClass) || row.apiCode === 'quote-timeout' || row.apiCode === 'rpc-timeout' ? 'timeout'
             : row.stage === 'prepare' ? 'preparation-failed' : 'quote-failed';
         }
         report.rows.push(row);

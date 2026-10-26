@@ -106,6 +106,8 @@
     "importTokenBalanceUnavailable": "Der Tokensaldo ist vorübergehend nicht verfügbar. Versuchen Sie es erneut.",
     "noAvailableTokens": "Keine Token verfügbar",
     "wrongNetwork": "Falsches Netzwerk — wechseln Sie zu {network}",
+    "refreshQuote": "Angebot aktualisieren",
+    "quoteRefreshFailed": "Aktualisierung fehlgeschlagen. Das vorherige Angebot wird angezeigt.",
     "quoteProcessing": "Angebot wird vorbereitet...",
     "quoteProtocolSupplyExceeded": "Die Core-Rücknahme überschreitet das verfügbare Angebot oder die Rücknahmekapazität.",
     "quoteRedemptionSupplyExceeded": "Der CYGLD-Eingabebetrag überschreitet das für die Rücknahme verfügbare Angebot.",

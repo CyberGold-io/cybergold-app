@@ -6,7 +6,7 @@ test("fee row stays visible and complete universal execution uses final net outp
   await install(page,"",undefined,false,undefined,undefined,undefined,true);
   let release!:()=>void,requests=0;
   const pending=new Promise<void>(resolve=>{release=resolve;});
-  await page.route("**/api/quotes/universal-exact-input",async route=>{
+  await page.route("**/api/economic-quotes",async route=>{
     requests++;const request=route.request().postDataJSON();await pending;
     await route.fulfill({json:universalFixture(request,{quotedOutput:"3000000000000000000",coreProtocolFeeCygld:"1000000000000000"})});
   });

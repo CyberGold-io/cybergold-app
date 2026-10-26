@@ -115,10 +115,10 @@ for (const strategy of ["core", "market"] as const) {
     await install(page);
     let release!: () => void, requests = 0;
     const pending = new Promise<void>(resolve => { release = resolve; });
-    await page.route("**/api/quotes/trade/model", route => route.fulfill({ json: {
+    await page.route("**/api/economic-estimates", route => route.fulfill({ json: {
       namespace: "trade", intent: route.request().postDataJSON(), models: [],
     } }));
-    await page.route("**/api/quotes/universal-exact-input", async route => {
+    await page.route("**/api/economic-quotes", async route => {
       requests++; const request = route.request().postDataJSON();
       await pending;
       const value = strategy === "market" ? marketUniversalFixture(request) : universalFixture(request);

@@ -116,10 +116,14 @@ test('warm completed quote hits and warm full searches have distinct distributio
 test('active exact-input JSON observation retains producer timing separately from client duration', async () => {
   const facts = { basket: { assets: { status: 'success', value: [] }, targetsPpm: { status: 'success', value: [] } } } as unknown as ProtocolFacts;
   const scenario = { ...activeMatrixTemplates().find(row => row.asset === 'USDC' && row.side === 'buy')!, amountRaw: '100000' };
-  const fetcher = (async (_path, init) => {
+  const fetcher = (async (path, init) => {
     const request = JSON.parse(String(init?.body));
-    return new Response(JSON.stringify({ operation: 'executeExactInput', plan: { ...request, body: '0x', minimumOutput: '99' },
-      outputMinimum: '99', quotedOutput: '100', fees: { coreProtocolFeeCygld: '0', coreHelpersFeeCygld: '0', marketFeeCygld: '0' },
+    assert.equal(path, '/api/economic-quotes');
+    assert.equal('deadline' in request, false);
+    return new Response(JSON.stringify({ strategy: 'universal', operation: 'executeExactInput', request, inputs: request.inputs,
+      plan: { allocations: [{ kind: 1, amountIn: request.inputs[0].amount }], conversions: {}, body: {} },
+      quotedOutput: '100', fees: { coreProtocolFeeCygld: '0', coreHelpersFeeCygld: '0', marketFeeCygld: '0' },
+      estimatedRecipientOutputs: [{ kind: 0, token: request.outputCurrency, id: '0', amount: '100' }],
       context: { chainId: configuration.chainId, blockNumber: '100', blockHash: cache.blockHash }, routeFamily: 'market',
       deployment: { helpers: configuration.contracts.helpers, adapter: configuration.contracts.uniswapAdapter }, metrics: {
         timeToFirstWholePlanMs: 15, searchMs: 50, totalMs: 52, selectionReason: 'best-initial' } }));
@@ -127,6 +131,7 @@ test('active exact-input JSON observation retains producer timing separately fro
   const result = (await observeScenario(scenario, configuration, facts, fetcher)).result;
   assert.equal(result.status, 'pass'); assert.equal(typeof result.durationMs, 'number');
   assert.equal(result.firstExecutableMs, undefined, 'JSON arrival must not become a first-plan timestamp');
+  assert.equal(result.bounds?.outputMinimum, undefined, 'an economic quote does not invent an execution minimum');
   assert.deepEqual(result.producerTimings, { timeToFirstWholePlanMs: 15, searchMs: 50, totalMs: 52, selectionReason: 'best-initial' });
 });
 

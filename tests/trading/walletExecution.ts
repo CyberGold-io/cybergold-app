@@ -3,6 +3,7 @@ import { decodeEventLog, decodeFunctionData, encodeFunctionData, erc20Abi, seria
 import { expect, type Page } from "@playwright/test";
 import { HISTORICAL_HELPERS_EXECUTION_ABI as HELPERS_EXECUTION_ABI } from "../fixtures/helpers-execution-legacy.ts";
 import { exactInputNativeValue, exactInputPlan, type UniversalExactInputQuote } from "../../app/utils/universalExactInput.ts";
+import { fetchTxPreparation, isEconomicQuote } from "../../app/utils/economicQuotes.ts";
 import { tradeReceipt, tradeRefundEvidence } from "../../app/utils/tradeReceipt.ts";
 import { fetchTransactionReceipt } from "../../app/utils/transactionReceipt.ts";
 import { estimateHelpersExecutionGas } from "../../app/utils/helpersExecutionGas.ts";
@@ -12,7 +13,7 @@ import { fetchBasketPermitIssuanceInstalled, fetchHelpersRouterFacts, fetchToken
 import { fetchPermit2Context } from "../../app/utils/permit2/context.ts";
 import { notification, walletRequestButton } from "../metamask/wallet-ui.ts";
 import { ScenarioUnavailableError } from "./scenarios.ts";
-import { readJson, requireInvariant, type QuoteObservation, type ScenarioResult } from "./regression.ts";
+import { applyUniversalExactInputQuote, readJson, requireInvariant, resultFor, type QuoteObservation, type ScenarioResult } from "./regression.ts";
 import { safeRunnerError, safeWalletClickError, type WalletRequestDiagnostic } from "./runnerDiagnostics.ts";
 import { readWalletUiState } from "./walletUiState.ts";
 import { observeWalletRpc } from "./walletRpcObservation.ts";
@@ -266,6 +267,7 @@ export async function executionPlan(observation: QuoteObservation, page: Page, o
   let operation: HelpersExecutionOperation | "issueFromBasketExactInWithMixedPermits" | "issueFromBasketExactInWithPermit2" | "redeemToBasketExactIn" | "redeemToNativeExactIn" | "redeemToTokenExactIn" | "swapExactInput", args: unknown[], nativeValue: bigint | undefined;
   const auth: string[] = [];
   if ("strategy" in value && value.strategy === "universal") {
+    requireInvariant(!isEconomicQuote(value), "economic-quote-not-prepared");
     const plan = exactInputPlan(value.plan), boundConfig = { ...config, contracts: { ...config.contracts, helpers: value.deployment.helpers } };
     const authorizations = [];
     for (const input of plan.inputs) {
@@ -364,10 +366,22 @@ export async function executionPlan(observation: QuoteObservation, page: Page, o
 }
 
 export async function executeScenario(observation: QuoteObservation, page: Page, owner: Address, config: ProtocolConfiguration, fetcher: typeof fetch): Promise<ScenarioResult> {
-  const universal = "strategy" in observation.value && observation.value.strategy === "universal" ? observation.value as UniversalExactInputQuote : undefined;
-  if (universal) config = { ...config, contracts: { ...config.contracts, helpers: universal.deployment.helpers } };
   const result = observation.result; result.layer = "execution"; result.status = "unavailable"; result.code = "execution-not-completed";
   try {
+  if ('strategy' in observation.value && observation.value.strategy === 'universal' && isEconomicQuote(observation.value)) {
+    const economic = observation.value;
+    result.executionStage = 'execution-quote';
+    const prepared = await fetchTxPreparation(economic, { sender: owner, recipient: owner, slippageBps: 100 },
+      AbortSignal.timeout(75_000), fetcher);
+    const execution = resultFor(observation.scenario, 'execution');
+    applyUniversalExactInputQuote(execution, prepared, economic.inputs);
+    result.bounds = execution.bounds;
+    result.executionTerms = execution.quoteTerms;
+    result.revalidatedPlanDigest = execution.planDigest;
+    observation = { ...observation, value: prepared };
+  }
+  const universal = 'strategy' in observation.value && observation.value.strategy === 'universal' ? observation.value as UniversalExactInputQuote : undefined;
+  if (universal) config = { ...config, contracts: { ...config.contracts, helpers: universal.deployment.helpers } };
   const { operation, args, nativeValue } = await executionPlan(observation, page, owner, config, fetcher);
   result.executionStage = "execution-simulation";
   // Historical fixture plans retain their old operation names locally. Fresh producer observations use the canonical API.
@@ -462,6 +476,7 @@ export async function executeScenario(observation: QuoteObservation, page: Page,
   const sourceRequest = observation.request;
   const requested = result.quoteTerms?.requestedInput ?? (observation.scenario.inputMode !== "exact-in" ? undefined
     : "amount" in sourceRequest ? [{ asset: input![0].asset, amount: sourceRequest.amount }]
+      : 'intent' in sourceRequest ? sourceRequest.inputs.map(row => ({ asset: row.currency.toLowerCase(), amount: row.amount }))
       : sourceRequest.mode === "issue-exact-in" ? (observation.value as Extract<BasketPreview, { mode: "issue-exact-in" }>).result.orderedCoreAssets
         .map((asset, i) => ({ asset: asset.toLowerCase(), amount: sourceRequest.maximumAmountsIn[i] }))
         : sourceRequest.mode === "redeem-exact-in" ? [{ asset: config.contracts.core!.toLowerCase(), amount: sourceRequest.grossCygldIn }] : undefined);

@@ -24,7 +24,7 @@ export function createUiQuoteDiagnostics(scenario: Scenario, config: ProtocolCon
     request(path: string, body: unknown, attempt: unknown) {
       if (!body || typeof body !== "object") return false;
       const value = body as Record<string, unknown>;
-      if (path === "/api/quotes/universal-exact-input") {
+      if (path === "/api/economic-quotes" || path === "/api/quotes/universal-exact-input") {
         if (!universalMatches({ path, request: value, status: 0 })) return false;
       } else if (expected) {
         if (path !== "/api/quotes/trade/stream" || value.mode !== expected.mode || value.side !== expected.side
