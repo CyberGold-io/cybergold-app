@@ -17,6 +17,7 @@ import type { WalletRequestDiagnostic } from "./runnerDiagnostics.ts";
 import type { QualityTerms, QualityMeasurement } from "./quoteQuality.ts";
 import { tradeQualityTerms, basketQualityTerms } from "./quoteQuality.ts";
 import { SandboxFundingError } from "./sandboxFunding.ts";
+import { quoterProducerTimings, type QuoterProducerTimings } from './quoterBenchmark.ts';
 
 export type UiObservationPhase = "ui-prepare" | "ui-facts" | "ui-balances" | "ui-submit" | "ui-confirmation"
   | "ui-hash" | "ui-receipt-read" | "ui-transaction-read" | "ui-receipt-assertions" | "ui-balance-postchecks";
@@ -43,6 +44,7 @@ export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "ass
   requestedStrategy: "core" | "market" | "auto";
   status: "pass" | "fail" | "unavailable" | "skipped"; actualStrategy: "core" | "market" | "mixed" | "universal" | "unknown";
   actualOperation?: string; quotedOperation?: string; layer: "api" | "browser" | "execution"; durationMs?: number; firstExecutableMs?: number;
+  producerTimings?: QuoterProducerTimings;
   code?: string; reason?: QuotePreviewError["code"] | SandboxFundingError["reason"] | UiObservationPhase | "unsupported" | "no-qualified-plan" | "quote-observation-unavailable" | "predecessor-submission-unknown"; refs?: DiagnosticReferences; transactionHash?: string;
   quoteDiagnostics?: QuoteDiagnostics; selectedPlan?: import("./selectedPlan.ts").SelectedPlan;
   constraint?: QuoteConstraint;
@@ -266,6 +268,7 @@ export async function observeScenario(scenario: Scenario, config: ProtocolConfig
       intent: scenario.asset === "BASKET" ? scenario.side === "buy" ? 2 : 3 : scenario.side === "buy" ? 0 : 1,
       inputs, outputCurrency, recipient, deadline: "deadline" in request ? request.deadline : String(Math.floor(Date.now() / 1000) + 1200), slippageBps: 100 });
     applyUniversalExactInputQuote(result, value, inputs);
+    result.producerTimings = quoterProducerTimings(value);
     result.deployment = { core: config.contracts.core as `0x${string}`, helpers: value.deployment.helpers as `0x${string}`, adapter: value.deployment.adapter as `0x${string}` };
     result.status = "pass"; delete result.code; result.durationMs = Math.round(performance.now() - started);
     return { scenario, request, value, result };
