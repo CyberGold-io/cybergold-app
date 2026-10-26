@@ -24,7 +24,8 @@ try {
       uncontrolled: ['upstream RPC caches', 'host scheduling'],
       changedStateScope: 'W3 advances the block header only; pool reserves are unchanged',
       startupBehavior: 'Native API startup may prefetch Helpers configuration; no benchmark quote/model/configuration warm-up before C1',
-      accuracyScope: 'selected quote outputs; no execution receipt or exhaustive reference oracle' },
+      instrumentation: 'read-only owned-fixture callback clocks on both images; normal 5+10 budget',
+      accuracyScope: 'fresh-secondary whole-trade estimate and longer best-observed reference; no execution receipt or global optimum' },
     summary: summarizeQuoterBenchmark(report) };
     await writeFile(destination + '.tmp', JSON.stringify(value, null, 2)+'\n');
     await rename(destination + '.tmp', destination);

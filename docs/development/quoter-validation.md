@@ -114,7 +114,9 @@ overrides it for an explicit fixture, and decimals are read only from the owned
 fork during setup. `--routing-adapter` can select the candidate's actual
 configured successor when the old manifest's `helpers.uniswapAdapter` names a
 legacy encoding. This quote-only phase does not qualify deployed execution
-format. Setup may unpause Core on the owned fork; quote measurements send no
+format. The quote-only phase preserves the source fork's Core pause state and
+requires no Safe authority, impersonation or wallet funding. Core and Market
+providers return their ordinary quotes or errors independently. Quote measurements send no
 swap transaction and no public-chain transaction is sent.
 
 The default quote-only fork uses chain ID **1** to exercise Mainnet's immutable
@@ -141,13 +143,54 @@ the containers/network created by the phase and restores its fork snapshot.
 The output records selected quote amounts, actual operation/source, cache/state
 receipts and timings. Recognized public API failure codes/status are retained;
 provider messages, credentials, calldata and wallet material are omitted. Legacy
-producer first-plan timing remains absent when the producer does not provide it.
+and candidate images both mount the same read-only `owned-quoter-runtime.py`
+entrypoint. It observes the existing qualified-whole-plan callbacks, providing
+actual first-plan time even when the old JSON response lacked it. A stored hit
+keeps those historical clocks with `producerTimingScope: stored-observation`;
+its lookup time is the current client request duration.
+On an unsuccessful search the same mounted fixture adds fixed request-local
+clocks/counters to a private response header, leaving the public error body
+unchanged. Reports retain these as `producerFailureTimings`. An actual producer
+stop reason of `timeout` is counted as a timeout even when the public code remains
+`quote-no-route`; an immediate no-route failure is kept separate. A search that
+never produced a whole plan has no first-plan time. No process-global counter
+differences or upstream error prose are used for these observations.
 Upstream RPC caches and host scheduling remain uncontrolled.
 
-The resource-control tests use disposable fake command/HTTP boundaries and
-produce no claimed benchmark numbers. Actual baseline/candidate runs, held-out
-estimator errors, slower-search reference quality and selected-plan receipt
-comparisons remain pending under WS7.4; the adapter alone does not complete it.
+After the entire paired latency cohort finishes, an optional accuracy phase runs
+outside every primary request timer. For each case it restores the same snapshot
+and header condition, copies only canonical inventory/pool/cursor/Helpers facts
+into an isolated database, and starts a fresh secondary API. Completed quotes
+and model samples are not copied. That process observes the Fast Estimator
+before revealing the target's exact answer, then performs a reference search.
+These are **fresh-secondary whole-trade** estimates: the predicted and selected
+routes may differ, so their gap is not a same-route arithmetic error. Errors are
+computed only when the estimate's own observation context matches the quote;
+unknown or different contexts retain quantities without a fabricated error.
+For Market estimates, route source contexts take priority over an older packet
+context. All route sources must agree to identify a comparison state because the
+estimator does not identify its winning route; mixed sources remain unknown.
+
+The reference uses the existing scheduler with a **30-second initial window and
+the ordinary 10-second extension**. A constant private header enables this only
+inside the mounted owned fixture; production APIs/settings are unchanged. Normal
+requests keep five plus ten seconds, including requests following a reference
+failure. Reports retain reference output/funding, configured search coverage,
+actual candidates started/completed and qualified callback updates. The result
+is the best observed within that coverage, not a global optimum. Reference state
+and quote writes stay in the isolated secondary database, and reference RPC work
+cannot warm a later primary-latency request because the complete latency cohort
+runs first.
+
+Accuracy duration, availability, failures, whole-trade estimate error and
+reference gap are separate fields. A failed accuracy request does not invalidate
+a successful quote, and a successful reference does not turn a failed primary
+quote into a success. Per-group summaries retain available/reference counts and
+same-state mean/worst absolute estimate error in integer ppm. The resource and
+instrumentation controls use disposable fake command/HTTP boundaries and actual
+local budget/callback clocks; their test durations are not claimed benchmark
+results. Actual baseline/candidate runs and selected-plan wallet/receipt
+comparisons remain pending under WS7.4; the plumbing alone does not complete it.
 
 ## Cache conditions
 

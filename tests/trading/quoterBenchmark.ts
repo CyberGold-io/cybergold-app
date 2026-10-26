@@ -4,7 +4,9 @@ import { configuredToken } from './scenarios.ts';
 import { repetitionManifest } from './matrix.ts';
 import { quoteErrorKeys } from '../../app/utils/quoteErrors.ts';
 
-export type QuoterBenchmarkApiFailure = { httpStatus?: number; apiCode?: keyof typeof quoteErrorKeys };
+export type QuoterBenchmarkApiFailure = {
+  httpStatus?: number; apiCode?: keyof typeof quoteErrorKeys; producerTimings?: QuoterProducerTimings;
+};
 /** Failure reports keep recognized public codes/status, never upstream prose. */
 export function quoterBenchmarkApiFailure(error: unknown): QuoterBenchmarkApiFailure {
   const value = error as { httpStatus?: unknown; code?: unknown } | null;
@@ -12,11 +14,14 @@ export function quoterBenchmarkApiFailure(error: unknown): QuoterBenchmarkApiFai
   if (typeof value?.httpStatus === 'number' && Number.isInteger(value.httpStatus) && value.httpStatus >= 100 && value.httpStatus <= 599)
     result.httpStatus = value.httpStatus;
   if (typeof value?.code === 'string' && Object.hasOwn(quoteErrorKeys, value.code)) result.apiCode = value.code as keyof typeof quoteErrorKeys;
+  const timings = quoterProducerTimings(error);
+  if (timings) result.producerTimings = timings;
   return result;
 }
 
 export type QuoterProducerTimings = {
   timeToFirstWholePlanMs?: number; searchMs?: number; totalMs?: number; selectionReason?: string;
+  ownedQualifiedUpdates?: number; ownedCandidatesStarted?: number; ownedCandidatesCompleted?: number;
 };
 
 /** Optional producer observations. Never infer first-plan time from JSON arrival. */
@@ -28,8 +33,12 @@ export function quoterProducerTimings(value: unknown): QuoterProducerTimings | u
     const number = metrics[key];
     if (typeof number === 'number' && Number.isFinite(number) && number >= 0) result[key] = number;
   }
-  if (typeof metrics.selectionReason === 'string' && /^[a-z][a-z0-9-]{0,63}$/.test(metrics.selectionReason))
+  if (typeof metrics.selectionReason === 'string' && ['complete', 'best-initial', 'first-extension', 'timeout'].includes(metrics.selectionReason))
     result.selectionReason = metrics.selectionReason;
+  for (const key of ['ownedQualifiedUpdates', 'ownedCandidatesStarted', 'ownedCandidatesCompleted'] as const) {
+    const count = metrics[key];
+    if (typeof count === 'number' && Number.isSafeInteger(count) && count >= 0) result[key] = count;
+  }
   return Object.keys(result).length ? result : undefined;
 }
 
@@ -67,16 +76,36 @@ export type QuoterBenchmarkAttempt = {
 export type QuoterBenchmarkMeasurement = {
   operation: 'search' | 'lookup'; requiredFundingRaw: string; netOutputRaw: string;
   blockNumber: string; blockHash: string; routeId?: string; producerTimings?: QuoterProducerTimings;
+  producerTimingScope?: 'current-search' | 'stored-observation';
   estimateOutputRaw?: string; exactRouteOutputRaw?: string; referenceOutputRaw?: string;
   rpcIssued?: number; rpcReused?: number;
+};
+export type QuoterReferenceCoverage = {
+  scope?: 'selected-inventory'; coreSharesPercent?: number[]; orders?: string[];
+  maxCoreInvocations?: number; maxAmmHops?: number;
+  candidatesStarted?: number; candidatesCompleted?: number; qualifiedUpdates?: number;
+};
+export type QuoterBenchmarkAccuracy = {
+  cohort: 'fresh-secondary-whole-trade';
+  estimate: { status: 'available' | 'unavailable' | 'failed'; outputRaw?: string; strategy?: 'core' | 'market';
+    blockNumber?: string; blockHash?: string; failure?: QuoterBenchmarkApiFailure };
+  reference: { status: 'available' | 'failed'; quote?: QuoterBenchmarkMeasurement;
+    coverage?: QuoterReferenceCoverage; failure?: QuoterBenchmarkApiFailure;
+    initialSeconds: number; extensionSeconds: number };
+  estimateComparison?: 'same-state-whole-trade' | 'different-state' | 'unknown-state';
+  referenceComparison?: 'same-state-whole-trade' | 'different-state';
+  wholeTradeEstimateError?: OutputError; referenceGap?: OutputError;
 };
 export type QuoterBenchmarkRow = QuoterBenchmarkAttempt & {
   status: 'pass' | 'fail'; stage: 'prepare' | 'measure'; cache?: CacheConditionObservation;
   setupMs: number; clientRequestMs?: number; result?: QuoterBenchmarkMeasurement;
   code?: 'preparation-failed' | 'quote-failed' | 'timeout';
   httpStatus?: QuoterBenchmarkApiFailure['httpStatus']; apiCode?: QuoterBenchmarkApiFailure['apiCode'];
+  producerFailureTimings?: QuoterProducerTimings;
   errorClass?: 'Error' | 'TypeError' | 'RangeError' | 'SyntaxError' | 'AbortError' | 'TimeoutError';
   estimateError?: OutputError; referenceGap?: OutputError;
+  accuracy?: QuoterBenchmarkAccuracy; accuracyMs?: number;
+  accuracyFailure?: QuoterBenchmarkApiFailure & { errorClass: string };
 };
 export type QuoterBenchmarkReport = {
   schema: 'cybergold.quoter-benchmark.v1'; profile: string; repetitions: number; concurrency: 1;
@@ -88,6 +117,8 @@ export type QuoterBenchmarkDefinition = {
   prepare: (attempt: QuoterBenchmarkAttempt) => Promise<CacheConditionObservation>;
   /** Quote-only observation. Wallet/setup/valuation belongs outside this timer. */
   measure: (attempt: QuoterBenchmarkAttempt) => Promise<QuoterBenchmarkMeasurement>;
+  /** Runs after the primary request timer stops, even when that request failed. */
+  accuracy?: (attempt: QuoterBenchmarkAttempt, primary?: QuoterBenchmarkMeasurement) => Promise<QuoterBenchmarkAccuracy>;
   checkpoint?: (report: QuoterBenchmarkReport) => Promise<void>;
 };
 
@@ -122,14 +153,46 @@ export async function runQuoterBenchmark(definition: QuoterBenchmarkDefinition,
           const name = error instanceof Error ? error.name : 'Error';
           row.errorClass = (['Error', 'TypeError', 'RangeError', 'SyntaxError', 'AbortError', 'TimeoutError'] as const)
             .find(value => value === name) ?? 'Error';
-          Object.assign(row, quoterBenchmarkApiFailure(error));
-          row.code = ['AbortError', 'TimeoutError'].includes(row.errorClass) || row.apiCode === 'quote-timeout' || row.apiCode === 'rpc-timeout' ? 'timeout'
+          const { producerTimings, ...failure } = quoterBenchmarkApiFailure(error);
+          Object.assign(row, failure);
+          if (producerTimings) row.producerFailureTimings = producerTimings;
+          row.code = ['AbortError', 'TimeoutError'].includes(row.errorClass) || row.apiCode === 'quote-timeout' || row.apiCode === 'rpc-timeout'
+            || producerTimings?.selectionReason === 'timeout' ? 'timeout'
             : row.stage === 'prepare' ? 'preparation-failed' : 'quote-failed';
         }
         report.rows.push(row);
         await definition.checkpoint?.(structuredClone(report));
       }
     }
+  // Complete every primary pair before accuracy work can warm shared node state.
+  if (definition.accuracy) for (const row of report.rows) {
+    if (row.stage !== 'measure') continue;
+    const attempt: QuoterBenchmarkAttempt = { case: row.case, condition: row.condition, repetition: row.repetition, variant: row.variant };
+    const accuracyStarted = clock();
+    try {
+      row.accuracy = structuredClone(await definition.accuracy(structuredClone(attempt), structuredClone(row.result)));
+      const estimate = row.accuracy.estimate;
+      if (estimate.status === 'available' && estimate.outputRaw !== undefined && row.result) {
+        row.accuracy.estimateComparison = !estimate.blockHash ? 'unknown-state'
+          : estimate.blockHash.toLowerCase() === row.result.blockHash.toLowerCase() ? 'same-state-whole-trade' : 'different-state';
+        if (row.accuracy.estimateComparison === 'same-state-whole-trade')
+          row.accuracy.wholeTradeEstimateError = outputError(estimate.outputRaw, row.result.netOutputRaw);
+      }
+      const reference = row.accuracy.reference;
+      if (reference.status === 'available' && reference.quote && row.result) {
+        row.accuracy.referenceComparison = reference.quote.blockHash.toLowerCase() === row.result.blockHash.toLowerCase()
+          ? 'same-state-whole-trade' : 'different-state';
+        if (row.accuracy.referenceComparison === 'same-state-whole-trade')
+          row.accuracy.referenceGap = outputError(row.result.netOutputRaw, reference.quote.netOutputRaw);
+      }
+    } catch (error) {
+      const name = error instanceof Error ? error.name : 'Error';
+      row.accuracyFailure = { ...quoterBenchmarkApiFailure(error),
+        errorClass: ['Error', 'TypeError', 'RangeError', 'SyntaxError', 'AbortError', 'TimeoutError'].includes(name) ? name : 'Error' };
+    }
+    row.accuracyMs = clock()-accuracyStarted;
+    await definition.checkpoint?.(structuredClone(report));
+  }
   return report;
 }
 
@@ -150,7 +213,17 @@ export function summarizeQuoterBenchmark(report: QuoterBenchmarkReport) {
       return { samples: values.length, medianMs: values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2,
         minimumMs: values[0], maximumMs: values[values.length - 1] };
     };
+    const accuracy = rows.filter(row => row.accuracy !== undefined || row.accuracyFailure !== undefined);
+    const errors = accuracy.flatMap(row => row.accuracy?.wholeTradeEstimateError?.relativeErrorPpm === undefined ? []
+      : [BigInt(row.accuracy.wholeTradeEstimateError.relativeErrorPpm)]).map(value => value < 0n ? -value : value);
     return { key, attempts: rows.length, completed: completed.length, failed: rows.length - completed.length,
-      timeouts: rows.filter(row => row.code === 'timeout').length, search: distribution('search'), lookup: distribution('lookup') };
+      timeouts: rows.filter(row => row.code === 'timeout').length, search: distribution('search'), lookup: distribution('lookup'),
+      ...(accuracy.length ? { accuracy: { attempted: accuracy.length,
+        failed: accuracy.filter(row => row.accuracyFailure).length,
+        estimateAvailable: accuracy.filter(row => row.accuracy?.estimate.status === 'available').length,
+        referenceAvailable: accuracy.filter(row => row.accuracy?.reference.status === 'available').length,
+        sameStateWholeTradeErrors: errors.length,
+        ...(errors.length ? { meanAbsoluteErrorPpm: String(errors.reduce((a, b) => a+b, 0n)/BigInt(errors.length)),
+          worstAbsoluteErrorPpm: String(errors.reduce((a, b) => a > b ? a : b, 0n)) } : {}) } } : {}) };
   });
 }

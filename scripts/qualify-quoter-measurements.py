@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Quote measurement phase of mainnet-fork-execution, without wallet or App build.
 
-Run under the existing authenticated tooling wrapper. Only the new Anvil below
-is unpaused/reset/mined. The existing wallet qualifier remains unchanged.
+Run under the existing authenticated tooling wrapper. The owned fork preserves
+source contract state; only snapshots and block headers change between cases.
+The existing wallet qualifier remains unchanged.
 """
 from __future__ import annotations
 
@@ -67,7 +68,9 @@ def main():
     output = (args.output_dir or Path(tempfile.mkdtemp(prefix="cybergold-quoter-"))).resolve()
     output.mkdir(parents=True, exist_ok=True, mode=0o700)
     evidence = {"profile": "mainnet-fork-execution", "phase": "quote-measurement", "result": "running",
-        "stage": "inputs", "chainId": args.chain_id, "scope": "owned local fork; no swap wallet or public-chain broadcast"}
+        "stage": "inputs", "chainId": args.chain_id,
+        "scope": "owned local fork; read-only economic quotes; source contract state preserved",
+        "corePauseState": "unchanged", "swapWalletFunding": False}
     fork_process = runner = None
     private_inputs = output / "owned-resources.json"
     def checkpoint(stage):
@@ -100,19 +103,7 @@ def main():
                 time.sleep(.2)
         else:
             raise RuntimeError("owned-fork-startup-failed")
-        checkpoint("core-preparation")
-        core, safe = contracts["protocol"]["coreDiamond"], contracts["safe"]["safe"]
-        paused = subprocess.check_output(["cast", "call", "--rpc-url", fork_url, core,
-                                          "paused()(bool)"], text=True).strip()
-        evidence.update(coreUnpausedForFixture=paused == "true", swapWalletFunding=False)
-        if paused == "true":
-            qualifier.rpc(fork_url, "anvil_setBalance", [safe, hex(10**18)])
-            qualifier.rpc(fork_url, "anvil_impersonateAccount", [safe])
-            try:
-                subprocess.run(["cast", "send", "--rpc-url", fork_url, "--from", safe, "--unlocked",
-                                core, "unpause()"], stdout=subprocess.DEVNULL, check=True)
-            finally:
-                qualifier.rpc(fork_url, "anvil_stopImpersonatingAccount", [safe])
+        checkpoint("token-metadata")
         usdt = usdt_address(funding, args.usdt_address)
         decimals = int(subprocess.check_output(["cast", "call", "--rpc-url", fork_url, usdt,
                                                "decimals()(uint8)"], text=True).strip())

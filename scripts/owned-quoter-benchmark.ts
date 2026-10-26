@@ -3,11 +3,12 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { promisify } from 'node:util';
 import { quoterProducerTimings, quoterBenchmarkApiFailure, type CacheConditionObservation, type CacheResource,
   type QuoterBenchmarkAttempt, type QuoterBenchmarkCase, type QuoterBenchmarkDefinition,
-  type QuoterBenchmarkMeasurement } from '../tests/trading/quoterBenchmark.ts';
+  type QuoterBenchmarkMeasurement, type QuoterBenchmarkAccuracy, type QuoterReferenceCoverage } from '../tests/trading/quoterBenchmark.ts';
 import { quoteResponseError } from '../app/utils/quoteErrors.ts';
 
 type Variant = QuoterBenchmarkAttempt['variant'];
@@ -25,6 +26,7 @@ export type OwnedQuoterResources = {
   restartApi: (variant: Variant, secondary?: boolean) => Promise<void>;
   ensureApi: (variant: Variant) => Promise<void>;
   quote: (attempt: QuoterBenchmarkAttempt, refresh: boolean, secondary?: boolean) => Promise<QuoterBenchmarkMeasurement>;
+  accuracy?: (attempt: QuoterBenchmarkAttempt) => Promise<QuoterBenchmarkAccuracy>;
   close: () => Promise<void>;
 };
 type Receipt = CacheConditionObservation & { priming: 'not-needed' | 'succeeded' | 'failed';
@@ -33,6 +35,53 @@ type Receipt = CacheConditionObservation & { priming: 'not-needed' | 'succeeded'
 const memory: CacheResource[] = ['api-process', 'sdk-worker', 'rpc-reads', 'fast-models'];
 const database: CacheResource[] = ['pool-catalog', 'pool-state', 'completed-quotes'];
 const conditions = ['application-cold', 'process-cold-database-warm', 'warm-search', 'shared-quote-hit', 'warm-changed-state'] as const;
+
+async function ownedQuoteFailure(response: Response) {
+  let metrics: ReturnType<typeof quoterProducerTimings>;
+  try { metrics = quoterProducerTimings({ metrics: JSON.parse(response.headers.get('x-cybergold-owned-quote-metrics') ?? 'null') }); }
+  catch { /* Missing or malformed fixture evidence does not replace the public API error. */ }
+  return Object.assign(await quoteResponseError(response), { httpStatus: response.status, ...(metrics ? { metrics } : {}) });
+}
+
+function referenceCoverage(value: { searchCoverage?: Record<string, unknown>; metrics?: Record<string, unknown> }): QuoterReferenceCoverage {
+  const source = value.searchCoverage ?? {}, result: QuoterReferenceCoverage = {};
+  if (source.scope === 'selected-inventory') result.scope = source.scope;
+  if (Array.isArray(source.coreSharesPercent)) result.coreSharesPercent = source.coreSharesPercent
+    .filter((number): number is number => Number.isInteger(number) && number >= 0 && number <= 100);
+  if (Array.isArray(source.orders)) result.orders = source.orders.filter((order): order is string => order === 'core-first' || order === 'market-first');
+  for (const key of ['maxCoreInvocations', 'maxAmmHops'] as const) {
+    const number = source[key];
+    if (typeof number === 'number' && Number.isSafeInteger(number) && number >= 0) result[key] = number;
+  }
+  for (const [target, key] of [['candidatesStarted', 'ownedCandidatesStarted'],
+    ['candidatesCompleted', 'ownedCandidatesCompleted'], ['qualifiedUpdates', 'ownedQualifiedUpdates']] as const) {
+    const number = value.metrics?.[key];
+    if (typeof number === 'number' && Number.isSafeInteger(number) && number >= 0) result[target] = number;
+  }
+  return result;
+}
+
+function estimateObservation(value: { estimate?: { amount?: unknown; strategy?: unknown };
+  models?: { strategy: string; value: { context?: { blockNumber: string; blockHash: string };
+    protocol?: { context?: { blockNumber: string; blockHash: string } };
+    routes?: { sourceContext?: { blockNumber: string; blockHash: string } | null;
+      sourceObservations?: { context?: { blockNumber: string; blockHash: string } }[] }[] } }[] }): QuoterBenchmarkAccuracy['estimate'] {
+  const estimate = value.estimate;
+  if (!estimate || typeof estimate.amount !== 'string' || !/^[0-9]{1,78}$/.test(estimate.amount)
+    || (estimate.strategy !== 'core' && estimate.strategy !== 'market')) return { status: 'unavailable' };
+  const result: QuoterBenchmarkAccuracy['estimate'] = { status: 'available', outputRaw: String(BigInt(estimate.amount)), strategy: estimate.strategy };
+  const model = value.models?.find(row => row.strategy === estimate.strategy)?.value;
+  const contexts = estimate.strategy === 'market' ? model?.routes?.flatMap(row =>
+    Object.hasOwn(row, 'sourceContext') ? [row.sourceContext]
+      : row.sourceObservations?.length ? row.sourceObservations.map(source => source.context)
+        : [model.context]) : [model?.protocol?.context ?? model?.context];
+  if (contexts?.length && contexts.every(context => context?.blockHash
+      && /^0x[0-9a-f]{64}$/i.test(context.blockHash) && /^[0-9]{1,78}$/.test(context.blockNumber))
+      && new Set(contexts.map(context => context!.blockHash.toLowerCase())).size === 1) {
+    result.blockHash = contexts[0]!.blockHash; result.blockNumber = String(BigInt(contexts[0]!.blockNumber));
+  }
+  return result;
+}
 
 /** Quote-only phase of the existing owned-fork profile; every receipt follows actual controls. */
 export function ownedQuoterBenchmark(resources: OwnedQuoterResources, cases: readonly QuoterBenchmarkCase[], repetitions = 3): QuoterBenchmarkDefinition {
@@ -56,8 +105,10 @@ export function ownedQuoterBenchmark(resources: OwnedQuoterResources, cases: rea
           await resources.restartApi(attempt.variant);
           receipt.reset.push(...memory); receipt.preserved.push(...database);
         } else {
-          receipt.preserved.push(...memory, ...database);
-          if (attempt.condition === 'shared-quote-hit') await resources.restartApi(attempt.variant, true);
+          if (attempt.condition === 'shared-quote-hit') {
+            await resources.restartApi(attempt.variant, true);
+            receipt.reset.push(...memory); receipt.preserved.push(...database);
+          } else receipt.preserved.push(...memory, ...database);
           if (attempt.condition === 'warm-changed-state') {
             head = await resources.advanceFork(Number(BigInt(head.timestamp)) + 1);
             receipt.stateChange = 'header-only-advance';
@@ -70,6 +121,7 @@ export function ownedQuoterBenchmark(resources: OwnedQuoterResources, cases: rea
       return receipt;
     },
     measure: attempt => resources.quote(attempt, attempt.condition !== 'shared-quote-hit', attempt.condition === 'shared-quote-hit'),
+    ...(resources.accuracy ? { accuracy: (attempt: QuoterBenchmarkAttempt) => resources.accuracy!(attempt) } : {}),
   };
 }
 
@@ -94,6 +146,8 @@ async function freePort() {
   return port;
 }
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const runtimePath = fileURLToPath(new URL('./owned-quoter-runtime.py', import.meta.url));
+const runtimeTarget = '/fixture/owned-quoter-runtime.py';
 type Dependencies = { execute?: Execute; fetch?: typeof fetch; freePort?: () => Promise<number>; delay?: typeof delay };
 
 /** Owns only resources it creates; the calling qualifier owns the supplied Anvil. */
@@ -153,12 +207,12 @@ export class DockerQuoterResources implements OwnedQuoterResources {
     await this.rpc('evm_mine', [timestamp]);
     return await this.head();
   }
-  private async environment(variant: Variant) {
-    const path = join(this.directory, variant + '.env');
+  private async environment(variant: Variant, selectedDatabase = this.database(variant)) {
+    const path = join(this.directory, selectedDatabase + '.env');
     const values = { NEXT_PUBLIC_CHAIN_ID: String(this.config.chainId), NEXT_PUBLIC_CORE_DIAMOND_ADDRESS: this.config.core,
       NEXT_PUBLIC_HELPERS_DIAMOND_ADDRESS: this.config.helpers, CYBERGOLD_UNISWAP_ROUTING_ADAPTER_ADDRESS: this.config.routingAdapter,
       NEXT_PUBLIC_RPC_URL: this.config.backendForkUrl, RPC_URL: this.config.backendForkUrl,
-      DATABASE_URL: `postgresql://fixture@pg:5432/${this.database(variant)}`, HOST: '0.0.0.0', PORT: '3000' };
+      DATABASE_URL: `postgresql://fixture@pg:5432/${selectedDatabase}`, HOST: '0.0.0.0', PORT: '3000' };
     await writeFile(path, Object.entries(values).map(([key, value]) => `${key}=${value}\n`).join(''), { mode: 0o600 });
     return path;
   }
@@ -168,25 +222,33 @@ export class DockerQuoterResources implements OwnedQuoterResources {
   }
   async resetDatabase(variant: Variant) {
     await this.removeApi(variant + ':secondary'); await this.removeApi(variant);
-    const sql = `DROP DATABASE IF EXISTS ${this.database(variant)} WITH (FORCE);\nCREATE DATABASE ${this.database(variant)};\n`;
+    await this.createDatabase(variant, this.database(variant));
+    this.schemas.add(variant);
+  }
+  private async createDatabase(variant: Variant, databaseName: string) {
+    const sql = `DROP DATABASE IF EXISTS ${databaseName} WITH (FORCE);\nCREATE DATABASE ${databaseName};\n`;
     await this.command(this.config.dockerCommand ?? 'docker', ['exec', '-i', this.pg, 'psql', '-U', 'fixture', '-d', 'postgres', '-v', 'ON_ERROR_STOP=1'], sql);
     await this.docker('run', '--rm', '--platform', this.config.platform ?? 'linux/amd64', '--network', this.network, '--add-host', 'host.docker.internal:host-gateway',
-      '--env-file', await this.environment(variant), '--entrypoint', 'python',
+      '--env-file', await this.environment(variant, databaseName), '--entrypoint', 'python',
       variant === 'baseline' ? this.config.baselineImage : this.config.candidateImage,
       '-m', 'alembic', '-c', 'schema/alembic.ini', 'upgrade', 'head');
-    this.schemas.add(variant);
   }
   async restartApi(variant: Variant, secondary = false) {
     if (!this.schemas.has(variant)) await this.resetDatabase(variant);
     const key = variant + (secondary ? ':secondary' : '');
+    await this.launchApi(variant, key, this.database(variant));
+  }
+  private async launchApi(variant: Variant, key: string, databaseName: string) {
     await this.removeApi(key);
     const name = this.prefix + '-' + key.replace(':', '-');
     const port = await this.port();
     const api = { name, origin: `http://127.0.0.1:${port}` };
     this.created.add(name); this.apis.set(key, api);
     await this.docker('run', '-d', '--platform', this.config.platform ?? 'linux/amd64', '--name', name,
-      '--network', this.network, '--add-host', 'host.docker.internal:host-gateway', '--env-file', await this.environment(variant),
-      '-p', `127.0.0.1:${port}:3000`, variant === 'baseline' ? this.config.baselineImage : this.config.candidateImage);
+      '--network', this.network, '--add-host', 'host.docker.internal:host-gateway', '--env-file', await this.environment(variant, databaseName),
+      '--mount', `type=bind,src=${runtimePath},dst=${runtimeTarget},readonly`, '--entrypoint', 'python',
+      '-p', `127.0.0.1:${port}:3000`, variant === 'baseline' ? this.config.baselineImage : this.config.candidateImage,
+      runtimeTarget, '--reference-seconds', '30');
     // Metrics is an in-memory readiness read, not a quote/configuration/RPC warm-up.
     for (let attempt = 0; ; attempt++) {
       try { if ((await this.request(api.origin + '/metrics', { signal: this.signal() })).ok) break; }
@@ -198,21 +260,62 @@ export class DockerQuoterResources implements OwnedQuoterResources {
   async ensureApi(variant: Variant) { if (!this.apis.has(variant)) await this.restartApi(variant); }
   async quote(attempt: QuoterBenchmarkAttempt, refresh: boolean, secondary = false): Promise<QuoterBenchmarkMeasurement> {
     const api = this.apis.get(attempt.variant + (secondary ? ':secondary' : ''))!;
+    const value = await this.quoteValue(api.origin, attempt, refresh);
+    return this.measurement(value, attempt.variant);
+  }
+  private async quoteValue(origin: string, attempt: QuoterBenchmarkAttempt, refresh: boolean, reference = false) {
     const body = { intent: 0, inputs: [{ currency: attempt.case.inputCurrency, amount: attempt.case.amountRaw }], outputCurrency: attempt.case.outputCurrency };
     const legacy = attempt.variant === 'baseline';
-    const response = await this.request(api.origin + (legacy ? '/api/quotes/universal-exact-input' : '/api/economic-quotes'), {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: this.signal(),
+    const response = await this.request(origin + (legacy ? '/api/quotes/universal-exact-input' : '/api/economic-quotes'), {
+      method: 'POST', headers: { 'Content-Type': 'application/json',
+        ...(reference ? { 'X-CyberGold-Owned-Quote-Mode': 'reference' } : {}) }, signal: this.signal(),
       body: JSON.stringify(legacy ? { ...body, recipient: '0x'+'0'.repeat(40), deadline: String(Math.floor(Date.now()/1000)+600), slippageBps: 100 }
         : { ...body, refresh }) });
-    if (!response.ok) throw Object.assign(await quoteResponseError(response), { httpStatus: response.status });
-    const value = await response.json();
-    const funding = value.inputs ?? value.plan?.inputs;
-    const route = value.economicQuote?.plan ?? (legacy ? { intent: value.plan.intent, body: value.plan.body } : value.plan);
-    return { operation: value.observation?.source === 'stored' ? 'lookup' : 'search',
-      requiredFundingRaw: String(BigInt(funding[0].amount)), netOutputRaw: String(BigInt(value.quotedOutput)),
-      blockNumber: String(BigInt(value.context.blockNumber)), blockHash: value.context.blockHash,
+    if (!response.ok) throw await ownedQuoteFailure(response);
+    return await response.json();
+  }
+  private measurement(value: Record<string, unknown>, variant: Variant): QuoterBenchmarkMeasurement {
+    const raw = value as { inputs?: { amount: string }[]; plan: { inputs?: { amount: string }[]; intent: number; body: string };
+      economicQuote?: { plan: unknown }; quotedOutput: string; context: { blockNumber: string; blockHash: string };
+      observation?: { source?: string } };
+    const legacy = variant === 'baseline';
+    const funding = raw.inputs ?? raw.plan.inputs!;
+    const route = raw.economicQuote?.plan ?? (legacy ? { intent: raw.plan.intent, body: raw.plan.body } : raw.plan);
+    const stored = raw.observation?.source === 'stored';
+    return { operation: stored ? 'lookup' : 'search',
+      requiredFundingRaw: String(BigInt(funding[0].amount)), netOutputRaw: String(BigInt(raw.quotedOutput)),
+      blockNumber: String(BigInt(raw.context.blockNumber)), blockHash: raw.context.blockHash,
       routeId: createHash('sha256').update(JSON.stringify(route)).digest('hex'),
-      ...(quoterProducerTimings(value) ? { producerTimings: quoterProducerTimings(value) } : {}) };
+      ...(quoterProducerTimings(value) ? { producerTimings: quoterProducerTimings(value),
+        producerTimingScope: stored ? 'stored-observation' as const : 'current-search' as const } : {}) };
+  }
+  async accuracy(attempt: QuoterBenchmarkAttempt): Promise<QuoterBenchmarkAccuracy> {
+    const key = attempt.variant + ':accuracy', databaseName = this.database(attempt.variant) + '_accuracy';
+    const result: QuoterBenchmarkAccuracy = { cohort: 'fresh-secondary-whole-trade',
+      estimate: { status: 'unavailable' }, reference: { status: 'failed', initialSeconds: 30, extensionSeconds: 10 } };
+    try {
+      const head = await this.restoreFork();
+      if (attempt.condition === 'warm-changed-state') await this.advanceFork(Number(BigInt(head.timestamp))+1);
+      await this.removeApi(key);
+      await this.createDatabase(attempt.variant, databaseName);
+      await this.docker('exec', this.apis.get(attempt.variant)!.name, 'python', runtimeTarget, '--copy-canonical-facts', databaseName);
+      await this.launchApi(attempt.variant, key, databaseName);
+      const origin = this.apis.get(key)!.origin;
+      try {
+        const response = await this.request(origin + (attempt.variant === 'baseline' ? '/api/quotes/trade/model' : '/api/economic-estimates'), {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: this.signal(),
+          body: JSON.stringify({ side: 'buy', mode: 'exact-in', counterToken: attempt.case.inputCurrency,
+            native: false, amount: attempt.case.amountRaw, slippageBps: 100 }) });
+        if (!response.ok) throw await ownedQuoteFailure(response);
+        result.estimate = estimateObservation(await response.json());
+      } catch (error) { result.estimate = { status: 'failed', failure: quoterBenchmarkApiFailure(error) }; }
+      try {
+        const value = await this.quoteValue(origin, attempt, true, true);
+        result.reference = { status: 'available', initialSeconds: 30, extensionSeconds: 10,
+          quote: this.measurement(value, attempt.variant), coverage: referenceCoverage(value) };
+      } catch (error) { result.reference.failure = quoterBenchmarkApiFailure(error); }
+      return result;
+    } finally { await this.removeApi(key); }
   }
   async close() {
     let failed = false;

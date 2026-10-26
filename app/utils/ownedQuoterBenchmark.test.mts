@@ -44,6 +44,8 @@ test('owned phase executes real control operations and separates baseline search
   assert.ok(processWarm.cache!.preserved.includes('completed-quotes'));
   const shared = report.rows.filter(row => row.condition === 'shared-quote-hit');
   assert.deepEqual(shared.map(row => row.result!.operation), ['search', 'lookup']);
+  assert.ok(shared.every(row => row.cache!.reset.includes('api-process') && row.cache!.reset.includes('sdk-worker')
+    && !row.cache!.preserved.includes('api-process') && row.cache!.preserved.includes('pool-state')));
   assert.ok(report.rows.filter(row => row.condition === 'warm-changed-state').every(row => row.cache!.blockNumber === '101'));
 });
 
@@ -66,10 +68,19 @@ test('failed 503 quote preserves only its bounded public code and status in chec
   definition.conditions = ['application-cold'];
   const report = await runQuoterBenchmark(definition);
   assert.ok(report.rows.every(row => row.status === 'fail' && row.apiCode === 'quote-no-route' && row.httpStatus === 503));
+  assert.ok(report.rows.every(row => row.code === 'quote-failed' && !row.producerFailureTimings));
   assert.ok(!JSON.stringify(report).includes('private-provider-material'));
   resources.quote = async () => { throw Object.assign(new Error('private'), { code: 'quote-timeout', httpStatus: 503 }); };
   const timeout = await runQuoterBenchmark(definition);
   assert.ok(timeout.rows.every(row => row.code === 'timeout' && row.apiCode === 'quote-timeout'));
+  resources.quote = async () => { throw Object.assign(new Error('private-provider-material'), {
+    code: 'quote-no-route', httpStatus: 503, metrics: { selectionReason: 'timeout', searchMs: 15000, totalMs: 15001,
+      ownedCandidatesStarted: 3, ownedCandidatesCompleted: 0, privateProvider: 'private-provider-material' } }); };
+  const exhausted = await runQuoterBenchmark(definition);
+  assert.ok(exhausted.rows.every(row => row.code === 'timeout' && row.apiCode === 'quote-no-route'
+    && row.producerFailureTimings?.searchMs === 15000 && row.producerFailureTimings?.ownedCandidatesStarted === 3
+    && row.producerFailureTimings?.timeToFirstWholePlanMs === undefined));
+  assert.ok(!JSON.stringify(exhausted).includes('private-provider-material'));
 });
 
 test('Docker controls reset only owned databases, migrate before API startup, and use metrics for readiness', async () => {
@@ -91,7 +102,9 @@ test('Docker controls reset only owned databases, migrate before API startup, an
       return Response.json({ jsonrpc: '2.0', id: 1, result });
     }
     if (path.endsWith('/metrics')) return new Response('fixture metrics');
-    if (quoteFailure) return Response.json({ code: 'quote-no-route', error: 'private-provider-material' }, { status: 503 });
+    if (quoteFailure) return Response.json({ code: 'quote-no-route', error: 'private-provider-material' }, { status: 503,
+      headers: { 'x-cybergold-owned-quote-metrics': JSON.stringify({ searchMs: 15000, totalMs: 15001, selectionReason: 'timeout',
+        ownedCandidatesStarted: 2, ownedCandidatesCompleted: 0, privateProvider: 'private-provider-material' }) } });
     return Response.json({ inputs: body.inputs, quotedOutput: '123', context: { blockNumber: '100', blockHash: base.hash },
       plan: { privateCalldata: 'do-not-report' }, secret: 'do-not-report',
       metrics: path.endsWith('/api/economic-quotes') ? { timeToFirstWholePlanMs: 5, searchMs: 8, totalMs: 9 }
@@ -116,8 +129,10 @@ test('Docker controls reset only owned databases, migrate before API startup, an
     assert.ok(!JSON.stringify([baseline, candidate]).includes('do-not-report'));
     quoteFailure = true;
     await assert.rejects(resources.quote(attempt, true), (error: unknown) => {
-      const value = error as { code: string; httpStatus: number; message: string };
-      return value.code === 'quote-no-route' && value.httpStatus === 503 && !value.message.includes('private-provider-material');
+      const value = error as { code: string; httpStatus: number; message: string; metrics: Record<string, unknown> };
+      return value.code === 'quote-no-route' && value.httpStatus === 503 && value.metrics.selectionReason === 'timeout'
+        && value.metrics.ownedCandidatesStarted === 2 && !JSON.stringify(value).includes('private-provider-material')
+        && !value.message.includes('private-provider-material');
     });
     const reset = commands.find(row => row.input?.includes('DROP DATABASE IF EXISTS quoter_baseline'))!;
     assert.ok(reset.input?.includes('CREATE DATABASE quoter_baseline'));
