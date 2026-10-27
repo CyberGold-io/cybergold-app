@@ -17,6 +17,10 @@ const feeDisplaySlots = ["feeTotal", "feeProtocolLabel", "feeProtocolValue", "fe
 
 async function prepareFeeDisplay(page: Page) {
   const observed = await install(page);
+  const economicRequests: Record<string, unknown>[] = [];
+  page.on("request", request => {
+    if (new URL(request.url()).pathname === "/api/economic-quotes") economicRequests.push(request.postDataJSON());
+  });
   await installEthDisplayPrices(page, () => 2000);
   await page.route("**/api/transaction/fees", route => route.fulfill({ json: {
     context, maxFeePerGas: "2000000000", maxPriorityFeePerGas: "1",
@@ -25,14 +29,17 @@ async function prepareFeeDisplay(page: Page) {
   await page.getByRole("button", { name: "Reverse swap direction", exact: true }).click();
   await page.locator("#sell-amount").fill("0.01");
   await expect(page.locator("#buy-amount")).toHaveText("0.01");
+  expect(economicRequests.length).toBeGreaterThan(0);
   await page.getByRole("button", { name: /Total fee/ }).click();
+  const quoteCount = economicRequests.length;
   await page.locator("#execution-tolerance").fill("0.25");
-  await expect.poll(() => observed.intents.at(-1)?.slippageBps).toBe(25);
+  await expect(page.locator("#execution-tolerance")).toHaveValue("0.25");
   await expect(page.getByTestId("swap-minimum-output")).toContainText("0.009975 ETH");
+  expect(economicRequests).toHaveLength(quoteCount);
   await expect(page.getByTestId("swap-network-fee")).toContainText("ETH");
   await expect(page.locator('[data-trade-display="feeTotal"]')).not.toHaveText("...");
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  return observed;
+  return { ...observed, economicRequests };
 }
 
 async function selectPaxg(page: Page) {
@@ -103,7 +110,7 @@ test("expanded fee estimates and the chosen tolerance survive reload before hydr
   await page.addInitScript(key => localStorage.removeItem(key), tokenUsdKey);
   const scripts = await hold(page, "**/_next/static/**/*.js*");
   const held = await Promise.all(["**/api/protocol/config", "**/api/protocol/facts", "**/api/gold", "**/api/fx",
-    "**/api/pools/**", "**/api/quotes/trade/**", "**/api/transaction/fees"].map(pattern => hold(page, pattern)));
+    "**/api/pools/**", "**/api/economic-quotes", "**/api/transaction/fees"].map(pattern => hold(page, pattern)));
   try {
     await page.reload({ waitUntil: "commit" });
     await expect.poll(scripts.requests).toBeGreaterThan(0);
@@ -140,7 +147,9 @@ test("expanded fee estimates and the chosen tolerance survive reload before hydr
     const gasResponse = page.waitForResponse(response => new URL(response.url()).pathname === "/api/transaction/fees");
     held.forEach((value, index) => { if (index !== 4) value.release(); });
     await gasResponse;
-    await expect.poll(() => observed.intents.at(-1)?.slippageBps).toBe(50);
+    await expect(page.locator("#execution-tolerance")).toHaveValue("0.5");
+    // Tolerance changes protect the selected observation; quote requests stay wallet/execution-free.
+    expect(observed.economicRequests.every(request => request.slippageBps === undefined && request.deadline === undefined)).toBe(true);
     await expect(page.getByTestId("swap-minimum-output")).toContainText("0.00995 ETH");
     await expect.poll(held[4].requests).toBeGreaterThan(0);
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
@@ -196,7 +205,7 @@ test("editing the cached spend before hydration clears fees belonging to the pre
   await prepareFeeDisplay(page);
   const scripts = await hold(page, "**/_next/static/**/*.js*");
   const held = await Promise.all(["**/api/protocol/config", "**/api/protocol/facts", "**/api/gold", "**/api/fx",
-    "**/api/pools/**", "**/api/quotes/trade/**", "**/api/transaction/fees"].map(pattern => hold(page, pattern)));
+    "**/api/pools/**", "**/api/economic-quotes", "**/api/transaction/fees"].map(pattern => hold(page, pattern)));
   try {
     await page.reload({ waitUntil: "commit" });
     await expect.poll(scripts.requests).toBeGreaterThan(0);

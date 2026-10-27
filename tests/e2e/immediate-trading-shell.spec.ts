@@ -93,7 +93,7 @@ test("cold configuration leaves the entire trading shell and searchable picker v
 test("known token controls and safety labels remain visible while independent data is pending", async ({ page }) => {
   await install(page);
   const held = await Promise.all(["**/api/protocol/facts", "**/api/gold", "**/api/fx",
-    "**/api/pools/**", "**/api/quotes/**"].map(pattern => hold(page, pattern)));
+    "**/api/pools/**", "**/api/economic-quotes", "**/api/economic-estimates", "**/api/quotes/**"].map(pattern => hold(page, pattern)));
   try {
     await page.goto("/en"); await selectPaxg(page);
     await page.locator("#sell-amount").fill("1");
