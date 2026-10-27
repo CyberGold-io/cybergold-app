@@ -8,7 +8,10 @@ import { marketTradeFixture } from "../e2e/fixtures/market-quotes";
 import { HELPERS_EXECUTION_ABI } from "../../app/contracts/cybergold-helpers/execution";
 import { universalFixture } from "../e2e/fixtures/universal-exact-input";
 import { marketUniversalFixture } from "../e2e/fixtures/market-quotes";
-import type { UniversalExactInputQuote, UniversalExactInputRequest } from "../../app/utils/universalExactInput";
+import { economicFixture } from "../e2e/fixtures/economic-api";
+import { installQuoteObservation } from "../trading/quoteObservation";
+import type { UniversalExactInputQuote } from "../../app/utils/universalExactInput";
+import type { EconomicRequest } from "../../app/utils/economicQuotes";
 import type { TradeQuoteRequest } from "../../app/utils/tradeQuote";
 import type { QuoteIntent } from "../../app/utils/quoteIntent";
 import type { TradeSelectionObservation } from "../../app/utils/tradeSelectionObservation";
@@ -54,7 +57,8 @@ type Transaction = { from?: string; to?: string; data?: string; value?: string }
 
 export async function installProviderSelection(page: Page, winner: "core" | "market", lateEvidence = false) {
   await install(page);
-  const requests: UniversalExactInputRequest[] = [], preparations: { operation: string; args: unknown[] }[] = [];
+  const requests: EconomicRequest[] = [], preparations: Record<string, unknown>[] = [];
+  await page.addInitScript(installQuoteObservation as () => void);
   let selected: UniversalExactInputQuote | undefined, transaction: Transaction | undefined;
   await page.addInitScript(({ owner, hash, chain }) => {
     const calls: { method: string; params?: unknown[] }[] = [], selections: TradeSelectionObservation[] = [];
@@ -77,16 +81,19 @@ export async function installProviderSelection(page: Page, winner: "core" | "mar
     window.addEventListener("eip6963:requestProvider", announce); announce();
   }, { owner: selectionOwner, hash: selectionHash, chain: protocolConfigurationFixture.chainId });
   page.on("request", request => {
-    if (new URL(request.url()).pathname === "/api/transaction/helpers-execution") preparations.push(request.postDataJSON());
+    if (new URL(request.url()).pathname === "/api/tx-preparations") preparations.push(request.postDataJSON());
   });
-  await page.route("**/api/quotes/universal-exact-input", async route => {
-    const request = route.request().postDataJSON() as UniversalExactInputRequest;
+  await page.route("**/api/economic-quotes", async route => {
+    const request = route.request().postDataJSON() as EconomicRequest;
     requests.push(request);
     // Both route families arrive as complete canonical plans. A delayed search
     // cannot expose executable terms before its atomic response completes.
     if (lateEvidence) await new Promise(resolve => setTimeout(resolve, 50));
-    selected = winner === "market" ? marketUniversalFixture(request)
-      : universalFixture(request, { quotedOutput: String(BigInt(request.inputs[0].amount) * 2n) });
+    // Fixture-only execution defaults feed the old example builders; the
+    // economic HTTP request and returned semantic quote contain no deadline.
+    const example = { ...request, recipient: selectionOwner, deadline: "2000000000", slippageBps: 100 };
+    selected = winner === "market" ? marketUniversalFixture(example)
+      : universalFixture(example, { quotedOutput: String(BigInt(request.inputs[0].amount) * 2n) });
     await route.fulfill({ json: selected });
   });
   await page.route("**/api/account/wallet-balances*", route => route.fulfill({ json: {
@@ -136,5 +143,5 @@ export async function installProviderSelection(page: Page, winner: "core" | "mar
       blockNumber: "0x64", from: selectionOwner, to: helpers, cumulativeGasUsed: "0x493e0", gasUsed: "0x493e0", effectiveGasPrice: "0x1",
       contractAddress: null, logs: [log], logsBloom: `0x${"00".repeat(256)}`, status: "0x1", type: "0x2" } } });
   });
-  return { requests, preparations, selection: () => selected, transaction: () => transaction };
+  return { requests, preparations, selection: () => selected && economicFixture(selected, requests.at(-1)!), transaction: () => transaction };
 }
