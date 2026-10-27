@@ -85,8 +85,16 @@ plan at current state while preserving the original minimum and funding.
 Existing receipt/fee/retention and integer wallet-balance assertions keep gas
 separate. This native-input case records the wallet mode it actually exercises;
 other supported/unsupported wallet modes retain their separately scoped fixtures.
-The new test is implemented and statically checked; those checks alone are not a
-successful native-wallet execution result.
+The [fresh full qualification](../../../investigations/mainnet-quotes-2026-10-22/owned-quoter-wallet-full-1aa6804-2026-10-27/README.md)
+passed on **27 October** using measured App `535862a` and actual Backend `1aa6804`:
+all **24 matrix journeys**, the bootstrap, two real two-browser MetaMask receipts and
+all three session cases passed. All **27 captured wallet transactions** succeeded;
+process/container/network/source cleanup and observer-browser closure completed.
+The default profile was selected, with five expected file-test passes, zero
+unexpected results and one intentionally skipped named diagnostic replay.
+Later documentation or benchmark-harness commits do not change that measured
+wallet-source scope. Complete App CI passed **1,059 tests** and the production build
+on the measured implementation; static checks alone were not the wallet evidence.
 
 Invoke through the existing authenticated wrapper, using the Backend virtual
 environment's Python because optional local Helpers deployment imports Web3.
@@ -154,8 +162,12 @@ wallet click or submission. Its preceding recorded balance was
 81.433774865804994838 CYGLD against a 0.777470704302863111 CYGLD input. This failure
 is not attributed to insufficient funding. Its underlying cause remains unknown
 because the old final-log tail omitted the relevant event. The failed artifacts
-remain unchanged; a fresh qualification with complete failed-event projection
-must supply further evidence if this authorization failure recurs.
+remain unchanged. The subsequent full qualification passed the medium and large
+basket redemptions; that earlier authorization failure did not recur. Its cause
+is still unknown, and no particular causal fix is inferred from nonrecurrence.
+The fresh run retained closed failed-event records from whole API logs. Its
+24 successful journeys do not establish that every background endpoint was
+error-free; the integration's economic/preparation requests had no HTTP failures.
 
 ## Running through the owned-profile orchestrator
 
