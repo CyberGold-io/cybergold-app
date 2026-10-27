@@ -86,8 +86,8 @@ test('owned accuracy secondary copies facts into isolated DB, estimates first, t
   const config: OwnedQuoterResourceConfiguration = { baselineImage: 'baseline', candidateImage: 'candidate',
     postgresImage: 'postgres-fixture', forkUrl: 'http://owned-fork.invalid', backendForkUrl: 'http://owned-fork.invalid',
     chainId: 1, core: item.outputCurrency, helpers: item.outputCurrency, routingAdapter: item.outputCurrency, cases: [item] };
-  const resources = new DockerQuoterResources(config, { freePort: async () => ++port, delay: async () => {},
-    execute: async (_command, args, input) => { commands.push({ args, input }); return ''; },
+  const resources = new DockerQuoterResources(config, { delay: async () => {},
+    execute: async (_command, args, input) => { commands.push({ args, input }); return args[0] === 'inspect' ? String(++port) : ''; },
     fetch: async (url, init) => {
       const path = String(url), body = init?.body ? JSON.parse(String(init.body)) : undefined;
       if (path === config.forkUrl) return Response.json({ result: body.method === 'evm_snapshot' ? '1'
