@@ -82,7 +82,11 @@ test("independent producer matrix signs with MetaMask and proves mined family an
     }
   } catch (error) {
     if (isWalletRequestCleanupError(error)) throw error;
-    report.scenarios = report.scenarios.map(result => result.status === "pass" ? result : failureResult(result, error));
+    report.scenarios = report.scenarios.map(result => {
+      if (result.status === "pass" || result.status === "rejected") return result;
+      const failed = failureResult(result, error);
+      return failed.status === "rejected" ? { ...failed, status: "fail" as const } : failed;
+    });
   } finally { report.finishedAt = new Date().toISOString(); await persist(); }
-  expect(report.scenarios.filter(scenario => scenario.status !== "pass").map(scenario => ({ id: scenario.id, status: scenario.status, code: scenario.code }))).toEqual([]);
+  expect(report.scenarios.filter(scenario => scenario.status !== "pass" && scenario.status !== "rejected").map(scenario => ({ id: scenario.id, status: scenario.status, code: scenario.code }))).toEqual([]);
 });

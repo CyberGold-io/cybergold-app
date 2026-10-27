@@ -113,6 +113,11 @@ function bootstrapTradeDisplay(
       return;
     }
 
+    // Older displays included the removed explanatory paragraph before the amounts.
+    snapshot.values.retentionDisclosure = snapshot.values.retentionDisclosure
+      ?.replace(snapshot.values.retentionDisclosurePlain ?? "", "").trim() ?? "";
+    delete snapshot.values.retentionDisclosurePlain;
+
     // The template is this page's trusted SSR markup, never serialized HTML.
     const presentation = live.cloneNode(true) as HTMLElement;
     presentation.removeAttribute("data-trade-live");
@@ -156,6 +161,7 @@ function bootstrapTradeDisplay(
           node.removeAttribute("aria-label");
         }
       }
+      if (node.dataset.tradeDisplay === "retentionDisclosure") node.hidden = !value;
     }
     const showSpending = snapshot.values.sellIsBasket !== "true";
     for (const node of presentation.querySelectorAll<HTMLElement>("[data-trade-spending]")) {
@@ -282,7 +288,7 @@ function bootstrapTradeDisplay(
       snapshot.values.sellAmount = input.value;
       snapshot.values.buyAmount = "...";
       snapshot.values.quoteComplete = "false";
-      snapshot.values.retentionDisclosure = snapshot.values.retentionDisclosurePlain ?? "";
+      snapshot.values.retentionDisclosure = "";
       snapshot.values.evaluationStatus = /^(?:0*[.,]?0*)?$/.test(input.value.trim()) ? "empty" : "pending";
       if (evaluationPanel) evaluationPanel.dataset.tradeEvaluation = snapshot.values.evaluationStatus;
       for (const output of presentation.querySelectorAll<HTMLElement>('[data-trade-basket-output], [data-trade-display="buyAmount"]')) {
@@ -318,6 +324,7 @@ function bootstrapTradeDisplay(
         const key = node.dataset.tradeDisplay;
         if (key && (["buyAmount", "sellEquivalent", "buyEquivalent", "retentionDisclosure"].includes(key) || key.startsWith("fee"))) {
           node.textContent = snapshot.values[key];
+          if (key === "retentionDisclosure") node.hidden = true;
         }
       }
       try {

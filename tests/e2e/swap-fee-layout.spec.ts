@@ -104,8 +104,7 @@ test("zero fee rows, backdrop crop and footer stay stable while a quote replaces
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
   await expect(fees.getByText(/^0 CYGLD \(/)).toHaveCount(2);
   await expect(fees).toHaveAttribute("aria-busy", "false");
-  const disclosure=page.getByTestId("exact-input-retention-disclosure");
-  await expect(disclosure).toBeVisible();
+  await expect(card).toHaveAttribute("data-trade-evaluation", "confirmed");
   expect((await card.boundingBox())!.height).toBe(beforeCard!.height);
   const afterCard=(await card.boundingBox())!,afterFooter=(await page.locator("footer").boundingBox())!;
   expect(afterFooter.y).toBeGreaterThanOrEqual(afterCard.y+afterCard.height);

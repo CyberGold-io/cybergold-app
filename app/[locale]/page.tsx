@@ -1798,7 +1798,6 @@ const computedReceiveQuote = useMemo((): Prefill => {
         mainAction: isSubmittingSwap ? cachedTradeDisplay?.mainAction ?? t("swapCurrencies") : mainActionPresentation,
         quoteComplete: String((activeQuoteStatus === "success" && !quoteInputPending) || keepCompletedQuotePresentation),
         retentionDisclosure: document.querySelector('[data-trade-live] [data-trade-display="retentionDisclosure"]')?.textContent ?? "",
-        retentionDisclosurePlain: t("exactInputRetentionDisclosure"),
         evaluationStatus,
         sellTokenId, buyTokenId, sellSymbol: sellTokenDisplaySymbol, buySymbol: buyTokenDisplaySymbol,
         sellAmount: showSellBasket ? driverAmountStr : sellAmount,
@@ -2707,7 +2706,8 @@ const computedReceiveQuote = useMemo((): Prefill => {
           </details>
 
         <ExactInputRetentionDisclosure charges={(frozenUniversal ?? activeUniversalQuote)?.estimatedRetainedInputCharges ?? []}
-          presentation={restoreFormattedDisplay || !(frozenUniversal ?? activeUniversalQuote) ? cachedTradeDisplay?.retentionDisclosure : undefined} />
+          presentation={restoreFormattedDisplay || !(frozenUniversal ?? activeUniversalQuote)
+            ? cachedTradeDisplay?.retentionDisclosure?.replace(cachedTradeDisplay.retentionDisclosurePlain ?? "", "").trim() : undefined} />
 
         <div className="order-3 mt-3 flex flex-col items-end gap-2">
           <button type="button" data-trade-refresh onClick={() => void activeFlow?.refresh()}
