@@ -12,6 +12,7 @@ import datetime
 import hashlib
 import io
 import json
+import math
 import os
 import secrets
 import re
@@ -28,6 +29,136 @@ from pathlib import Path
 
 APP = Path(__file__).resolve().parents[1]
 POSTGRES = "postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"
+
+LOG_OPERATIONS = {
+    "quote", "swap", "wallet", "unmatched", "/api/economic-quotes", "/api/tx-preparations",
+    "/api/economic-estimates", "/api/protocol/config", "/api/protocol/facts", "/api/governance/helpers-facts",
+    "/api/account/core-permit", "/api/account/token-permit", "/api/account/permit2", "/api/account/transaction-nonce",
+    "/api/account/wallet-balances", "/api/account/token-balance", "/api/transaction/helpers-execution",
+    "/api/transaction/token-approval-gas", "/api/transaction/permit2-approval-gas", "/api/transaction/receipt",
+    "/api/transaction/wait/head", "/api/transaction/wait/transaction", "/api/transaction/wait/receipt", "/api/transaction/fees",
+    "/api/quotes/trade/stream", "/api/quotes/intent/stream", "/api/quotes/universal-exact-input",
+    "/api/quotes/basket-preview", "/api/quotes/routes/stream", "/api/quotes/routes", "/api/pools/snapshot",
+}
+LOG_ENUMS = {
+    "outcome": {"started", "succeeded", "failed", "cancelled", "submitted", "reverted", "unconfirmed", "requested"},
+    "stage": {"quote", "balance", "network", "authorization", "preparation", "simulation", "submission", "confirmation"},
+    "walletStep": {"approval", "signature", "transaction"},
+    "reason": {"wallet_rejected", "rpc_error", "contract_reverted", "wrong_chain", "unknown"},
+    "direction": {"issue", "redeem"}, "route": {"basket", "token"}, "inputMode": {"exact-in", "exact-out"},
+    "strategy": {"core", "market", "universal"}, "side": {"buy", "sell"},
+    "method": {"GET", "HEAD", "POST", "OPTIONS", "other"},
+    "operationKind": {"quoter", "transaction-preparation", "fast-estimator"},
+    "operationPhase": {"lookup", "current-state-search", "selected-plan-replay", "advisory-estimate"},
+    "resultSource": {"stored-quote", "search", "refresh", "prepared-transaction", "fast-estimate"},
+    "exceptionType": {"TimeoutError", "RpcTimeout", "ValueError", "TypeError", "RuntimeError", "QuoteFailure",
+        "Web3RPCError", "InvalidPreview", "SdkWorkerError", "CancelledError", "SnapshotChanged",
+        "ClientConnectorError", "ClientResponseError", "HTTPStatusError", "ContractLogicError"},
+    "context": {"core-permit", "token-permit", "permit2-context", "helpers-execution", "protocol-facts",
+        "helpers-router-facts", "wallet-balances", "token-approval-gas", "permit2-approval-gas"},
+}
+LOG_CODES = {"rpc-rate-limit", "rpc-timeout", "rpc-unavailable", "rpc-access-denied", "quote-timeout",
+    "quote-no-route", "quote-insufficient-liquidity", "quote-contract-reverted", "quote-unavailable",
+    "quote-service-unavailable", "quote-stream-interrupted", "quote-invalid-input", "quote-request-limit",
+    "insufficient-protocol-supply", "issuance-cap-exceeded", "redemption-supply-exceeded",
+    "insufficient-reserve-balance", "insufficient-recovery-shares", "redemption-capacity-exceeded"}
+
+
+def projected_container_logs(raw: str, database_password: str):
+    """Retain every failed operation through a closed, public-field projection.
+
+    Provider prose, stack traces, params, calldata, signatures and arbitrary
+    strings never enter either artifact. No record changes run admission.
+    """
+    failures, startup = [], []
+    lines = raw.replace(database_password, "[redacted]").splitlines()
+    startup_markers = {
+        "Started server process": "api-process-started",
+        "Waiting for application startup": "api-startup-waiting",
+        "Application startup complete": "api-startup-complete",
+        "Uvicorn running on": "api-listener-started",
+        "Application shutdown complete": "api-shutdown-complete",
+        "database system is ready to accept connections": "postgres-ready",
+        "PostgreSQL init process complete": "postgres-initialized",
+        "database system is shut down": "postgres-shutdown-complete",
+    }
+    for line in lines:
+        for marker, event in startup_markers.items():
+            if marker in line:
+                startup.append({"event": event})
+                break
+        try:
+            record, _ = json.JSONDecoder().raw_decode(line[line.index("{"):])
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(record, dict):
+            continue
+        event = record.get("event")
+        status = record.get("statusCode")
+        if record.get("msg") == "request completed" and type(status) is int and 400 <= status <= 599:
+            event = "http_failure"
+        elif record.get("msg") == "unhandled route failure":
+            event = "unhandled_route_failure"
+        elif event == "quote_failure":
+            pass
+        elif event in ("quote_outcome", "client_diagnostic") and record.get("outcome") in ("failed", "cancelled", "reverted", "unconfirmed"):
+            pass
+        else:
+            continue
+        safe = {"event": event}
+        operation = record.get("operation")
+        if isinstance(operation, str) and operation in LOG_OPERATIONS:
+            safe["operation"] = operation
+        for key, values in LOG_ENUMS.items():
+            if isinstance(record.get(key), str) and record[key] in values:
+                safe[key] = record[key]
+        for key in ("code", "errorClassification"):
+            value = record.get(key)
+            if isinstance(value, str) and (value in LOG_CODES or value in {name + "-unavailable" for name in LOG_ENUMS["context"]}):
+                safe[key] = value
+        for key in ("requestId", "correlationId", "attemptId", "diagnosticRequestId", "quoteId", "workId"):
+            value = record.get(key)
+            if isinstance(value, str) and re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", value, re.I):
+                safe[key] = value
+        for key in ("release", "blockHash", "transactionHash", "errorSelector"):
+            value = record.get(key)
+            pattern = r"[0-9a-f]{40}" if key == "release" else r"0x[0-9a-f]{8}" if key == "errorSelector" else r"0x[0-9a-f]{64}"
+            if isinstance(value, str) and re.fullmatch(pattern, value, re.I):
+                safe[key] = value
+        for key in ("time", "pid", "statusCode", "errorCode", "durationMs", "chainId", "assetCount"):
+            value = record.get(key)
+            if type(value) in (int, float) and -(2**53 - 1) <= value <= 2**53 - 1 and math.isfinite(value):
+                safe[key] = value
+        for key in ("quotedInput", "inputMaximum", "outputMinimum", "quotedOutput", "blockNumber", "amount"):
+            value = record.get(key)
+            if isinstance(value, str) and re.fullmatch(r"[0-9]{1,78}", value) and int(value) < 2**256:
+                safe[key] = value
+        diagnostics = record.get("diagnostics")
+        if isinstance(diagnostics, dict):
+            public_rpc = {}
+            for key, values in {
+                "failureType": {"rpc-error", "backend-deadline", "provider-timeout", "http-error", "transport-error"},
+                "rpcMethod": {"eth_chainId", "eth_blockNumber", "eth_getBlockByNumber", "eth_getBlockByHash",
+                    "eth_call", "eth_estimateGas", "eth_maxPriorityFeePerGas", "eth_gasPrice",
+                    "eth_getTransactionReceipt", "eth_getTransactionByHash", "eth_getTransactionCount",
+                    "eth_getBalance", "eth_getCode", "eth_getLogs"},
+                "stage": {"chain-head", "block-read", "contract-read", "gas-estimation", "priority-fee", "gas-price",
+                    "receipt-read", "transaction-read", "nonce-read", "balance-read", "code-read", "event-read",
+                    "helpers-simulation", "helpers-gas-estimation", "rpc-request"},
+            }.items():
+                if isinstance(diagnostics.get(key), str) and diagnostics[key] in values:
+                    public_rpc[key] = diagnostics[key]
+            for key in ("elapsedMs", "httpStatus", "upstreamErrorCode"):
+                value = diagnostics.get(key)
+                if type(value) in (int, float) and -(2**53 - 1) <= value <= 2**53 - 1 and math.isfinite(value):
+                    public_rpc[key] = value
+            selector = diagnostics.get("errorSelector")
+            if isinstance(selector, str) and re.fullmatch(r"0x[0-9a-f]{8}", selector, re.I):
+                public_rpc["errorSelector"] = selector
+            if public_rpc:
+                safe["diagnostics"] = public_rpc
+        failures.append(safe)
+    return {"failedEvents": failures, "startupTail": startup[-100:], "sourceLineCount": len(lines)}
 
 
 def free_port() -> int:
@@ -163,6 +294,15 @@ def main() -> None:
         rpc(fork, "anvil_setBalance", [address, hex(100 * 10**18)])
         funding = json.loads(args.funding_json.read_text())["fork"]["funding"]["tokenFunding"]
         for symbol, token, holder, amount in zip(funding["symbols"], funding["addresses"], funding["holders"], funding["perAddr"]):
+            if symbol.upper() == "USDC":
+                decimals = int(subprocess.check_output(["cast", "call", "--rpc-url", fork, token,
+                    "decimals()(uint8)"], text=True).strip())
+                planned = json.loads(subprocess.check_output(["node", "--input-type=module", "-e",
+                    "import {ownedUsdcStartupFunding} from './tests/trading/ownedWalletFunding.ts';"
+                    "console.log(JSON.stringify(ownedUsdcStartupFunding(process.argv[1],Number(process.argv[2]))));",
+                    "--", amount, str(decimals)], cwd=work, env=environment, text=True))
+                amount = planned["transferAmount"]
+                evidence["usdcStartupFunding"] = planned
             rpc(fork, "anvil_setBalance", [holder, hex(10**18)])
             rpc(fork, "anvil_impersonateAccount", [holder])
             try:
@@ -282,7 +422,7 @@ def main() -> None:
                       "tests/metamask/quoter-integration.spec.ts",
                       "tests/metamask/wallet-session.spec.ts", "tests/metamask/wallet-ui.ts", "tests/metamask/token-flows/helpers.ts",
                       "tests/metamask/regression-execution.spec.ts", "tests/trading/scenarios.ts", "tests/trading/matrix.ts", "tests/trading/providerEvidence.ts", "tests/trading/planAssertions.ts", "tests/trading/quoteObservation.ts", "tests/trading/regression.ts", "tests/trading/runnerDiagnostics.ts", "tests/trading/walletExecution.ts",
-                      "tests/trading/uiReceipt.ts", "tests/trading/uiEconomics.ts", "tests/trading/uiQuoteCapture.ts", "tests/trading/uiGas.ts", "tests/trading/uiDiagnostics.ts", "tests/trading/sandboxFunding.ts"]
+                      "tests/trading/uiReceipt.ts", "tests/trading/uiEconomics.ts", "tests/trading/uiQuoteCapture.ts", "tests/trading/uiGas.ts", "tests/trading/uiDiagnostics.ts", "tests/trading/sandboxFunding.ts", "tests/trading/ownedWalletFunding.ts"]
         try:
             image_environment = json.loads(docker("image", "inspect", args.backend_image, "--format", "{{json .Config.Env}}"))
             backend_commit = next((value.split("=", 1)[1] for value in image_environment if value.startswith("CYBERGOLD_BACKEND_COMMIT=")), None)
@@ -354,10 +494,19 @@ def main() -> None:
                 cleanup["processes"] = "failed"
         for name in reversed(containers):
             try:
-                with (output / f"{name}.log").open("w") as stream:
-                    subprocess.run([args.docker_command, "logs", "--tail", "100", name], stdout=stream, stderr=subprocess.STDOUT)
-            except OSError:
-                pass  # A log write failure must not skip removal.
+                captured = subprocess.run([args.docker_command, "logs", name], stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT, text=True, check=False)
+                projected = projected_container_logs(captured.stdout, database_password)
+                failures_path, startup_path = output / f"{name}-failures.jsonl", output / f"{name}.log"
+                failures_path.write_text("".join(json.dumps(row) + "\n" for row in projected["failedEvents"]))
+                startup_path.write_text("".join(json.dumps(row) + "\n" for row in projected["startupTail"]))
+                evidence.setdefault("containerLogEvidence", []).append({"container": name,
+                    "sourceLineCount": projected["sourceLineCount"], "failedEventCount": len(projected["failedEvents"]),
+                    "startupEventCount": len(projected["startupTail"]), "captureExitCode": captured.returncode,
+                    "failuresFile": failures_path.name, "startupFile": startup_path.name})
+            except Exception:
+                # Log capture/projection is best effort and cannot skip removal.
+                evidence.setdefault("containerLogEvidence", []).append({"container": name, "result": "unavailable"})
             try:
                 if subprocess.run([args.docker_command, "rm", "-f", "-v", name], stdout=subprocess.DEVNULL, check=False).returncode:
                     cleanup["containers"] = "failed"

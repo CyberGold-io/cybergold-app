@@ -122,6 +122,41 @@ observations. Image commit and running Backend commit are reported separately,
 including when a runtime wrapper mounts code over a cached image. Cleanup removes
 only this run's processes, profiles, tmpfs database and network.
 
+The owned startup transfer for USDC covers the active matrix's cumulative
+small/medium/large buy budgets before any sale credits: 1 + 100 + 10,000 USDC.
+The qualifier reads decimals from its owned token, derives the raw amount from
+the canonical active tiers and uses the larger of this total or the original
+manifest amount. `qualification.json` records the original, planned and applied
+amounts. This corrects the demonstrated 10,000 USDC fixture shortfall after its
+first 101 USDC of spending; it adds no balance buffer, admission check or live
+top-up, and leaves the public funding manifest and product checks unchanged.
+
+At cleanup, `*-failures.jsonl` retains the closed projection of failed operation,
+quote and wallet-diagnostic events from each whole owned-container log. It does
+not truncate failures to the final 100 lines. The separate `.log` contains only a
+bounded tail of recognized generic startup/shutdown events. Generated database
+passwords are redacted before projection; raw params, calldata, signatures,
+provider messages and tracebacks are discarded. Log capture remains best effort
+and does not prevent owned-resource cleanup or change the operation result.
+
+The preserved first full run on App `bf557e3` recorded 20 passing matrix journeys,
+three failures and one unavailable journey. Its large USDC buy lacked the 101 USDC
+already spent by the two preceding tiers; the later large sale lacked the inventory
+that buy would have supplied. A separate wrong-network session timeout resolved
+to the disabled MAX button (`Use maximum sell amount`) through the broad
+`/^Use /` selector. This supersedes the earlier pending-network-switch inference:
+the captured click did not target that control. The session test now selects
+`[data-wallet-live] [data-wallet-network-switch]`, excluding both MAX and the
+disabled cached template. Product switching/MAX behavior is unchanged.
+
+The same run's medium basket redemption failed during authorization before a
+wallet click or submission. Its preceding recorded balance was
+81.433774865804994838 CYGLD against a 0.777470704302863111 CYGLD input. This failure
+is not attributed to insufficient funding. Its underlying cause remains unknown
+because the old final-log tail omitted the relevant event. The failed artifacts
+remain unchanged; a fresh qualification with complete failed-event projection
+must supply further evidence if this authorization failure recurs.
+
 ## Running through the owned-profile orchestrator
 
 The qualifier supplies an ordinary local module exporting `benchmark`, with
