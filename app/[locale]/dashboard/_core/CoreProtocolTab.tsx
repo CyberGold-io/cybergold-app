@@ -180,7 +180,7 @@ export function CoreProtocolTab({
 
             <ProtocolHealthSection>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mt-4 [&>*]:min-w-0 [&>*]:break-words">
-                    <div className="bg-[var(--background-swap-container)] border border-[var(--swap-container-border)] rounded-lg px-4 py-4">
+                    <div className="cg-glass px-4 py-4">
                         <p className="text-sm flex items-center gap-1">
                             {t("cygldCirculatingSupply")}
                             <InfoHint text={t("tipCygldCirculatingSupply")} />
@@ -194,7 +194,7 @@ export function CoreProtocolTab({
                             />
                         </div>
                     </div>
-                    <div className="bg-[var(--background-swap-container)] border border-[var(--swap-container-border)] rounded-lg px-4 py-4">
+                    <div className="cg-glass px-4 py-4">
                         <p className="text-sm flex items-center gap-1">
                             {t("backingRatio")}
                             <InfoHint text={t("tipBackingRatio")} />
@@ -202,7 +202,7 @@ export function CoreProtocolTab({
                         <p className="text-2xl 2xl:text-3xl font-semibold mt-2">N/A</p>
                         <p className="text-xs mt-1">{t("backingRatioUnavailable")}</p>
                     </div>
-                    <div className="bg-[var(--background-swap-container)] border border-[var(--swap-container-border)] rounded-lg px-4 py-4">
+                    <div className="cg-glass px-4 py-4">
                         <p className="text-sm flex items-center gap-1">
                             {t("cygldGoldReference")}
                             <InfoHint text={t("tipCygldGoldReference")} />
@@ -216,7 +216,7 @@ export function CoreProtocolTab({
                             />
                         </div>
                     </div>
-                    <div className="bg-[var(--background-swap-container)] border border-[var(--swap-container-border)] rounded-lg px-4 py-4">
+                    <div className="cg-glass px-4 py-4">
                         <p className="text-sm flex items-center gap-1">
                             {t("holders")}
                             <InfoHint text={t("tipHolders")} />
@@ -225,7 +225,7 @@ export function CoreProtocolTab({
                             {holderCount !== null ? formatNumber(holderCount, { maximumFractionDigits: 0 }) : "N/A"}
                         </p>
                     </div>
-                    <div className="bg-[var(--background-swap-container)] border border-[var(--swap-container-border)] rounded-lg px-4 py-4">
+                    <div className="cg-glass px-4 py-4">
                         <p className="text-sm flex items-center gap-1">
                             {t("pegDeviation")}
                             <InfoHint text={t("tipPegDeviation")} />

@@ -307,6 +307,33 @@ for (const mode of ["ready", "partial", "outage"] as const) {
   });
 }
 
+for (const width of [320, 1440]) {
+  test(`website navbar preserves the connected wallet and full address at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await install(page, "ready"); await page.goto("/en");
+    const address = page.locator("nav").getByRole("button", { name: "Open wallet menu", exact: true });
+    await expect(address).toHaveText(/^0x0000\.\.\.00a1$/i);
+    const walletBox = (await address.boundingBox())!;
+    const settingsBox = (await page.getByRole("button", { name: "Settings", exact: true }).boundingBox())!;
+    expect(walletBox.x + walletBox.width).toBeLessThanOrEqual(settingsBox.x);
+    expect(settingsBox.x + settingsBox.width).toBeLessThanOrEqual(width);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    await page.screenshot({ path: `out/audit/navbar-footer/${width}-connected-en.png`, fullPage: true });
+    await address.click();
+    const panel = page.getByTestId("wallet-balance-modal");
+    await expect(panel).toBeVisible();
+    await panel.locator("[data-wallet-toggle-address]").click();
+    await expect(panel.locator('[data-wallet-display="address"]')).toHaveText(new RegExp(`^${ALICE}$`, "i"));
+    if (width >= 1025) {
+      const nav = (await page.locator("nav").boundingBox())!;
+      expect((await page.getByRole("dialog", { name: "Your wallet", exact: true }).boundingBox())!.y).toBeGreaterThanOrEqual(nav.y + nav.height);
+    }
+    await panel.getByRole("button", { name: "Disconnect wallet", exact: true }).click();
+    await expect(panel).toBeHidden();
+    await expect(page.locator("nav [data-wallet-connect-button]")).toBeVisible();
+  });
+}
+
 test("the address opens only the wallet panel, without a navbar balance or extra menu button", async ({ page }) => {
   const observed = await install(page, "ready");
   await page.goto("/en");
@@ -510,7 +537,7 @@ async function seedOpenWalletReload(page: Page, accounts = [ALICE]) {
   const button = page.locator("nav [data-wallet-connected-button]:visible");
   const openColors = await page.evaluate(() => {
     const probe = document.createElement("span");
-    probe.style.cssText = "position:fixed;visibility:hidden;background:var(--text-input);color:var(--background-input)";
+    probe.style.cssText = "position:fixed;visibility:hidden;background:var(--cg-menu-hover);color:var(--cg-bright)";
     document.body.append(probe);
     const colors = { background: getComputedStyle(probe).backgroundColor, foreground: getComputedStyle(probe).color };
     probe.remove();
@@ -1089,9 +1116,8 @@ test("desktop wallet docks below the navbar, leaves swap usable, and has a singl
   const close = mainNavbar.getByRole("button", { name: "Close balances", exact: true });
   await expect(close).toHaveAttribute("aria-expanded", "true");
   await expect(close).toHaveText(/^0x0000\.\.\.00a1$/i);
-  await expect.poll(() => close.evaluate(element => getComputedStyle(element).backgroundColor)).toBe(closedColors.foreground);
-  const openForeground = await close.evaluate(element => getComputedStyle(element).color);
-  expect(openForeground).not.toBe(closedColors.foreground);
+  await expect(close).toHaveCSS("background-color", "rgba(223, 185, 65, 0.12)");
+  await expect(close).toHaveCSS("color", "rgb(241, 238, 230)");
   await expect(panel.getByRole("button", { name: "Close balances", exact: true })).toHaveCount(0);
   const box = await panel.boundingBox();
   const navbar = await mainNavbar.boundingBox();
@@ -1147,6 +1173,9 @@ test("desktop wallet docks below the navbar, leaves swap usable, and has a singl
   expect((await disconnect.boundingBox())!.y).toBeLessThan((await panel.getByTestId("wallet-balance-row-cygld").boundingBox())!.y);
   const last = panel.locator("button:not([disabled]):visible, a[href]:visible").last();
   await last.focus();
+  await page.keyboard.press("Tab");
+  // Wallet now precedes Settings in the shared header's document/tab order.
+  await expect(page.getByRole("button", { name: "Settings", exact: true })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect.poll(() => page.locator("main").evaluate(element => element.contains(document.activeElement))).toBe(true);
   await page.screenshot({ path: "out/audit/streamline-feedback/wallet-panel-docked-desktop.png" });

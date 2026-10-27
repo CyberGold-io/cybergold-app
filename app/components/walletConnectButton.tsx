@@ -233,10 +233,11 @@ function WalletConnectControl() {
               <button
                 type="button"
                 onClick={openConnectModal}
+                data-wallet-connect-button
                 className="px-3 py-1.5 rounded-full border border-gold-cg bg-gold-cg text-[15px] text-zinc-950 font-semibold transition-transform duration-200 hover:scale-102 shadow-md hover:shadow-lg"
                 >
-                  <span className="min-[1025px]:hidden">{t("connect")}</span>
-                  <span className="hidden min-[1025px]:inline">{t("connectWallet")}</span>
+                  <span className="cg-wallet-label-compact">{t("connect")}</span>
+                  <span className="cg-wallet-label-full">{t("connectWallet")}</span>
               </button>
             )}
 
