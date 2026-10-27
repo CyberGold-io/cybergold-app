@@ -18,7 +18,16 @@ import { protocolConfigurationFixture } from "../../tests/fixtures/protocol-conf
 import { activeMatrixTemplates } from "../../tests/trading/matrix.ts";
 import { installQuoteObservation } from "../../tests/trading/quoteObservation.ts";
 import { createUiQuoteDiagnostics, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion } from "../../tests/trading/uiDiagnostics.ts";
-import { readWalletSetupDiagnostic, safeRunnerError, walletFixtureOutput, walletOnboardingStep, observeWalletOnboarding } from "../../tests/trading/runnerDiagnostics.ts";
+import { qualificationBackendRevision, readWalletSetupDiagnostic, safeRunnerError, walletFixtureOutput, walletOnboardingStep, observeWalletOnboarding } from "../../tests/trading/runnerDiagnostics.ts";
+
+test("qualification identifies the running Backend independently of its cached image", () => {
+  const runtime = "6".repeat(40), historical = "9".repeat(40), image = "a".repeat(40);
+  assert.equal(qualificationBackendRevision({ backendRuntimeCommit: runtime, backendCommit: historical, backendImageCommit: image }), runtime);
+  assert.equal(qualificationBackendRevision({ backendCommit: historical, backendImageCommit: image }), historical);
+  assert.equal(qualificationBackendRevision({ backendRuntimeCommit: "unavailable", backendCommit: historical }), historical);
+  assert.equal(qualificationBackendRevision({ backendImageCommit: image }), undefined);
+  assert.equal(qualificationBackendRevision(null), undefined);
+});
 
 test("plain native Node imports the actual wallet setup before any browser callback", () => {
   const child = spawnSync(process.execPath, ["--input-type=module", "-e", `

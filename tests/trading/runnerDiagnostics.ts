@@ -81,6 +81,16 @@ export function safeRunnerError(error: unknown): SafeRunnerError {
   return { errorClass: errorClasses.has(source?.name ?? "") ? source!.name! : "UnknownError",
     ...(errorCodes.has(source?.code ?? "") ? { errorCode: source!.code } : {}) };
 }
+
+/** An image revision cannot identify code supplied by a mounted runtime. */
+export function qualificationBackendRevision(value: unknown): string | undefined {
+  if (!value || typeof value !== "object") return;
+  const record = value as Record<string, unknown>;
+  for (const key of ["backendRuntimeCommit", "backendCommit"]) {
+    const revision = record[key];
+    if (typeof revision === "string" && /^[0-9a-f]{40}$/.test(revision)) return revision;
+  }
+}
 export function safeCommandResult(code: number | null, signal: string | null) {
   return { ...(Number.isInteger(code) && code! >= 0 && code! <= 255 ? { exitCode: code! } : {}),
     ...(signals.has(signal ?? "") ? { signal: signal! } : {}) };

@@ -10,7 +10,7 @@ import { executionCoverage } from "../tests/trading/providerEvidence.ts";
 import { activeMatrixTemplates, buildMatrix, readValuation, matrixCountsFor, matrixTemplates } from "../tests/trading/matrix.ts";
 import { observeBrowserQuotes } from "../tests/trading/browserQuotes.ts";
 import { enrichResultQuality } from "../tests/trading/quoteQuality.ts";
-import { readWalletSetupDiagnostic, readWalletTestDiagnostics, safeCommandResult, safeRunnerError } from "../tests/trading/runnerDiagnostics.ts";
+import { qualificationBackendRevision, readWalletSetupDiagnostic, readWalletTestDiagnostics, safeCommandResult, safeRunnerError } from "../tests/trading/runnerDiagnostics.ts";
 import { regressionPolicy, unexpectedFailure } from "../tests/trading/runPolicy.ts";
 
 const { values } = parseArgs({ options: { target: { type: "string" }, mode: { type: "string", default: "quotes" },
@@ -102,15 +102,16 @@ try {
     try {
       const qualification = JSON.parse(await readFile(resolve(output, "qualification.json"), "utf8"));
       const context = {};
-      for (const [source, key] of [["frontendCommit", "appRevision"], ["backendCommit", "backendRevision"]])
-        if (/^[0-9a-f]{40}$/.test(qualification[source] ?? "")) context[key] = qualification[source];
+      if (/^[0-9a-f]{40}$/.test(qualification.frontendCommit ?? "")) context.appRevision = qualification.frontendCommit;
+      const backendRevision = qualificationBackendRevision(qualification);
+      if (backendRevision) context.backendRevision = backendRevision;
       if (Number.isSafeInteger(qualification.forkBlock)) context.blockNumber = String(qualification.forkBlock);
       if (/^0x[0-9a-f]{64}$/i.test(qualification.forkBlockHash ?? "")) context.blockHash = qualification.forkBlockHash;
       if (/^sha256:[0-9a-f]{64}$/.test(qualification.backendImageId ?? "")) context.backendImageId = qualification.backendImageId;
       report.context = context;
       const observation = {};
       if (["running", "pass", "fail"].includes(qualification.result)) observation.result = qualification.result;
-      if (["source", "fork", "funding", "core-preparation", "backend", "frontend", "wallet-cache", "wallet-tests", "receipts"].includes(qualification.stage)) observation.stage = qualification.stage;
+      if (["source", "fork", "funding", "core-preparation", "helpers-preparation", "backend", "frontend", "wallet-cache", "wallet-tests", "receipts"].includes(qualification.stage)) observation.stage = qualification.stage;
       if (["timeout", "interrupted", "command-failed", "system-error", "operation-failed", "unexpected-error"].includes(qualification.errorClass)) observation.errorClass = qualification.errorClass;
       if (qualification.cleanup && typeof qualification.cleanup === "object") {
         observation.cleanup = {};
