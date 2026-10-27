@@ -4,7 +4,6 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createServer } from 'node:net';
 import { promisify } from 'node:util';
 import { quoterProducerTimings, quoterBenchmarkApiFailure, type CacheConditionObservation, type CacheResource,
   type QuoterBenchmarkAttempt, type QuoterBenchmarkCase, type QuoterBenchmarkDefinition,
@@ -138,17 +137,10 @@ async function run(command: string, args: string[], input?: string): Promise<str
     child.stdin!.end(input);
   });
 }
-async function freePort() {
-  const server = createServer();
-  await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
-  const port = (server.address() as { port: number }).port;
-  await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
-  return port;
-}
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const runtimePath = fileURLToPath(new URL('./owned-quoter-runtime.py', import.meta.url));
 const runtimeTarget = '/fixture/owned-quoter-runtime.py';
-type Dependencies = { execute?: Execute; fetch?: typeof fetch; freePort?: () => Promise<number>; delay?: typeof delay };
+type Dependencies = { execute?: Execute; fetch?: typeof fetch; delay?: typeof delay };
 
 /** Owns only resources it creates; the calling qualifier owns the supplied Anvil. */
 export class DockerQuoterResources implements OwnedQuoterResources {
@@ -161,12 +153,12 @@ export class DockerQuoterResources implements OwnedQuoterResources {
   private directory = ''; private snapshot = ''; private networkCreated = false;
   private readonly cancellation = new AbortController();
   private readonly command: Execute; private readonly request: typeof fetch;
-  private readonly port: () => Promise<number>; private readonly pause: typeof delay;
+  private readonly pause: typeof delay;
   private readonly config: OwnedQuoterResourceConfiguration;
   constructor(config: OwnedQuoterResourceConfiguration, dependencies: Dependencies = {}) {
     this.config = config;
     this.command = dependencies.execute ?? run; this.request = dependencies.fetch ?? fetch;
-    this.port = dependencies.freePort ?? freePort; this.pause = dependencies.delay ?? delay;
+    this.pause = dependencies.delay ?? delay;
   }
   private docker(...args: string[]) { return this.command(this.config.dockerCommand ?? 'docker', args); }
   private database(variant: Variant) { return 'quoter_' + variant; }
@@ -241,14 +233,16 @@ export class DockerQuoterResources implements OwnedQuoterResources {
   private async launchApi(variant: Variant, key: string, databaseName: string) {
     await this.removeApi(key);
     const name = this.prefix + '-' + key.replace(':', '-');
-    const port = await this.port();
-    const api = { name, origin: `http://127.0.0.1:${port}` };
+    const api = { name, origin: '' };
     this.created.add(name); this.apis.set(key, api);
     await this.docker('run', '-d', '--platform', this.config.platform ?? 'linux/amd64', '--name', name,
       '--network', this.network, '--add-host', 'host.docker.internal:host-gateway', '--env-file', await this.environment(variant, databaseName),
       '--mount', `type=bind,src=${runtimePath},dst=${runtimeTarget},readonly`, '--entrypoint', 'python',
-      '-p', `127.0.0.1:${port}:3000`, variant === 'baseline' ? this.config.baselineImage : this.config.candidateImage,
+      '-p', '127.0.0.1::3000', variant === 'baseline' ? this.config.baselineImage : this.config.candidateImage,
       runtimeTarget, '--reference-seconds', '30');
+    // Docker chooses and reserves the host port atomically; a free-port probe can race another process.
+    const port = await this.docker('inspect', name, '--format', '{{(index (index .NetworkSettings.Ports "3000/tcp") 0).HostPort}}');
+    api.origin = `http://127.0.0.1:${port}`;
     // Metrics is an in-memory readiness read, not a quote/configuration/RPC warm-up.
     for (let attempt = 0; ; attempt++) {
       try { if ((await this.request(api.origin + '/metrics', { signal: this.signal() })).ok) break; }

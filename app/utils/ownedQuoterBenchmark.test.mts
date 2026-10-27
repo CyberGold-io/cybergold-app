@@ -110,12 +110,12 @@ test('Docker controls reset only owned databases, migrate before API startup, an
       metrics: path.endsWith('/api/economic-quotes') ? { timeToFirstWholePlanMs: 5, searchMs: 8, totalMs: 9 }
         : { firstQualifiedMs: 5 } });
   };
-  const resources = new DockerQuoterResources(configuration, { fetch: request, delay: async () => {}, freePort: async () => ++port,
+  const resources = new DockerQuoterResources(configuration, { fetch: request, delay: async () => {},
     execute: async (_command, args, input) => {
       commands.push({ args, input });
       const env = args.indexOf('--env-file');
       if (env !== -1) { envFiles.push(args[env+1]); await readFile(args[env+1], 'utf8'); }
-      return '';
+      return args[0] === 'inspect' ? String(++port) : '';
     } });
   try {
     await resources.start();
@@ -139,6 +139,14 @@ test('Docker controls reset only owned databases, migrate before API startup, an
     const migration = commands.findIndex(row => row.args.includes('alembic') && row.args.includes('baseline-fixture'));
     const api = commands.findIndex(row => row.args.includes('-p') && row.args.includes('baseline-fixture'));
     assert.ok(migration < api);
+    const apiRuns = commands.filter(row => row.args.includes('-p'));
+    assert.equal(apiRuns.length, 2);
+    assert.ok(apiRuns.every(row => row.args[row.args.indexOf('-p')+1] === '127.0.0.1::3000'));
+    assert.equal(commands.filter(row => row.args[0] === 'inspect').length, 2);
+    assert.ok(paths.includes('http://127.0.0.1:19001/metrics'));
+    assert.ok(paths.includes('http://127.0.0.1:19002/metrics'));
+    assert.ok(paths.some(path => path.startsWith('http://127.0.0.1:19001/api/')));
+    assert.ok(paths.some(path => path.startsWith('http://127.0.0.1:19002/api/')));
     assert.ok(paths.some(path => path.endsWith('/metrics')));
     assert.ok(!paths.some(path => path.endsWith('/api/protocol/facts') || path.endsWith('/api/protocol/config')));
   } finally { await resources.close(); }
@@ -152,7 +160,7 @@ test('migration failure still cleans created resources and restores the caller-o
   const resources = new DockerQuoterResources({ baselineImage: 'baseline', candidateImage: 'candidate',
     postgresImage: 'postgres-fixture', forkUrl: 'http://owned-fork.invalid', backendForkUrl: 'http://owned-fork.invalid',
     chainId: 1, core: item.outputCurrency, helpers: item.outputCurrency, routingAdapter: item.outputCurrency, cases: [item] }, {
-    delay: async () => {}, freePort: async () => { throw new Error('API must not start before migration'); },
+    delay: async () => {},
     fetch: async (_url, init) => {
       const body = JSON.parse(String(init?.body));
       if (body.method === 'evm_revert') reverted = true;
