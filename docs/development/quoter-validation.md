@@ -85,8 +85,8 @@ plan at current state while preserving the original minimum and funding.
 Existing receipt/fee/retention and integer wallet-balance assertions keep gas
 separate. This native-input case records the wallet mode it actually exercises;
 other supported/unsupported wallet modes retain their separately scoped fixtures.
-The [fresh full qualification](../../../investigations/mainnet-quotes-2026-10-22/owned-quoter-wallet-full-1aa6804-2026-10-27/README.md)
-passed on **27 October** using measured App `535862a` and actual Backend `1aa6804`:
+The separately retained fresh full qualification passed on **27 October** using
+measured App `535862a` and actual Backend `1aa6804`:
 all **24 matrix journeys**, the bootstrap, two real two-browser MetaMask receipts and
 all three session cases passed. All **27 captured wallet transactions** succeeded;
 process/container/network/source cleanup and observer-browser closure completed.
