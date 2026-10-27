@@ -163,7 +163,7 @@ function bootstrapTradeDisplay(
       }
       if (node.dataset.tradeDisplay === "retentionDisclosure") node.hidden = !value;
     }
-    const showSpending = snapshot.values.sellIsBasket !== "true";
+    const showSpending = snapshot.values.purchaseSpendingVisible === "true";
     for (const node of presentation.querySelectorAll<HTMLElement>("[data-trade-spending]")) {
       node.hidden = !showSpending;
       const limited = snapshot.values.purchaseSpendingLimited === "true";
