@@ -139,7 +139,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     const current = activeResult();
     const quoteEvidence = current ?? (!setupComplete ? setupQuoteEvidence : undefined);
     if (path === "/api/rpc") genericRequests.push(request.url());
-    if (quoteEvidence && !activeSwapAttempt && path.startsWith("/api/quotes/")) {
+    if (quoteEvidence && !activeSwapAttempt && (path === "/api/economic-quotes" || path.startsWith("/api/quotes/"))) {
       try {
         if (activeQuoteDiagnostics?.request(path, request.postDataJSON(), request.headers()["x-cybergold-attempt-id"]))
           Object.assign(quoteEvidence, activeQuoteDiagnostics.snapshot());
@@ -207,14 +207,15 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     await checkpoint("ui-prepare-quote");
     if (quotedToken !== "BASKET") {
       const decimals = configuredToken(config, quotedToken).decimals;
-      await uiPreparationAssertion("ui-quoted-amount-not-ready", () => expect.poll(async () => positiveDisplayedAmount(await displayedUiAmount(getMainInput(page, quotedSide)), decimals), { timeout: 60000 }).toBe(true));
+      await uiPreparationAssertion("ui-quoted-amount-not-ready", () => expect.poll(async () => positiveDisplayedAmount(await displayedUiAmount(getMainInput(page, quotedSide)), decimals), { timeout: 60000 }).toBe(true),
+        () => activeQuoteDiagnostics?.snapshot());
     }
     // The existing accordion contains the committed tolerance and exact
     // min/max labels. Expose them without editing the chosen trade intent.
     await checkpoint("ui-prepare-details");
     await openFeeDetails(page);
     await checkpoint("ui-prepare-swap");
-    await waitForUiSwapReady(page, config, scenario);
+    await waitForUiSwapReady(page, config, scenario, () => activeQuoteDiagnostics?.snapshot());
   }
   async function releaseUiRequest(result: ScenarioResult) {
     if (helpersHash) result.transactionHash = helpersHash;
@@ -416,6 +417,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     observationPhase = "ui-balance-postchecks"; await checkpoint(observationPhase); await validateWallet();
   } catch (error) {
     fixtures[0] = { ...uiObservationFailure(fixtures[0], error, observationPhase), ...(helpersHash ? { transactionHash: helpersHash } : {}) };
+    if (fixtures[0].status === "rejected") fixtures[0].status = "fail";
     fixtures[0].transactionDisposition = transactionDisposition(fixtures[0]);
     if (isWalletRequestCleanupError(error)) {
       fixtures[0].durationMs = Math.round(performance.now() - bootstrapStarted);
@@ -591,7 +593,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   expect(successfulReads.has("/api/account/wallet-balances")).toBe(true);
   console.log(JSON.stringify({ genericAppRpcRequests: genericRequests.length, successfulFixedApiPaths: [...successfulReads].sort() }));
   expect(results.filter(result => result.alternateExecution?.status === "fail").map(result => result.id)).toEqual([]);
-  expect(results.filter(result => result.status !== "pass").map(result => ({ id: result.id, status: result.status, code: result.code }))).toEqual([]);
+  expect(results.filter(result => result.status !== "pass" && result.status !== "rejected").map(result => ({ id: result.id, status: result.status, code: result.code }))).toEqual([]);
   } catch (error) {
     if (!setupComplete) for (const [index, result] of results.entries()) results[index] = {
       ...uiSetupFailure(result, error, { ...setupQuoteEvidence, refs: { ...result.refs, ...setupRefs, ...setupQuoteEvidence.refs } }),

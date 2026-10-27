@@ -16,15 +16,15 @@ function AssetAmount({ currency, amount }: { currency: string; amount: bigint | 
 
 export function ExactInputRetentionDisclosure({ charges, presentation }: { charges: readonly WireRetainedInputCharge[]; presentation?: string }) {
   const t = useTranslations("Home"), locale = useLocale(), { tokens } = useProtocolConfiguration();
-  const text = presentation ?? [t("exactInputRetentionDisclosure"), ...charges.map(row => {
+  const text = presentation ?? charges.map(row => {
     const native = row.currency.toLowerCase() === zeroAddress;
     const token = tokens.find(token => native ? token.type === "native" : token.type === "erc20" && token.address.toLowerCase() === row.currency.toLowerCase());
     const amount = token && token.type !== "basket"
       ? `${formatMeaningfulDecimalString(formatUnits(BigInt(row.amount), token.decimals), locale)} ${token.symbol}`
       : `${row.amount} (${row.currency})`;
     return `${t("estimatedRetainedCharge")}: ${amount}`;
-  })].join("\n");
-  return <div data-testid="exact-input-retention-disclosure" data-trade-display="retentionDisclosure"
+  }).join("\n");
+  return <div hidden={!text} data-testid="exact-input-retention-disclosure" data-trade-display="retentionDisclosure"
     className="order-4 mt-3 whitespace-pre-line text-xs text-text-muted">{text}</div>;
 }
 

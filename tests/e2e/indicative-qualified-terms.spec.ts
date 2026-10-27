@@ -16,6 +16,6 @@ test("fee row stays visible and complete universal execution uses final net outp
   await expect.poll(()=>requests).toBe(1);release();
   await expect(output).not.toHaveAttribute("aria-busy","true");await expect(output).toHaveText("3");
   await expect(page.getByText(/^0\.001 CYGLD/)).toBeVisible();await expect(page.getByTestId("quote-estimate-description")).not.toBeAttached();
-  await expect(page.getByTestId("exact-input-retention-disclosure")).toBeVisible();
+  await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "confirmed");
   await page.locator("#sell-amount").fill("");await expect(output).toHaveText(/^0(?:[.,]0+)?$/);await expect(feeRow).toBeVisible();
 });

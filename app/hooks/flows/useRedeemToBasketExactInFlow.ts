@@ -16,6 +16,7 @@ export function useRedeemToBasketExactInFlow({enabled,grossCygldIn,slippageBps=D
   const t=useTranslations("Home"),{addresses}=useProtocolConfiguration(),active=enabled&&grossCygldIn>0n;
   const universal=useEconomicQuote({intent:3,inputs:[{currency:addresses.core??zeroAddress,amount:String(grossCygldIn)}],outputCurrency:zeroAddress},active);
   const quote=universal.data,canSubmit=active&&quote!==undefined;
+  const fundedCygldIn=quote?BigInt(quote.inputs[0].amount):undefined;
   const projectedCoreOutputs=useMemo(()=>quote?.estimatedRecipientOutputs.map(row=>({...row,kind:row.kind===1?CORE_TOKEN_KIND.ERC1155:CORE_TOKEN_KIND.ERC20,token:row.token as Address,id:BigInt(row.id),amount:BigInt(row.amount)})),[quote]);
   const expectedCoreOutputs=useMemo(()=>quote?.estimatedRecipientOutputs.map(row=>({...row,
     minimumAmount:applySlippageFloor(BigInt(row.amount),slippageBps)})),[quote,slippageBps]);
@@ -26,8 +27,8 @@ export function useRedeemToBasketExactInFlow({enabled,grossCygldIn,slippageBps=D
     if(!quote||!canSubmit)throw new Error("RedeemToBasketExactIn is not ready");
     return submitUniversal(quote,params);
   },[quote,canSubmit,submitUniversal]);
-  return {...universal,quote,universalQuote:quote,grossCygldIn,maximumInputAmount:quote?grossCygldIn:undefined,
-    netCygldIn:quote?grossCygldIn-BigInt(quote.fees.coreProtocolFeeCygld)-BigInt(quote.fees.coreHelpersFeeCygld):undefined,
+  return {...universal,quote,universalQuote:quote,grossCygldIn:fundedCygldIn,maximumInputAmount:fundedCygldIn,
+    netCygldIn:quote&&fundedCygldIn!==undefined?fundedCygldIn-BigInt(quote.fees.coreProtocolFeeCygld)-BigInt(quote.fees.coreHelpersFeeCygld):undefined,
     fees:quote?{protocolFeeCygld:BigInt(quote.fees.coreProtocolFeeCygld),helperFeeCygld:BigInt(quote.fees.coreHelpersFeeCygld),marketFeeCygld:BigInt(quote.fees.marketFeeCygld)}:undefined,
     amountsOut:erc20?.map(row=>row.amount),minimumOutputAmounts:expectedCoreOutputs?.filter(row=>row.kind===0).map(row=>row.minimumAmount),projectedCoreOutputs,
     recoverySharesOut:recovery?.map(row=>row.amount),orderedRecoveryAssets:recovery?.map(row=>getAddress(toHex(row.id,{size:20}))),

@@ -61,7 +61,6 @@
     "disconnectFailedDescription": "Impossible de déconnecter le portefeuille. Réessayez."
   },
   "Home": {
-    "exactInputRetentionDisclosure": "La totalité du montant fourni est débitée. Après les conversions prévues, tout reliquat d’entrée est conservé dans Helpers comme frais de protocole pour son propriétaire. Vous recevez la totalité de la sortie finale, sous réserve du minimum indiqué.",
     "estimatedRetainedCharge": "Frais conservés estimés",
     "retainedProtocolCharge": "Frais de protocole conservés",
     "retainedCustodian": "Dépositaire des frais",

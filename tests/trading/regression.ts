@@ -19,6 +19,7 @@ import type { QualityTerms, QualityMeasurement } from "./quoteQuality.ts";
 import { tradeQualityTerms, basketQualityTerms } from "./quoteQuality.ts";
 import { SandboxFundingError } from "./sandboxFunding.ts";
 import { quoterProducerTimings, type QuoterProducerTimings } from './quoterBenchmark.ts';
+import type { RegressionStatus } from './runPolicy.ts';
 
 export type UiObservationPhase = "ui-prepare" | "ui-facts" | "ui-balances" | "ui-submit" | "ui-confirmation"
   | "ui-hash" | "ui-receipt-read" | "ui-transaction-read" | "ui-receipt-assertions" | "ui-balance-postchecks";
@@ -43,7 +44,7 @@ export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "ass
   selectedProvider?: Provider | "universal"; planDigest?: string; revalidatedPlanDigest?: string; executionAttempted?: boolean;
   transactionDisposition?: "not-submitted" | "submitted" | "confirmed" | "unknown";
   requestedStrategy: "core" | "market" | "auto";
-  status: "pass" | "fail" | "unavailable" | "skipped"; actualStrategy: "core" | "market" | "mixed" | "universal" | "unknown";
+  status: RegressionStatus; actualStrategy: "core" | "market" | "mixed" | "universal" | "unknown";
   actualOperation?: string; quotedOperation?: string; layer: "api" | "browser" | "execution"; durationMs?: number; firstExecutableMs?: number;
   producerTimings?: QuoterProducerTimings;
   code?: string; reason?: QuotePreviewError["code"] | SandboxFundingError["reason"] | UiObservationPhase | "unsupported" | "no-qualified-plan" | "quote-observation-unavailable" | "predecessor-submission-unknown"; refs?: DiagnosticReferences; transactionHash?: string;
@@ -64,7 +65,8 @@ export type RegressionReport = { schema: "cybergold.trade-regression.v1"; runId:
   context?: { appRevision?: string; backendRevision?: string; backendImageId?: string; blockNumber?: string; blockHash?: string };
   qualification?: { result?: "running" | "pass" | "fail"; stage?: string; errorClass?: string;
     cleanup?: Partial<Record<"processes" | "containers" | "network" | "source", "complete" | "failed">> };
-  runnerOutcome?: "pass" | "fail" | "unavailable"; runnerCode?: string; scenarios: ScenarioResult[]; fixtures?: ScenarioResult[] };
+  runnerOutcome?: "pass" | "fail" | "unavailable"; runnerCode?: string;
+  outcome?: "pass" | "completed-with-rejections" | "fail"; scenarios: ScenarioResult[]; fixtures?: ScenarioResult[] };
 export type QuoteObservation = { scenario: Scenario; request: TradeQuoteRequest | BasketPreviewRequest | EconomicRequest;
   value: QuoteIntent | MarketQuote | BasketPreview | UniversalExactInputQuote | EconomicQuote; result: ScenarioResult };
 
@@ -95,14 +97,22 @@ const unexercisedRunnerCodes = new Set([
   "app-origin-unavailable", "fork-fixture-configuration-unavailable", "browser-unavailable",
   "wallet-setup-unavailable", "wallet-rpc-unavailable", "valuation-unavailable",
 ]);
+// These existing public reasons identify a protocol/market constraint. Generic
+// routing, contract, transport and timeout codes still require investigation.
+const identifiedQuoteRejections = new Set<QuotePreviewError['code']>([
+  'insufficient-protocol-supply', 'issuance-cap-exceeded', 'redemption-supply-exceeded',
+  'insufficient-reserve-balance', 'insufficient-recovery-shares', 'redemption-capacity-exceeded',
+  'quote-insufficient-liquidity',
+]);
 export function failureResult(result: ScenarioResult, error: unknown) {
   const code = error instanceof QuotePreviewError || error instanceof RegressionAssertionError || error instanceof ScenarioUnavailableError
     ? error.code : "unexpected-error";
   const unavailable = error instanceof ScenarioUnavailableError && unexercisedRunnerCodes.has(error.code);
+  const rejected = error instanceof QuotePreviewError && identifiedQuoteRejections.has(error.code);
   const timedOut = /Timeout|Abort/.test((error as Error)?.name ?? "");
   const work = quoteDiagnostics(error) ?? quoteDiagnostics(result);
   const constraint = safeQuoteConstraint((error as { constraint?: unknown } | null)?.constraint) ?? result.constraint;
-  return { ...result, status: unavailable ? "unavailable" as const : "fail" as const,
+  return { ...result, status: rejected ? "rejected" as const : unavailable ? "unavailable" as const : "fail" as const,
     code: timedOut && code === "unexpected-error" ? "service-unavailable" : code,
     quoteDiagnostics: work,
     ...(error instanceof SandboxFundingError ? { reason: error.reason } : {}),

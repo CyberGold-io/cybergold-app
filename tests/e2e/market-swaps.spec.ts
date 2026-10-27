@@ -49,7 +49,7 @@ test("one trading form acquires a fee-aware baseline before an amount or wallet"
   await page.locator("#sell-amount").fill("1"); await expect(page.locator("#buy-amount")).toHaveText("0.999");
   await expect.poll(() => observed.requests.length).toBeGreaterThan(0);
   await page.locator("#sell-amount").fill("2"); await expect(page.locator("#buy-amount")).toHaveText("1.998");
-  finish(); await expect(page.getByTestId("exact-input-retention-disclosure")).toBeVisible();
+  finish(); await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "confirmed");
   await page.getByRole("button", { name: /Total fee/ }).click();
   await expect(page.getByTestId("swap-minimum-output")).toContainText("CYGLD");
 });
@@ -73,7 +73,7 @@ test("the Backend-selected universal plan supplies the complete market economics
   await page.route("**/api/economic-quotes", route => route.fulfill({ json: marketUniversalFixture(route.request().postDataJSON()) }));
   await page.goto("/en"); await selectPaxg(page); await page.locator("#sell-amount").fill("1");
   await expect(page.locator("#buy-amount")).toHaveText("0.999");
-  await expect(page.getByTestId("exact-input-retention-disclosure")).toContainText("full input amount is funded");
+  await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "confirmed");
   await expect(page.getByTestId("trade-mechanism")).toHaveCount(0);
 });
 
@@ -143,7 +143,7 @@ for (const native of [false, true]) for (const rejected of native ? [false] : [f
   await page.goto("/en"); await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
   if (native) await choose(page, "ETH"); else { await selectPaxg(page); await page.getByRole("button", { name: "Reverse swap direction" }).click(); }
   await page.locator("#sell-amount").fill("1"); await expect.poll(() => observed.quotes.length).toBeGreaterThan(0);
-  await expect(page.getByTestId("exact-input-retention-disclosure")).toBeVisible();
+  await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "confirmed");
   await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
   const selected = observed.quotes.at(-1)!; const quoteCount = observed.requests.length;
   expect(preparations).toEqual([]);

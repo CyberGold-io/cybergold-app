@@ -394,6 +394,9 @@ for (const width of [1280, 390]) {
 test("an exhausted Core cap leaves CYGLD redemption usable", async ({ page }) => {
   await installCapacity(page, 250n); await installReadOnlyWallet(page);
   const requests = await routeCapQuotes(page, 0n);
+  await routeBasketQuote(page, route => route.fulfill({ status: 422, json: {
+    code: "issuance-cap-exceeded", constraint: { availableRaw: "0" },
+  } }));
   await page.goto("/en");
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
   await page.getByRole("switch", { name: "Show only tokens available in wallet", exact: true }).uncheck();

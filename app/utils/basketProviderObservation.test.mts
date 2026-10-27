@@ -49,7 +49,7 @@ test('unfinished and cancelled basket searches stay distinct from completed quot
   assert.deepEqual(observedBasketProviderEvidence([row], scenario).core, { availability: 'unavailable', searchOutcome: 'cancelled', refs: {} });
 });
 
-for (const inputMode of ['exact-in', 'exact-out'] as const) test(`quote-only basket ${inputMode} keeps producer evidence for a supply-limit failure`, async t => {
+for (const inputMode of ['exact-in', 'exact-out'] as const) test(`quote-only basket ${inputMode} keeps producer evidence for an identified supply rejection`, async t => {
   const sale = { ...scenario, id: `core-redeem-basket-${inputMode}-large`, side: 'sell' as const,
     family: 'redeem-basket' as const, inputMode, size: 'large' as const, nominalUsd: '10000' };
   const request = inputMode === 'exact-in' ? { intent: 3, inputs: [{ currency: protocolConfigurationFixture.contracts.core!, amount: sale.amountRaw }], outputCurrency: zeroAddress }
@@ -78,7 +78,7 @@ for (const inputMode of ['exact-in', 'exact-out'] as const) test(`quote-only bas
   const [result] = await observeBrowserQuotes('https://fixture.invalid', protocolConfigurationFixture, {
     basket: { assets: { status: 'success', value: sale.basketAssets }, targetsPpm: { status: 'success', value: ['500000', '500000'] } },
   } as never, [sale]);
-  assert.equal(result.status, 'fail'); assert.equal(result.code, 'insufficient-protocol-supply');
+  assert.equal(result.status, 'rejected'); assert.equal(result.code, 'insufficient-protocol-supply');
   if (inputMode === 'exact-in') {
     assert.equal(result.providers, undefined);
     assert.equal(result.refs?.requestId, requestId);

@@ -113,7 +113,7 @@ test("unchanged heads keep reads stable; replacement refreshes facts and fees wh
   await expect(computed).not.toHaveAttribute("aria-busy", "true");
   await expect(computed).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
   await expect(computed).toHaveText("1");
-  await expect(page.getByTestId("exact-input-retention-disclosure")).toBeVisible();
+  await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "confirmed");
   await expect(page.getByRole("button",{name:"Swap currencies",exact:true})).toBeEnabled();
   await expect(computed).not.toHaveAttribute("aria-busy", "true"); // Complete plan, after advisory/debounce.
   // Wallet-free gas starts at mount; development Strict Mode can cancel and

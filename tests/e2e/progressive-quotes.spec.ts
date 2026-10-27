@@ -38,7 +38,7 @@ for(const symbol of ["WETH","ETH","USDC"] as const) for(const side of ["buy","se
     await fixture.complete("better");
     await expect(description).not.toBeAttached();await expect(output).not.toHaveAttribute("aria-busy","true");
     await expect.poll(async()=>Number(await output.textContent())).toBe(before*2);
-    await expect(page.getByTestId("exact-input-retention-disclosure")).toBeVisible();
+    await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "confirmed");
   });
 }
 test("an errored economic quote removes its provisional amount",async({page})=>{

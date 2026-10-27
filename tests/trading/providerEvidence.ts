@@ -12,6 +12,7 @@ import { semanticDigest, type MatrixScenario } from './matrix.ts';
 import type { QuoteObservation as BrowserQuoteObservation } from './quoteObservation.ts';
 import { economicQuoteEvidence, resultFor, validateTrade, failureResult, requireInvariant, matchesBasketIntent, type QuoteObservation, type ScenarioResult } from './regression.ts';
 import { safeSelectedPlan, type SelectedPlan } from './selectedPlan.ts';
+import { regressionStatuses } from './runPolicy.ts';
 import type { Scenario } from './scenarios.ts';
 import { tradeQualityTerms, basketQualityTerms, type QualityTerms, type QualityMeasurement } from './quoteQuality.ts';
 
@@ -205,7 +206,7 @@ export function observedBasketProviderEvidence(observations: readonly BrowserQuo
 }
 
 export function executionCoverage(rows: readonly ScenarioResult[]) {
-  const count = (values: { status: string }[]) => Object.fromEntries(['pass', 'fail', 'unavailable', 'skipped'].map(status => [status, values.filter(v => v.status === status).length]));
+  const count = (values: { status: string }[]) => Object.fromEntries(regressionStatuses.map(status => [status, values.filter(v => v.status === status).length]));
   const alternates = rows.flatMap(row => row.alternateExecution ? [row.alternateExecution] : []);
   return { scenarios: rows.length, providerAssessments: rows.reduce((n, row) => n + Object.keys(row.providers ?? {}).length, 0),
     uiAttempted: rows.filter(row => row.executionAttempted).length, ui: count([...rows]),

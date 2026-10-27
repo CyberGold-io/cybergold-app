@@ -11,7 +11,7 @@ for (const intent of [2, 3]) test(`basket intent ${intent} retains its economic 
   await page.clock.install();
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance):visible').first().fill("1");
   await page.clock.runFor(250);
-  await expect(page.getByTestId("exact-input-retention-disclosure")).toBeVisible();
+  await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "confirmed");
   const requests = () => (observed.rawIntents as (EconomicRequest & { refresh?: boolean })[]).filter(row => row.intent === intent);
   await expect.poll(() => requests().length).toBe(1);
   const initial = requests()[0];
@@ -25,5 +25,5 @@ for (const intent of [2, 3]) test(`basket intent ${intent} retains its economic 
   expect(renewed.inputs).toEqual(initial.inputs);
   expect(renewed.refresh).toBe(true);
   expect(renewed).not.toHaveProperty('deadline');
-  await expect(page.getByTestId("exact-input-retention-disclosure")).toBeVisible();
+  await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "confirmed");
 });
