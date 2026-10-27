@@ -2709,17 +2709,18 @@ const computedReceiveQuote = useMemo((): Prefill => {
         <ExactInputRetentionDisclosure charges={(frozenUniversal ?? activeUniversalQuote)?.estimatedRetainedInputCharges ?? []}
           presentation={restoreFormattedDisplay || !(frozenUniversal ?? activeUniversalQuote) ? cachedTradeDisplay?.retentionDisclosure : undefined} />
 
-        {activeFlow && hasEnteredSwapAmount && <div className="order-3 mt-3 flex flex-col items-end gap-2">
-          <button type="button" data-trade-refresh onClick={() => void activeFlow.refresh()}
-            disabled={isSubmittingSwap || activeFlow.refreshing || quoteInputPending}
-            aria-busy={activeFlow.refreshing || undefined}
-            className="text-sm text-text-muted underline underline-offset-4 disabled:opacity-50">
+        <div className="order-3 mt-3 flex flex-col items-end gap-2">
+          <button type="button" data-trade-refresh onClick={() => void activeFlow?.refresh()}
+            disabled={!activeFlow || !hasEnteredSwapAmount || isSubmittingSwap || activeFlow.refreshing || quoteInputPending}
+            aria-busy={activeFlow?.refreshing || undefined}
+            className={cn("text-sm text-text-muted underline underline-offset-4 disabled:opacity-50",
+              (!activeFlow || !hasEnteredSwapAmount) && "invisible")}>
             {t("refreshQuote")}
           </button>
-          {activeFlow.refreshError && <p role="alert" className="text-sm text-text-amber">
+          {activeFlow?.refreshError && <p role="alert" className="text-sm text-text-amber">
             {t("quoteRefreshFailed")} {activeFlow.refreshError}
           </p>}
-        </div>}
+        </div>
         {confirmedTrade && <section data-testid="trade-receipt" role="status" className="order-5 my-3 rounded-xl border border-swap-container-border p-3 text-sm">
           <p className="font-semibold">{confirmedTrade.receipt.strategy === "market" ? marketT("confirmed") : t("transactionConfirmed")}</p>
           {confirmedTrade.receipt.strategy === "universal" && <ExactInputSettlement receipt={confirmedTrade.receipt} />}
