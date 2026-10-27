@@ -208,5 +208,26 @@
     "Message": "Retain App displays and show budget-aware trading estimates",
     "Tags": [],
     "Fingerprint": "32cc563a5e86aa9404187caead298795c5218286:app/utils/tradeBudgetModel.test.mts:generic-api-key:52"
+  },
+  {
+    "RuleID": "generic-api-key",
+    "Description": "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
+    "StartLine": 58,
+    "EndLine": 58,
+    "StartColumn": 54,
+    "EndColumn": 96,
+    "Match": "token-approval-gas\", \"REDACTED\"",
+    "Secret": "REDACTED",
+    "File": "scripts/qualify-fixed-api-wallet.py",
+    "SymlinkFile": "",
+    "Commit": "535862aa46a91687dcb332a190468e645dfdb281",
+    "Link": "https://github.com/CyberGold-io/cybergold-app/blob/535862aa46a91687dcb332a190468e645dfdb281/scripts/qualify-fixed-api-wallet.py#L58",
+    "Entropy": 3.6464393,
+    "Author": "christophelebrun",
+    "Email": "50588617+christophelebrun@users.noreply.github.com",
+    "Date": "2026-10-27T01:22:12Z",
+    "Message": "test(quoter): fund cumulative wallet tiers and retain failures",
+    "Tags": [],
+    "Fingerprint": "535862aa46a91687dcb332a190468e645dfdb281:scripts/qualify-fixed-api-wallet.py:generic-api-key:58"
   }
 ]
