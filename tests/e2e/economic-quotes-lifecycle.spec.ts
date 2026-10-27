@@ -55,7 +55,7 @@ test('economic quote lifecycle: returning to an amount restores its measured out
   expect(requests).toHaveLength(2);
   await page.locator('[data-trade-refresh]').click();
   await expect.poll(() => requests.length).toBe(3);
-  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(page.getByRole('alert').filter({ hasText: 'Refresh failed. Showing the previous quote.' })).toBeVisible();
   await expect(page.locator('#buy-amount')).toHaveText('0.25');
   expect(requests.at(-1)).toEqual({ amount: '1000000000000000000', refresh: true });
 });
