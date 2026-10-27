@@ -7,7 +7,7 @@ export const marketFixtureRequest: MarketQuoteRequest & { adapter: string } = { 
 export const marketFixtureQuote: MarketQuote = {
   operation: "market", side: "sell", mode: "exact-in", tokenIn: cygld, tokenOut: address,
   amountIn: "1000", amountOut: "2000", totalInput: "1001", netOutput: "2000", grossOutput: "2000", routedAmountIn: "1000",
-  inputMaximum: "1002", outputMinimum: "1980", refundDust: "1", adapterData: "0xab", qualification: "quoter",
+  inputMaximum: "1002", outputMinimum: "1980", refundDust: "1", adapterData: "0xab", qualification: "sdk",
   fee: { asset: cygld, ratePpm: 1000, amount: "1", basis: "quoted", notional: "1000" },
   params: { side: 1, counterToken: address, amount: "1002", bound: "1980", routedInput: "1000", feeCygld: "1",
     recipient: address, deadline: "1900000000", adapter: address, data: "0xab" },

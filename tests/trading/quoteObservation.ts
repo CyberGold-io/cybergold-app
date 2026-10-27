@@ -18,9 +18,12 @@ export function installQuoteObservation(scope: ObservationWindow = window) {
     const operation = originalFetch.apply(scope, args);
     const [input, init] = args;
     const path = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url, scope.location.href).pathname;
-    if (path !== "/api/quotes/trade/stream" && path !== "/api/quotes/basket-preview" && path !== "/api/quotes/universal-exact-input") return operation;
+    if (!["/api/quotes/trade/stream", "/api/quotes/basket-preview", "/api/quotes/universal-exact-input",
+      "/api/economic-quotes", "/api/tx-preparations"].includes(path)) return operation;
     // These App producers submit JSON with RequestInit.body. Other fetches are
-    // left untouched, including any wallet, signature or transaction traffic.
+    // left untouched, including wallet signatures and transaction submission.
+    // Unsigned preparation responses stay in this test-owned browser memory;
+    // reports project economics/digests rather than retaining their calldata.
     if (typeof init?.body !== "string") return operation;
     let request: Record<string, unknown>;
     try { request = JSON.parse(init.body); } catch { return operation; }
@@ -40,7 +43,7 @@ export function installQuoteObservation(scope: ObservationWindow = window) {
     observation.backendRevision = response.headers.get("X-CyberGold-Backend-Revision") ?? undefined;
     const clone = response.clone();
     void (async () => {
-      if (path === "/api/quotes/basket-preview" || path === "/api/quotes/universal-exact-input" || !response.ok) {
+      if (path !== "/api/quotes/trade/stream" || !response.ok) {
         const value = await clone.json();
         observation.terminal = response.ok ? { type: "complete", value } : { type: "error", ...value };
         return;

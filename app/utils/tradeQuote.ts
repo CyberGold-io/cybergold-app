@@ -1,10 +1,12 @@
-import { zeroAddress, type Hex, type Address } from "viem";
+import type { Hex, Address } from "viem";
 import type { components } from "../contracts/backend/http";
 import type { ProtocolDeployment } from "./protocolConfiguration";
-import { fetchUniversalExactInputQuote, type UniversalExactInputQuote } from "./universalExactInput.ts";
+import type { UniversalExactInputQuote } from "./universalExactInput.ts";
 import { fetchQuoteStream } from "./quoteStream.ts";
 import { receiveMarketQuoteModel, receiveQuoteModel, receiveTradeBudgetRange } from "./quoteModelStore.ts";
 import { diagnosticReferences, type DiagnosticReferences } from "./diagnosticReferences.ts";
+import { isEconomicQuote, type EconomicQuote } from "./economicQuotes.ts";
+import { applySlippageFloor } from "./swapPolicy.ts";
 
 export type TradeQuoteRequest = components["schemas"]["TradeQuoteRequest"];
 export type TradeQuote = components["schemas"]["TradeQuote"];
@@ -13,17 +15,21 @@ export type TradeModelRequest = components["schemas"]["TradeModelRequest"];
 export type TradeQuoteModelPacket = components["schemas"]["TradeQuoteModelPacket"];
 export type UniversalTradeQuote = UniversalExactInputQuote & { side: "buy" | "sell"; mode: "exact-in";
   quotedInput: string; inputMaximum: string; tokenIn: string; tokenOut: string; providerRequest: TradeQuoteRequest };
+export type EconomicTradeQuote = EconomicQuote & { side: "buy" | "sell"; mode: "exact-in";
+  quotedInput: string; inputMaximum: string; tokenIn: string; tokenOut: string;
+  providerRequest: Omit<TradeQuoteRequest, "recipient" | "deadline" | "retainedPlan"> };
 type WireTradeQuote = TradeQuote | components["schemas"]["UniversalExactInputQuote"];
-export type ActiveTradeQuote = TradeQuote | UniversalTradeQuote;
+export type ActiveTradeQuote = TradeQuote | UniversalTradeQuote | EconomicTradeQuote;
 export type TradeQuoteResult<Value extends ActiveTradeQuote = ActiveTradeQuote> = {
   value: Value; deployment?: ProtocolDeployment;
   diagnostics?: DiagnosticReferences;
   quotedInput: bigint; quotedOutput: bigint; inputMaximum: bigint; outputMinimum: bigint;
 };
 
-export function tradeQuoteResult<Value extends ActiveTradeQuote>(value: Value): TradeQuoteResult<Value> {
+export function tradeQuoteResult<Value extends ActiveTradeQuote>(value: Value, slippageBps?: number): TradeQuoteResult<Value> {
   return { value, diagnostics: diagnosticReferences(value), quotedInput: BigInt(value.quotedInput), quotedOutput: BigInt(value.quotedOutput),
-    inputMaximum: BigInt(value.inputMaximum), outputMinimum: BigInt(value.outputMinimum) };
+    inputMaximum: BigInt(value.inputMaximum), outputMinimum: value.strategy === "universal" && isEconomicQuote(value)
+      ? applySlippageFloor(BigInt(value.quotedOutput), slippageBps) : BigInt(value.outputMinimum) };
 }
 
 /** Normalize the producer's canonical universal winner without re-quoting it. */
@@ -42,7 +48,7 @@ export function tradeAdapter(value: ActiveTradeQuote): Address | undefined {
 
 /** Capture the accepted complete plan before any wallet or other asynchronous work. */
 export function captureTradeQuote<Value extends ActiveTradeQuote>(value: TradeQuoteResult<Value>): TradeQuoteResult<Value> {
-  return { ...tradeQuoteResult(structuredClone(value.value)), diagnostics: value.diagnostics && { ...value.diagnostics }, deployment: value.deployment && { ...value.deployment } };
+  return { ...value, value: structuredClone(value.value), diagnostics: value.diagnostics && { ...value.diagnostics }, deployment: value.deployment && { ...value.deployment } };
 }
 
 /** Refresh observations without replacing the selected economic tuple. */
@@ -85,18 +91,16 @@ export async function fetchTradeQuote(request: TradeQuoteRequest, signal: AbortS
 
 export async function fetchTradeModel(request: TradeModelRequest, signal?: AbortSignal,
   fetchImpl: typeof fetch = fetch): Promise<TradeQuoteModelPacket> {
-  const response = await fetchImpl("/api/quotes/trade/model", { method: "POST", cache: "no-store", signal,
+  const response = await fetchImpl("/api/economic-estimates", { method: "POST", cache: "no-store", signal,
     headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) });
   if (!response.ok) throw new Error("Trading estimates are temporarily unavailable.");
   return response.json();
 }
 
-/** Scalar input-only journeys use the same typed plan as basket journeys. */
-export async function fetchUniversalTradeQuote(request: TradeQuoteRequest, core: Address, signal: AbortSignal): Promise<TradeQuoteResult<UniversalTradeQuote>> {
-  const counter = request.native ? zeroAddress : request.counterToken;
-  const tokenIn = request.side === "buy" ? counter : core, tokenOut = request.side === "buy" ? core : counter;
-  const quote = await fetchUniversalExactInputQuote({ intent: request.side === "buy" ? 0 : 1,
-    inputs: [{ currency: tokenIn, amount: request.amount }], outputCurrency: tokenOut,
-    recipient: request.recipient, deadline: request.deadline, slippageBps: request.slippageBps }, signal);
-  return tradeQuoteResult({ ...quote, quotedInput: quote.quotedInput!, inputMaximum: quote.inputMaximum!, side: request.side, mode: "exact-in", tokenIn, tokenOut, providerRequest: request });
+export function economicTradeQuote(quote: EconomicQuote, request: Omit<TradeQuoteRequest, "deadline" | "retainedPlan">): EconomicTradeQuote {
+  const intent = { side: request.side, mode: request.mode, counterToken: request.counterToken,
+    native: request.native, amount: request.amount, slippageBps: request.slippageBps };
+  return { ...quote, quotedInput: quote.quotedInput ?? quote.inputs[0].amount, inputMaximum: quote.inputMaximum ?? quote.inputs[0].amount,
+    side: request.side, mode: "exact-in", tokenIn: quote.inputs[0].currency,
+    tokenOut: quote.request.outputCurrency, providerRequest: intent };
 }

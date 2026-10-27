@@ -72,7 +72,7 @@ test("MetaMask wrong-network controls recover to the configured chain", async ({
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible({ timeout: 20000 });
   await addLocalNetwork(page, other, "CyberGold Other Anvil");
   await switchLocalNetwork(page, other.chainId);
-  const recovery = page.getByRole("button", { name: /^Use / });
+  const recovery = page.locator("[data-wallet-live] [data-wallet-network-switch]");
   await expect(recovery).toBeVisible();
   await recovery.click();
   await expect.poll(async () => {

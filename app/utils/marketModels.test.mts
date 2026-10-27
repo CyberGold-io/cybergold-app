@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
-import { predictMarketModel, fetchMarketModel } from "./marketModels.ts";
+import { fetchMarketModel } from "../../tests/fixtures/legacy-market-model.mts";
 import { marketFixtureQuote, marketFixtureRequest } from "../../tests/fixtures/market-quote.mts";
 import { marketModelFamily, type MarketQuoteModelPacket } from "./marketQuote.ts";
 import { fetchTradeModel, receiveTradeModel, type TradeModelRequest, type TradeQuoteModelPacket } from "./tradeQuote.ts";
@@ -15,19 +15,6 @@ const model: MarketQuoteModelPacket = { namespace: "market", family: marketModel
   routes: [{ route: marketFixtureQuote.plan.route, amountIn: "0", amountOut: "0", points: [],
     exchangeRate: { numerator: "1", denominator: "1" }, feeRetention: { numerator: "1", denominator: "1" },
     localImpact: { numerator: "0", denominator: "1" } }] };
-
-test("cold market baselines compose all four ceiling-fee cases without quote history", () => {
-  const expectations = { "buy:exact-in": 1000n, "buy:exact-out": 1004n,
-    "sell:exact-in": 1000n, "sell:exact-out": 1004n };
-  for (const side of ["buy", "sell"] as const) for (const mode of ["exact-in", "exact-out"] as const) {
-    const packet = { ...model, intent: { ...model.intent, side, mode } };
-    assert.equal(predictMarketModel(packet, 1002n), expectations[`${side}:${mode}`]);
-  }
-  const changedPolicy = { ...model, feeRatePpm: 2000, intent: { ...model.intent, side: "buy" as const } };
-  assert.equal(predictMarketModel(changedPolicy, 1000n), 998n, "Backend policy facts determine displayed fee economics");
-  assert.equal(predictMarketModel(model, 0n), undefined);
-  assert.equal(predictMarketModel({ ...model, routes: [] }, 1000n), undefined);
-});
 
 test("baseline acquisition needs neither a wallet, amount nor a previous market quote", async () => {
   const request = model.intent;
@@ -60,7 +47,7 @@ test("the unified hook retains a Backend-resolved family and uses only its ranke
     "@/app/utils/quoteModelStore": { getTradeBudgetRange, subscribeQuoteModels, tradeDisplayModelScope },
     "@/app/utils/tradeQuote": { receiveTradeModel, fetchTradeModel: (input: TradeModelRequest, signal: AbortSignal) =>
       fetchTradeModel(input, signal, (async (url, options) => {
-        assert.equal(url, "/api/quotes/trade/model"); assert.deepEqual(JSON.parse(String(options?.body)), request);
+        assert.equal(url, "/api/economic-estimates"); assert.deepEqual(JSON.parse(String(options?.body)), request);
         assert.equal(options?.signal, signal); return Response.json(packet);
       }) as typeof fetch) },
   };
@@ -70,7 +57,6 @@ test("the unified hook retains a Backend-resolved family and uses only its ranke
   runInNewContext(output, { exports, require: (key: string) => { assert.ok(key in dependencies, key); return dependencies[key]; } });
   clearQuoteModels();
   try {
-    assert.equal(predictMarketModel(model, 1002n), 1000n, "the family arithmetic differs from Backend ranking");
     assert.equal(exports.useTradeModel!(request, true)?.quotedOutput, 42n, "the App does not rank or reconstruct family estimates");
     assert.equal(getMarketQuoteModel(model.family, identity), model, "retain the concrete producer adapter family");
     assert.equal(getMarketQuoteModel(model.family, "other-deployment"), undefined);

@@ -34,7 +34,7 @@ export function marketFixture(request: MarketQuoteRequest): MarketQuote {
     grossOutput: route.outputAmount, routedAmountIn: String(routed), inputMaximum: String(maximum), outputMinimum: String(minimum),
     refundDust: String(!buy && exactIn ? amount - routed - fee : 0n), fee: feeFact, params, adapterData: params.data,
     plan: { side: request.side, mode: request.mode, amount: request.amount, slippageBps: request.slippageBps ?? 100, route, params, fee: feeFact },
-    context, qualification: "quoter", feeBeneficiaryDisplay: { address: helpers, observedAt: context.observedAt }, metrics: { candidateCalls: 1, totalMs: 1 } };
+    context, qualification: "sdk", feeBeneficiaryDisplay: { address: helpers, observedAt: context.observedAt }, metrics: { candidateCalls: 1, totalMs: 1 } };
 }
 
 export function marketModelFixture(request: MarketModelRequest): MarketQuoteModelPacket {
@@ -99,13 +99,13 @@ export async function installMarket(page: Page, waitForQuote?: () => Promise<voi
   adapterSource: () => string = () => protocolAddresses.adapter) {
   const coreObservations = await install(page);
   const requests: UniversalExactInputRequest[] = [], models: TradeModelRequest[] = [], quotes: UniversalExactInputQuote[] = [];
-  await page.route("**/api/quotes/trade/model", async route => {
+  await page.route("**/api/economic-estimates", async route => {
     const request = route.request().postDataJSON();
     if (request.native || request.counterToken.toLowerCase() !== counter.toLowerCase()) { await route.fallback(); return; }
     models.push(request);
     await route.fulfill({ json: tradeMarketModelFixture(request, adapterSource()) });
   });
-  await page.route("**/api/quotes/universal-exact-input", async route => {
+  await page.route("**/api/economic-quotes", async route => {
     const request = route.request().postDataJSON() as UniversalExactInputRequest;
     const currency = request.intent === 0 ? request.inputs[0].currency : request.outputCurrency;
     if (request.intent > 1 || ![counter.toLowerCase(), `0x${"0".repeat(40)}`].includes(currency.toLowerCase())) {

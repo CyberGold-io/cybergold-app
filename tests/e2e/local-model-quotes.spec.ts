@@ -50,7 +50,7 @@ for (const symbol of ["WETH", "USDC"] as const) {
       const observed = await install(page, "", () => pending, false, undefined, undefined, undefined, true);
       // The coordinator owns organic history and ranks the indicative value.
       // Empty history stays unavailable; no App family ranking is synthesized.
-      await page.route("**/api/quotes/trade/model", async route => {
+      await page.route("**/api/economic-estimates", async route => {
         const request: TradeModelRequest = route.request().postDataJSON();
         if (!observed.intents.length || BigInt(request.amount) <= 0n) {
           await route.fulfill({ json: { namespace: "trade", intent: request, models: [] } }); return;

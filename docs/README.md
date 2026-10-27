@@ -17,6 +17,7 @@ canonical_for: App documentation navigation
 | [Branch and promotion workflow](development/branch-workflow.md) | active | App maintainer | 2026-10-11 |
 | [Dependency coverage](development/dependency-coverage.md) | active | App maintainer | 2026-10-24 |
 | [Runtime profiles](development/runtime-profiles.md) | active | App maintainer | 2026-07-11 |
+| [Quoter validation](development/quoter-validation.md) | active | App maintainer | 2026-10-26 |
 | [Frontend and swap audit](development/frontend-swap-audit.md) | active | App maintainer | 2026-10-05 |
 | [Environment configuration](architecture/environment.md) | active | App maintainer | 2026-09-20 |
 | [Focused API adapter release](architecture/focused-api-adapters.md) | active | App maintainer | 2026-10-08 |

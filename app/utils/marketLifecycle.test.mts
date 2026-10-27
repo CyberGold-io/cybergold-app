@@ -3,7 +3,7 @@ import test from "node:test";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { backendRoute } from "../server/backend-client.ts";
 import { fetchMarketQuote, marketModelFamily, type MarketQuoteModelPacket } from "./marketQuote.ts";
-import { fetchMarketModel } from "./marketModels.ts";
+import { fetchMarketModel } from "../../tests/fixtures/legacy-market-model.mts";
 import { resetSandboxQueries } from "./sandboxForkState.ts";
 import { withEnvironment } from "../../tests/fixtures/environment.mts";
 import { context, marketFixtureQuote, marketFixtureRequest } from "../../tests/fixtures/market-quote.mts";

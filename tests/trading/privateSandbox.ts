@@ -5,6 +5,7 @@ import type { QuoteObservation } from './quoteObservation.ts';
 import type { SelectionCapture } from './providerEvidence.ts';
 import { browserQuoteMatcher } from './browserQuoteObservation.ts';
 import type { UniversalExactInputQuote } from '../../app/utils/universalExactInput.ts';
+import type { EconomicQuote } from '../../app/utils/economicQuotes.ts';
 
 export type PrivateSandboxPhase = 'prepare' | 'winner' | 'alternate';
 export type SandboxIsolation = {
@@ -40,7 +41,10 @@ export function privateSandboxSelection(observations: readonly QuoteObservation[
   if (scenario.inputMode === 'exact-in') {
     const matches = browserQuoteMatcher(scenario, configuration, scenario.amountRaw ?? '0', scenario.basketAssets ?? []);
     const observed = observations.findLast(row => matches(row) && row.terminal?.type === 'complete');
-    if (observed) return { universalQuote: structuredClone(observed.terminal!.value as UniversalExactInputQuote),
+    if (observed) return {
+      ...(observed.path === '/api/economic-quotes'
+        ? { economicQuote: structuredClone(observed.terminal!.value as EconomicQuote) }
+        : { universalQuote: structuredClone(observed.terminal!.value as UniversalExactInputQuote) }),
       deployment: protocolConfigurationValues(configuration).addresses };
   }
   if (scenario.asset === 'BASKET') return undefined;

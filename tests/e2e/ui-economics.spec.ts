@@ -8,8 +8,7 @@ import { confirmedTransactionText } from "../trading/uiDiagnostics";
 import { tradeScenarios } from "../trading/scenarios";
 import { protocolConfigurationFixture as config } from "../fixtures/protocol-configuration";
 import { exactInputPlan } from "../../app/utils/universalExactInput";
-import { universalFixture } from "./fixtures/universal-exact-input";
-import type { UniversalExactInputRequest } from "../../app/utils/universalExactInput";
+import type { PreparedTransaction } from "../../app/utils/economicQuotes";
 import { HELPERS_EXECUTION_ABI } from "../../app/contracts/cybergold-helpers/execution";
 import { installQuoteObservation, quoteObservations } from "../trading/quoteObservation";
 import { waitForUiSwapReady } from "../trading/uiQuotePreparation";
@@ -57,13 +56,13 @@ test("MetaMask matrix preparation accepts the real UI universal quote without op
   await getMainInput(page, "sell").fill("1");
   const scenario = { ...tradeScenarios.find(row => row.id === "core-issue-usdc-exact-in")!, amountRaw: "1000000" };
   await waitForUiSwapReady(page, config, scenario);
-  expect((await quoteObservations(page)).some(row => row.path === "/api/quotes/universal-exact-input" && row.terminal?.type === "complete")).toBe(true);
+  expect((await quoteObservations(page)).some(row => row.path === "/api/economic-quotes" && row.terminal?.type === "complete")).toBe(true);
   expect((await quoteObservations(page)).some(row => row.path === "/api/quotes/trade/stream")).toBe(false);
   await expect(await getSwapButton(page)).toBeEnabled();
 });
 
 test("actual App click captures refreshed displayed amounts and committed tolerance before receipt comparison", async ({ page }) => {
-  const observed=await installTokens(page); await installReadOnlyWallet(page); await page.goto("/en");
+  await installTokens(page); await installReadOnlyWallet(page); await page.goto("/en");
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible(); await showAllSellTokens(page);
   await selectToken(page, "sell", "USDC"); await selectToken(page, "buy", "CYGLD");
   await getMainInput(page, "sell").fill("1"); await expect(getMainInput(page, "buy")).toHaveText("1");
@@ -77,10 +76,11 @@ test("actual App click captures refreshed displayed amounts and committed tolera
   await getMainInput(page, "sell").fill("2"); await expect(getMainInput(page, "buy")).toHaveText("2");
   await expect(page.getByTestId("swap-minimum-output")).toContainText("1.995 CYGLD");
   await page.locator("#execution-tolerance").fill("invalid draft");
+  const preparation = page.waitForResponse(response => new URL(response.url()).pathname === '/api/tx-preparations');
   await button.click(); // The fixture wallet rejects writes; no real wallet or chain is used.
   const quote = await capturedUiQuote(page, assets, "exact-in");
   expect(quote.toleranceBps).toBe(25); expect(quote.input[0].amount).toBe("2000000"); expect(quote.output[0].amount).toBe("2000000000000000000");
-  const wire=universalFixture(observed.rawIntents.at(-1) as UniversalExactInputRequest);
+  const wire = await (await preparation).json() as PreparedTransaction;
   const plan=exactInputPlan(wire.plan);
   const data=encodeFunctionData({abi:HELPERS_EXECUTION_ABI,functionName:"executeExactInput",args:[plan,{
     authorizations:plan.inputs.map(()=>({kind:0,permit:emptyTokenPermit})),permit2:emptyPermit2}]});

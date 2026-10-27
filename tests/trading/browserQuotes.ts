@@ -10,7 +10,8 @@ import type { UniversalExactInputQuote, UniversalExactInputRequest } from "../..
 import { diagnosticReferences, safeDiagnosticReferences } from "../../app/utils/diagnosticReferences.ts";
 import { QuotePreviewError, knownQuoteError } from "../../app/utils/quoteErrors.ts";
 import { basketFacts, configuredToken, ScenarioUnavailableError, tradeScenarios, type Scenario } from "./scenarios.ts";
-import { applyUniversalExactInputQuote, failureResult, requireInvariant, resultFor, validateBasket, validateTrade, type ScenarioResult } from "./regression.ts";
+import { applyEconomicQuote, applyUniversalExactInputQuote, failureResult, requireInvariant, resultFor, validateBasket, validateTrade, type ScenarioResult } from "./regression.ts";
+import type { EconomicQuote, EconomicRequest } from "../../app/utils/economicQuotes.ts";
 import { browserQuoteMatcher } from "./browserQuoteObservation.ts";
 import { installQuoteObservation, quoteObservations, type QuoteObservation } from "./quoteObservation.ts";
 import { observedBasketProviderEvidence, providerSummaries, planDigest, type ProviderQuote } from "./providerEvidence.ts";
@@ -87,8 +88,9 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
           ?? new QuotePreviewError(observed.status >= 400 ? "quote-service-unavailable" : "quote-unavailable", "quote-unavailable", result.refs);
         if (observed.status < 200 || observed.status >= 300) throw new QuotePreviewError("quote-service-unavailable", "quote-service-unavailable", result.refs);
         if (scenario.inputMode === "exact-in") {
-          const value = terminal.value as UniversalExactInputQuote;
-          applyUniversalExactInputQuote(result, value, (request as UniversalExactInputRequest).inputs);
+          const value = terminal.value as UniversalExactInputQuote | EconomicQuote;
+          if (observed.path === "/api/economic-quotes") applyEconomicQuote(result, value as EconomicQuote, request as EconomicRequest);
+          else applyUniversalExactInputQuote(result, value as UniversalExactInputQuote, (request as UniversalExactInputRequest).inputs);
           result.refs = { ...diagnosticReferences(value), ...result.refs };
           result.deployment = { core: config.contracts.core as `0x${string}`, helpers: value.deployment.helpers as `0x${string}`, adapter: value.deployment.adapter as `0x${string}` };
         } else if (scenario.asset === "BASKET") {

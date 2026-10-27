@@ -7,6 +7,7 @@ import { captureTradeQuote, type TradeQuoteResult } from "./tradeQuote.ts";
 import { quoteIntentResult } from "./quoteIntent.ts";
 import { fetchUniversalExactInputQuote, preserveExactInputMinimum } from "./universalExactInput.ts";
 import { marketQuoteResult } from "./marketQuote.ts";
+import { isEconomicQuote } from "./economicQuotes.ts";
 
 type Executors = {
   universal?: ReturnType<typeof useUniversalExactInputExecution>["submit"];
@@ -19,7 +20,8 @@ export async function submitTradeQuote(selected: TradeQuoteResult, params: Submi
   const accepted = captureTradeQuote(selected);
   if (accepted.value.strategy === "universal") {
     if (!executors.universal) throw new Error("Universal exact-input executor is unavailable");
-    return executors.universal(accepted.value, params);
+    return executors.universal(accepted.value, params, isEconomicQuote(accepted.value)
+      ? { inputs: accepted.value.inputs, minimumOutput: accepted.outputMinimum.toString() } : undefined);
   }
   if (accepted.value.mode === "exact-in") {
     const request = accepted.value.providerRequest;

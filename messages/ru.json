@@ -112,6 +112,8 @@
     "importTokenBalanceUnavailable": "Баланс токена временно недоступен. Попробуйте ещё раз.",
     "noAvailableTokens": "Нет доступных токенов",
     "wrongNetwork": "Неверная сеть — переключитесь на {network}",
+    "refreshQuote": "Обновить котировку",
+    "quoteRefreshFailed": "Не удалось обновить. Показана предыдущая котировка.",
     "quoteProcessing": "Подготовка котировки...",
     "quoteProtocolSupplyExceeded": "Погашение Core превышает доступное предложение или возможность погашения.",
     "quoteIssuanceCapExceeded": "Объём выпуска превышает лимит предложения CYGLD.",

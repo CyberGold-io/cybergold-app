@@ -280,7 +280,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       if (activeScenarioIndex !== undefined) {
         requireInvariant(clickedSelection, "selection-not-observed");
         assertMatrixIntent(scenarios[activeScenarioIndex], clickedSelection, config);
-        if (clickedSelection.quote) Object.assign(results[activeScenarioIndex], captureSelection(clickedSelection).primary);
+        if (clickedSelection.quote || clickedSelection.economicQuote) Object.assign(results[activeScenarioIndex], captureSelection(clickedSelection).primary);
         else Object.assign(results[activeScenarioIndex], captureBasketSelection(clickedSelection));
       }
       quote = await capturedUiQuote(page, assets, mode); activeResult()!.uiQuote = quote;
@@ -513,7 +513,8 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       observationPhase = "ui-receipt-assertions"; await checkpoint(observationPhase);
       const measuredReceipt = observeUiReceipt(scenario, config, owner, observed.transaction!.input, receipt, userAmount, basketAmounts, uiQuote, results[index]);
       const submittedSelection = clickedSelection as SelectionCapture | undefined;
-      if (submittedSelection?.quote || submittedSelection?.universalQuote) await assertCapturedTradeInput(submittedSelection, observed.transaction!.input, owner);
+      if (submittedSelection?.quote || submittedSelection?.universalQuote || submittedSelection?.economicQuote)
+        await assertCapturedTradeInput(submittedSelection, observed.transaction!.input, owner, await quoteObservations(page));
       const receiptSelection = clickedSelection as SelectionCapture | undefined;
       if (receiptSelection?.quote) requireInvariant(results[index].actualStrategy === receiptSelection.quote.strategy, "captured-provider-mismatch");
       const validateWallet = await walletPostcheck(walletBefore, results[index]);
@@ -537,11 +538,17 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     const selected = clickedSelection as SelectionCapture | undefined;
     let observations: Awaited<ReturnType<typeof quoteObservations>> = [];
     try { observations = await quoteObservations(page); } catch { /* Optional evidence cannot stop the remaining cases. */ }
-    if (scenario.asset !== "BASKET" && !selected?.quote) {
+    if (scenario.asset !== "BASKET" && !selected?.quote && !selected?.economicQuote) {
       const request = observations.filter(row => row.path === "/api/quotes/trade/stream" && row.request.side === scenario.side && row.request.mode === scenario.inputMode && row.request.amount === scenario.amountRaw).at(-1);
       if (request) results[index].providers = providerSummaries(observedProviderEvidence(request));
     }
-    if (selected?.quote && selected.intent) {
+    if (selected?.economicQuote) {
+      const binding = captureSelection(selected).primary;
+      const settlement = results[index].actualOperation ? { context: results[index].context, bounds: results[index].bounds } : {};
+      Object.assign(results[index], binding, settlement, { refs: { ...binding.refs, ...results[index].refs } });
+      results[index].alternateExecution = { ...notAttemptedAlternate(scenario),
+        ...(privatePhase ? { comparisonState: 'restored-baseline' as const } : {}) };
+    } else if (selected?.quote && selected.intent) {
       const binding = captureSelection(selected).primary;
       // Receipt context and actual encoded bounds remain settlement evidence;
       // each provider summary separately retains its captured quotation context.

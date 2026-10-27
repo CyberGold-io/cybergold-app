@@ -106,6 +106,8 @@
     "importTokenBalanceUnavailable": "Token balance is temporarily unavailable. Try again.",
     "noAvailableTokens": "No available tokens",
     "wrongNetwork": "Wrong network — switch to {network}",
+    "refreshQuote": "Refresh quote",
+    "quoteRefreshFailed": "Refresh failed. Showing the previous quote.",
     "quoteProcessing": "Quote processing...",
     "quoteProtocolSupplyExceeded": "The Core redemption exceeds available supply or redemption capacity.",
     "quoteRedemptionSupplyExceeded": "The CYGLD input exceeds the available supply for redemption.",

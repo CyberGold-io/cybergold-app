@@ -8,6 +8,8 @@ import { EXPECTED_CHAIN_ID, assertWalletOnExpectedChain } from "@/app/utils/expe
 import { estimateHelpersExecutionGas } from "@/app/utils/helpersExecutionGas";
 import { exactInputFunding, exactInputNativeValue, exactInputPermissions, exactInputPlan,
   type UniversalExactInputQuote } from "@/app/utils/universalExactInput";
+import { fetchTxPreparation, isEconomicQuote, legacyExecutionBounds, type AcceptedExecutionBounds, type SelectedExactInputQuote } from "@/app/utils/economicQuotes";
+import { DEFAULT_SLIPPAGE_BPS } from "@/app/utils/swapPolicy";
 import { emptyTokenPermit, usePurchaseAuthorization } from "./usePurchaseAuthorization";
 import { useExecutionFeeEstimate } from "./useExecutionFeeEstimate";
 import type { FlowNetworkFeeEstimateHandlers, SubmitBasketFlowParams } from "./types";
@@ -18,8 +20,17 @@ export function useUniversalExactInputExecution(feeHandlers: FlowNetworkFeeEstim
   const { writeContractAsync } = useWriteContract();
   const { preparePurchaseAuthorization } = usePurchaseAuthorization();
   const { estimateSignedContractFee } = useExecutionFeeEstimate(feeHandlers);
-  const submit = useCallback(async (selected: UniversalExactInputQuote, params: SubmitBasketFlowParams) => {
-    const captured = structuredClone(selected);
+  const slippageBps = feeHandlers.slippageBps ?? DEFAULT_SLIPPAGE_BPS;
+  const submit = useCallback(async (selected: SelectedExactInputQuote, params: SubmitBasketFlowParams, acceptedBounds?: AcceptedExecutionBounds) => {
+    const accepted = structuredClone(selected);
+    params.diagnosticStage?.("preparation");
+    let captured: UniversalExactInputQuote;
+    if (isEconomicQuote(accepted)) captured = await fetchTxPreparation(accepted,
+      { sender: params.owner, recipient: params.recipient, slippageBps, acceptedBounds }, params.feeEstimateSignal);
+    else if (accepted.economicQuote) captured = await fetchTxPreparation(accepted.economicQuote,
+      { sender: params.owner, recipient: params.recipient, slippageBps,
+        acceptedBounds: acceptedBounds ?? legacyExecutionBounds(accepted) }, params.feeEstimateSignal);
+    else captured = accepted; // Historical adapters have no semantic replay record.
     const plan = exactInputPlan(captured.plan), helpers = captured.deployment.helpers as Address;
     params.diagnosticStage?.("authorization");
     const prepared = await preparePurchaseAuthorization({ owner: params.owner, permitted: exactInputPermissions(plan),
@@ -43,6 +54,6 @@ export function useUniversalExactInputExecution(feeHandlers: FlowNetworkFeeEstim
     return writeContractAsync({ chainId: EXPECTED_CHAIN_ID, account: params.owner, address: helpers,
       abi: HELPERS_TRADE_EXACT_INPUT_ABI, functionName: "executeExactInput", args, value,
       ...(gas ? { gas: gas * 12n / 10n } : {}) });
-  }, [preparePurchaseAuthorization, estimateSignedContractFee, walletClient, writeContractAsync]);
+  }, [preparePurchaseAuthorization, estimateSignedContractFee, walletClient, writeContractAsync, slippageBps]);
   return { submit };
 }

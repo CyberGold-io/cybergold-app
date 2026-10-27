@@ -5,7 +5,8 @@ import { selectToken, showAllSellTokens, getMainInput, getSwapButton } from "../
 import { HELPERS_EXECUTION_ABI } from "../../app/contracts/cybergold-helpers/execution";
 import type { TradeSelectionObservation } from "../../app/utils/tradeSelectionObservation";
 import { protocolAddresses } from "../fixtures/protocol-configuration";
-import { assertCapturedTradeInput } from "../trading/planAssertions";
+import { assertCapturedTradeInput, observedPreparation } from "../trading/planAssertions";
+import { quoteObservations } from "../trading/quoteObservation";
 
 // Controlled responses and wallet transport test actual product wiring. Real
 // provider qualification and mined settlement are separate fork-run evidence.
@@ -26,7 +27,7 @@ for (const winner of ["core", "market"] as const)
         await expect(swap).toBeEnabled();
         const selected = fixture.selection()!;
         expect(selected.strategy).toBe("universal");
-        expect(selected.routeFamily).toBe(winner); expect(selected.plan.intent).toBe(side === "buy" ? 0 : 1);
+        expect(selected.routeFamily).toBe(winner); expect(selected.request.intent).toBe(side === "buy" ? 0 : 1);
         if (winner === "core") {
           expect(mode === "exact-in" ? selected.quotedOutput : selected.quotedInput)
             .toBe(mode === "exact-in" ? "2000000000000000000" : "500000000000000000");
@@ -36,20 +37,25 @@ for (const winner of ["core", "market"] as const)
         const captures = await page.evaluate(() =>
           (window as unknown as { __selectionCaptures: TradeSelectionObservation[] }).__selectionCaptures);
         expect(captures).toHaveLength(1);
-        expect(captures[0].quote).toMatchObject(selected);
+        expect(captures[0].economicQuote).toMatchObject(selected);
         expect(captures[0].deployment?.helpers?.toLowerCase()).toBe(protocolAddresses.helpers!.toLowerCase());
-        expect(captures[0].intent).toMatchObject({ side, mode, amount: "1000000000000000000" });
+        expect(captures[0].economicQuote!.request).toMatchObject({
+          intent: side === "buy" ? 0 : 1, inputs: [{ amount: "1000000000000000000" }],
+        });
         const calls = await page.evaluate(() =>
           (window as unknown as { __selectionWalletCalls: { method: string; params?: { data?: string; to?: string }[] }[] }).__selectionWalletCalls);
         const sent = calls.filter(call => call.method === "eth_sendTransaction");
         expect(sent).toHaveLength(1);
-        await assertCapturedTradeInput(captures[0], sent[0].params![0].data as Hex, selectionOwner);
+        const observations = await quoteObservations(page);
+        await assertCapturedTradeInput(captures[0], sent[0].params![0].data as Hex, selectionOwner, observations);
+        const prepared = observedPreparation(captures[0], selectionOwner, observations)!;
         const decoded = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: sent[0].params![0].data as Hex });
         expect(decoded.functionName).toBe("executeExactInput");
         const params = decoded.args![0] as { intent: number; inputs: readonly {amount:bigint}[]; minimumOutput:bigint; body:Hex };
         expect(params.inputs[0].amount).toBe(1_000_000_000_000_000_000n);
-        expect(params.minimumOutput).toBe(BigInt(selected.outputMinimum));
-        expect(params.body).toBe(selected.plan.body);
-        expect(fixture.preparations.length).toBeGreaterThan(0);
+        expect(params.minimumOutput).toBe(BigInt(selected.quotedOutput) * 9900n / 10000n);
+        expect(params.body).toBe(prepared.plan.body);
+        expect(fixture.preparations).toHaveLength(1);
+        expect(fixture.preparations[0].quote).toMatchObject(selected);
       });
 

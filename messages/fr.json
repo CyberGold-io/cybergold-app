@@ -106,6 +106,8 @@
     "importTokenBalanceUnavailable": "Le solde du jeton est temporairement indisponible. Réessayez.",
     "noAvailableTokens": "Aucun token disponible",
     "wrongNetwork": "Réseau incorrect — passez à {network}",
+    "refreshQuote": "Actualiser le devis",
+    "quoteRefreshFailed": "Échec de l’actualisation. Le devis précédent reste affiché.",
     "quoteProcessing": "Préparation du devis...",
     "quoteProtocolSupplyExceeded": "Le rachat Core dépasse l’offre disponible ou la capacité de rachat.",
     "quoteRedemptionSupplyExceeded": "Le montant de CYGLD dépasse l’offre disponible pour le rachat.",

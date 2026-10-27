@@ -50,7 +50,7 @@ export async function install(page: Page, unavailable = "", waitForFinalPreview?
     page.on("close", () => { server.closeAllConnections(); server.close(); });
   }
   await page.route("**/api/**", async route => {
-    if (new URL(route.request().url()).pathname === "/api/quotes/universal-exact-input") {
+    if (new URL(route.request().url()).pathname === "/api/economic-quotes") {
       const request=route.request().postDataJSON();rawIntents.push(request);
       if(request.intent<2) {
         const legacy=coreIntentRequest(tradeRequestFromUniversal(request),basketAssets);intents.push(legacy);
@@ -82,7 +82,7 @@ export async function install(page: Page, unavailable = "", waitForFinalPreview?
         cygldPerUnitFp18: success(basketAssets.map(() => "15551738400000000000")), metadata: basketAssets.map((address, index) => ({ address, decimals: success(18), name: success(index === 0 ? nameSource() : "Second Gold"), symbol: success(basketSymbols?.[index] ?? (index === 0 ? "PAXG" : "GOLD2")) })) },
       reference: success("2000000000000000000"), fees: { issuancePpm: success("1000"), helpersPpm: success("0") }, pause: success(false),
     } });
-    else if (path === "/api/quotes/trade/model") {
+    else if (path === "/api/economic-estimates") {
       const request = route.request().postDataJSON();
       const coreRequest=coreIntentRequest({...request,recipient:protocolAddresses.helpers!,deadline:"2000000000"},basketAssets);
       const modeled=intentFixture(coreRequest,"complete",currentContext);
@@ -168,7 +168,8 @@ export async function install(page: Page, unavailable = "", waitForFinalPreview?
     else if (path === "/api/rpc") {
       expect(path).not.toBe("/api/rpc");
       await route.continue();
-    } else await route.fulfill({ status: 503, json: { error: "Unrelated fixture data unavailable" } });
+    } else if (path === '/api/tx-preparations') await route.fallback();
+    else await route.fulfill({ status: 503, json: { error: "Unrelated fixture data unavailable" } });
   });
   return { previews, quotes, rpcSelectors, poolReads, intents, rawIntents };
 }

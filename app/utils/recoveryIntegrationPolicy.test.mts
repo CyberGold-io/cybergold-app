@@ -55,8 +55,8 @@ test("first-party redemption flows bind one complete mixed output vector", () =>
   for (const flow of [basketFlow, tokenFlow]) assert.match(flow, /CORE_TOKEN_KIND\.ERC1155/);
   for (const flow of [basketFlow, tokenFlow, tokenExecution]) assert.doesNotMatch(flow,
     /expectedOrderedHealthyAssets|expectedOrderedRecoveryAssets|minimumRecoverySharesOut|expectedRecoveryEpoch|RecoveryBinding|recoveryBinding/);
-  assert.match(basketFlow, /exactInputBasketMinimums\(quote\.plan\)/);
-  assert.match(basketFlow, /useUniversalExactInputQuote\(\{\s*intent:\s*3/);
+  assert.match(basketFlow, /applySlippageFloor\(BigInt\(row\.amount\),slippageBps\)/);
+  assert.match(basketFlow, /useEconomicQuote\(\{\s*intent:\s*3/);
   assert.match(basketFlow, /quote\?\.estimatedRecipientOutputs/);
   assert.match(tokenExecution, /fetchUniversalExactInputQuote/);
   assert.doesNotMatch(tokenExecution, /callValue|minAmountOut/);

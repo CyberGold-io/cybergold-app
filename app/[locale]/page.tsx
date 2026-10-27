@@ -1,5 +1,5 @@
 'use client';
-import type { UniversalExactInputQuote } from "@/app/utils/universalExactInput";
+import { isEconomicQuote, type SelectedExactInputQuote } from "@/app/utils/economicQuotes";
 import { ExactInputRetentionDisclosure, ExactInputSettlement } from "@/app/components/ExactInputSettlement";
 import { useQuoteCacheScope } from "@/app/context/chainHeadContext";
 import { useCachedTradeQuote } from "@/app/hooks/flows/quotes/useCachedTradeQuote";
@@ -393,7 +393,7 @@ function TradingScreen() {
   const [displayedQuoteProgressPercent, setDisplayedQuoteProgressPercent] = useState(0);
   const [isSubmittingSwap, setIsSubmittingSwap] = useState(false);
   const [frozenTrade, setFrozenTrade] = useState<TradeQuoteResult>();
-  const [frozenUniversal, setFrozenUniversal] = useState<UniversalExactInputQuote>();
+  const [frozenUniversal, setFrozenUniversal] = useState<SelectedExactInputQuote>();
   const [swapFailureReference, setSwapFailureReference] = useState<string>();
   const [isSubmittedSwapCleanupInProgress, setIsSubmittedSwapCleanupInProgress] = useState(false);
   const [transactionNotice, setTransactionNotice] = useState<SwapTransactionNoticeProps>();
@@ -812,7 +812,6 @@ function TradingScreen() {
   // retain their input debounce; exact cached quotes and MAX remain immediate.
   const immediatePageQuote = flowState?.route === "basket" || exactBrowserHit;
   const debouncedSellAmount = useDebouncedValue(sellAmount, QUOTE_INPUT_DEBOUNCE_MS, immediatePageQuote);
-  const debouncedTradeSlippageBps = useDebouncedValue(slippageBps, QUOTE_INPUT_DEBOUNCE_MS, immediatePageQuote);
 
   const sellAmountFromInputBigInt = useMemo(() => {
     if (!isNativeOrErc20Token(sellToken)) return 0n;
@@ -823,8 +822,7 @@ function TradingScreen() {
 
   // Disable/cancel the old token intent on the raw edit, before the replacement
   // amount passes its typing debounce.
-  const quoteInputPending = sellAmount !== debouncedSellAmount
-    || (isActiveTokenFlow && slippageBps !== debouncedTradeSlippageBps);
+  const quoteInputPending = sellAmount !== debouncedSellAmount;
 
   // Keep every flow hook mounted and select its activity through enabled flags.
   const issueFromBasketExactInFlow = useIssueFromBasketExactInFlow({
@@ -847,16 +845,15 @@ function TradingScreen() {
   });
   const basketAmountsOutObtained = redeemToBasketExactInFlow.amountsOut;
 
-  const tradeInput = { ...rawTradeIntent, slippageBps: debouncedTradeSlippageBps, amount: String(sellAmountFromInputBigInt) };
+  const tradeInput = { ...rawTradeIntent, amount: String(sellAmountFromInputBigInt) };
   const tradeFlow = useTradeFlow({ input: tradeInput, frozen: frozenTrade, enabled: isActiveTokenFlow && !quoteInputPending,
     onNetworkFeeEstimate: setNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange: setIsNetworkFeeEstimateLoading });
   const helperFeePercent = tradeFlow.selected?.value.strategy === "market"
     ? formatPpmAsPercent(BigInt(tradeFlow.selected.value.providerQuote.fee.ratePpm)) : coreHelperFeePercent;
-  // Lightweight Backend models follow the edited amount immediately; exact
-  // route searches retain their debounce, including tolerance-only edits.
+  // Lightweight Backend estimates follow edited amounts. Execution tolerance
+  // changes only the displayed guard and the later preparation request.
   const localTradeEstimate = useTradeModel({ side: rawTradeIntent.side, mode: rawTradeIntent.mode,
-    counterToken: rawTradeIntent.counterToken, native: rawTradeIntent.native, amount: rawTradeIntent.amount, slippageBps: debouncedTradeSlippageBps },
-    isActiveTokenFlow && slippageBps === debouncedTradeSlippageBps);
+    counterToken: rawTradeIntent.counterToken, native: rawTradeIntent.native, amount: rawTradeIntent.amount }, isActiveTokenFlow);
   const localQuoteAmount = localTradeEstimate?.quotedOutput;
   // Existing basket interactions remain separate. Token amounts share one Backend-selected plan.
   const issueFromTokenExactInFlow = tradeFlow;
@@ -1931,12 +1928,16 @@ const computedReceiveQuote = useMemo((): Prefill => {
     const frozenSelection = selectedTrade && captureTradeQuote(selectedTrade);
     setFrozenTrade(frozenSelection);
     setFrozenUniversal(activeUniversalQuote && structuredClone(activeUniversalQuote));
-    if (frozenSelection) {
+    if (frozenSelection?.value.strategy === "universal" && isEconomicQuote(frozenSelection.value)) {
+      observeTradeSelection({ attemptId: diagnostics.id, economicQuote: frozenSelection.value,
+        deployment: frozenSelection.deployment, diagnostics: frozenSelection.diagnostics });
+    } else if (frozenSelection) {
       observeTradeSelection({ attemptId: diagnostics.id, quote: frozenSelection.value,
         deployment: frozenSelection.deployment, diagnostics: frozenSelection.diagnostics,
         intent: { ...tradeInput, deadline: frozenSelection.value.providerRequest.deadline } });
     } else if (activeUniversalQuote) {
-      observeTradeSelection({ attemptId: diagnostics.id, universalQuote: structuredClone(activeUniversalQuote),
+      observeTradeSelection({ attemptId: diagnostics.id, ...(isEconomicQuote(activeUniversalQuote)
+        ? { economicQuote: structuredClone(activeUniversalQuote) } : { universalQuote: structuredClone(activeUniversalQuote) }),
         deployment: { core: addresses.core, helpers: activeUniversalQuote.deployment.helpers as Address, adapter: activeUniversalQuote.deployment.adapter as Address } });
 
     }
@@ -2707,6 +2708,19 @@ const computedReceiveQuote = useMemo((): Prefill => {
 
         <ExactInputRetentionDisclosure charges={(frozenUniversal ?? activeUniversalQuote)?.estimatedRetainedInputCharges ?? []}
           presentation={restoreFormattedDisplay || !(frozenUniversal ?? activeUniversalQuote) ? cachedTradeDisplay?.retentionDisclosure : undefined} />
+
+        <div className="order-3 mt-3 flex flex-col items-end gap-2">
+          <button type="button" data-trade-refresh onClick={() => void activeFlow?.refresh()}
+            disabled={!activeFlow || !hasEnteredSwapAmount || isSubmittingSwap || activeFlow.refreshing || quoteInputPending}
+            aria-busy={activeFlow?.refreshing || undefined}
+            className={cn("text-sm text-text-muted underline underline-offset-4 disabled:opacity-50",
+              (!activeFlow || !hasEnteredSwapAmount) && "invisible")}>
+            {t("refreshQuote")}
+          </button>
+          {activeFlow?.refreshError && <p role="alert" className="text-sm text-text-amber">
+            {t("quoteRefreshFailed")} {activeFlow.refreshError}
+          </p>}
+        </div>
         {confirmedTrade && <section data-testid="trade-receipt" role="status" className="order-5 my-3 rounded-xl border border-swap-container-border p-3 text-sm">
           <p className="font-semibold">{confirmedTrade.receipt.strategy === "market" ? marketT("confirmed") : t("transactionConfirmed")}</p>
           {confirmedTrade.receipt.strategy === "universal" && <ExactInputSettlement receipt={confirmedTrade.receipt} />}
