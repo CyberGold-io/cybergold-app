@@ -2,6 +2,7 @@ import type { BasketPreviewRequest, BasketPreview } from "./basketPreview.ts";
 import type { ActiveTradeQuote, TradeQuoteRequest } from "./tradeQuote.ts";
 import type { ProtocolDeployment } from "./protocolConfiguration.ts";
 import type { DiagnosticReferences } from "./diagnosticReferences.ts";
+import type { EconomicQuote } from "./economicQuotes.ts";
 
 export const TRADE_SELECTION_EVENT = "cybergold:trade-selection";
 
@@ -12,6 +13,7 @@ export type TradeSelectionObservation = {
   diagnostics?: DiagnosticReferences;
   intent?: TradeQuoteRequest;
   universalQuote?: import("./universalExactInput.ts").UniversalExactInputQuote;
+  economicQuote?: EconomicQuote;
   basketRequest?: BasketPreviewRequest;
   basketPreview?: BasketPreview;
 };

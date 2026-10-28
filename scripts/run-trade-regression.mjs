@@ -10,8 +10,8 @@ import { executionCoverage } from "../tests/trading/providerEvidence.ts";
 import { activeMatrixTemplates, buildMatrix, readValuation, matrixCountsFor, matrixTemplates } from "../tests/trading/matrix.ts";
 import { observeBrowserQuotes } from "../tests/trading/browserQuotes.ts";
 import { enrichResultQuality } from "../tests/trading/quoteQuality.ts";
-import { readWalletSetupDiagnostic, readWalletTestDiagnostics, safeCommandResult, safeRunnerError } from "../tests/trading/runnerDiagnostics.ts";
-import { regressionPolicy, unexpectedFailure } from "../tests/trading/runPolicy.ts";
+import { qualificationBackendRevision, readWalletSetupDiagnostic, readWalletTestDiagnostics, safeCommandResult, safeRunnerError } from "../tests/trading/runnerDiagnostics.ts";
+import { regressionPolicy, regressionStatuses, regressionOutcome, unexpectedFailure } from "../tests/trading/runPolicy.ts";
 
 const { values } = parseArgs({ options: { target: { type: "string" }, mode: { type: "string", default: "quotes" },
   "diagnostic-scenario": { type: "string" }, "output-dir": { type: "string" }, "base-url": { type: "string" },
@@ -102,15 +102,16 @@ try {
     try {
       const qualification = JSON.parse(await readFile(resolve(output, "qualification.json"), "utf8"));
       const context = {};
-      for (const [source, key] of [["frontendCommit", "appRevision"], ["backendCommit", "backendRevision"]])
-        if (/^[0-9a-f]{40}$/.test(qualification[source] ?? "")) context[key] = qualification[source];
+      if (/^[0-9a-f]{40}$/.test(qualification.frontendCommit ?? "")) context.appRevision = qualification.frontendCommit;
+      const backendRevision = qualificationBackendRevision(qualification);
+      if (backendRevision) context.backendRevision = backendRevision;
       if (Number.isSafeInteger(qualification.forkBlock)) context.blockNumber = String(qualification.forkBlock);
       if (/^0x[0-9a-f]{64}$/i.test(qualification.forkBlockHash ?? "")) context.blockHash = qualification.forkBlockHash;
       if (/^sha256:[0-9a-f]{64}$/.test(qualification.backendImageId ?? "")) context.backendImageId = qualification.backendImageId;
       report.context = context;
       const observation = {};
       if (["running", "pass", "fail"].includes(qualification.result)) observation.result = qualification.result;
-      if (["source", "fork", "funding", "core-preparation", "backend", "frontend", "wallet-cache", "wallet-tests", "receipts"].includes(qualification.stage)) observation.stage = qualification.stage;
+      if (["source", "fork", "funding", "core-preparation", "helpers-preparation", "backend", "frontend", "wallet-cache", "wallet-tests", "receipts"].includes(qualification.stage)) observation.stage = qualification.stage;
       if (["timeout", "interrupted", "command-failed", "system-error", "operation-failed", "unexpected-error"].includes(qualification.errorClass)) observation.errorClass = qualification.errorClass;
       if (qualification.cleanup && typeof qualification.cleanup === "object") {
         observation.cleanup = {};
@@ -211,7 +212,7 @@ try {
   }
 } catch (error) {
   const failure = failureResult(resultFor(tradeScenarios[0], "api"), error);
-  report.runnerOutcome = values.mode === "quotes" ? failure.status : "fail"; report.runnerCode = failure.code;
+  report.runnerOutcome = values.mode === "quotes" && failure.status === "unavailable" ? "unavailable" : "fail"; report.runnerCode = failure.code;
   report.runnerDiagnostics = { ...report.runnerDiagnostics, ...safeRunnerError(error) };
   if (values.mode === "quotes") {
     const observed = new Set(report.scenarios.map(row => row.id));
@@ -234,8 +235,10 @@ if (runPolicy === 'diagnostic' && !report.diagnosticStop) for (const row of repo
   if (unexpectedFailure(row.alternateExecution)) { report.diagnosticStop = { scenarioId: row.id, role: 'alternate' }; break; }
 }
 report.finishedAt = new Date().toISOString();
+report.outcome = regressionOutcome(report.scenarios, report.runnerOutcome);
 await writeFile(resolve(output, "report.json.tmp"), JSON.stringify(report, null, 2) + "\n");
 await rename(resolve(output, "report.json.tmp"), resolve(output, "report.json"));
 console.log(JSON.stringify({ schema: report.schema, runId: report.runId, target: report.target, mode: report.mode,
-  counts: Object.fromEntries(["pass", "fail", "unavailable", "skipped"].map(status => [status, report.scenarios.filter(row => row.status === status).length])) }));
-process.exitCode = report.runnerOutcome !== "pass" || report.scenarios.some(row => row.status === "fail" || row.status === "unavailable" || row.alternateExecution?.status === "fail") ? 1 : 0;
+  outcome: report.outcome,
+  counts: Object.fromEntries(regressionStatuses.map(status => [status, report.scenarios.filter(row => row.status === status).length])) }));
+process.exitCode = report.outcome === "fail" ? 1 : 0;

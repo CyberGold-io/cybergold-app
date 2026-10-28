@@ -211,7 +211,8 @@ for (const fullModel of [false, true]) for (const scenario of [
   setCapacity(600n * unit);
   await page.reload();
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
-  await page.getByRole("button", { name: /Total fee/ }).click();
+  const feeDetails = page.getByRole("button", { name: /Total fee/ });
+  if (await feeDetails.getAttribute("aria-expanded") === "false") await feeDetails.click();
   await page.locator("#execution-tolerance").fill("0.5");
   await page.locator("#execution-tolerance").blur();
   await expect(page.getByRole("slider", { name: "Adjust execution tolerance", exact: true })).toHaveValue("0.5");
@@ -394,6 +395,9 @@ for (const width of [1280, 390]) {
 test("an exhausted Core cap leaves CYGLD redemption usable", async ({ page }) => {
   await installCapacity(page, 250n); await installReadOnlyWallet(page);
   const requests = await routeCapQuotes(page, 0n);
+  await routeBasketQuote(page, route => route.fulfill({ status: 422, json: {
+    code: "issuance-cap-exceeded", constraint: { availableRaw: "0" },
+  } }));
   await page.goto("/en");
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
   await page.getByRole("switch", { name: "Show only tokens available in wallet", exact: true }).uncheck();
@@ -418,7 +422,7 @@ test("an exhausted Core cap leaves CYGLD redemption usable", async ({ page }) =>
 
 test("an exhausted Core model does not block a qualified market winner", async ({ page }) => {
   await installCapacity(page, 250n);
-  await page.route("**/api/quotes/universal-exact-input", route => route.fulfill({ json: marketUniversalFixture(route.request().postDataJSON()) }));
+  await page.route("**/api/economic-quotes", route => route.fulfill({ json: marketUniversalFixture(route.request().postDataJSON()) }));
   await page.goto("/en");
   await page.locator('main button[aria-haspopup="dialog"]').first().click();
   await page.getByPlaceholder("Search currency...").fill("PAXG");
@@ -467,7 +471,7 @@ for (const path of ["token", "basket"]) for (const exhausted of [true, false]) t
 test("insufficient market liquidity remains explicit when Core capacity is exhausted", async ({ page }) => {
   await installCapacity(page, 250n);
   await installReadOnlyWallet(page);
-  await page.route("**/api/quotes/universal-exact-input", route => route.fulfill({ status: 422,
+  await page.route("**/api/economic-quotes", route => route.fulfill({ status: 422,
     json: { code: "quote-insufficient-liquidity", error: "Private Market diagnostic" } }));
   await page.goto("/en");
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();

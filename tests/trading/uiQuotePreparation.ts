@@ -15,10 +15,11 @@ export function uiQuoteReady(observations: readonly QuoteObservation[], scenario
 }
 
 /** Observe the original quote within the existing enabled-Swap deadline. */
-export async function waitForUiSwapReady(page: Page, configuration: ProtocolConfiguration, scenario?: Scenario) {
+export async function waitForUiSwapReady(page: Page, configuration: ProtocolConfiguration, scenario?: Scenario,
+  quoteEvidence?: Parameters<typeof uiPreparationAssertion>[2]) {
   await uiPreparationAssertion("ui-swap-not-enabled", async () => {
     if (!scenario) return expect(await getSwapButton(page)).toBeEnabled({ timeout: 60000 });
     await expect.poll(async () => uiQuoteReady(await quoteObservations(page), scenario, configuration,
       await (await getSwapButton(page)).isEnabled()), { timeout: 60000 }).toBe(true);
-  });
+  }, quoteEvidence);
 }

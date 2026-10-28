@@ -141,7 +141,7 @@ test("the actual redemption flow awaits its signature before reaching a pre-subm
     const requested = new Promise<void>(resolve => { signatureStarted = resolve; });
     const submit = vm.runInNewContext(ts.transpile(`const submit = ${callback.getText(parsed)}; submit;`,
       { target: ts.ScriptTarget.ES2022 }), {
-      structuredClone, exactInputPlan:(value:unknown)=>value, exactInputPermissions:()=>[],exactInputFunding:()=>({}),exactInputNativeValue:()=>0n,emptyTokenPermit:{},
+      structuredClone, isEconomicQuote:()=>false, exactInputPlan:(value:unknown)=>value, exactInputPermissions:()=>[],exactInputFunding:()=>({}),exactInputNativeValue:()=>0n,emptyTokenPermit:{},
       preparePurchaseAuthorization: async (args: { walletConfirmationTracker: { requestNext: (kind: string) => void } }) => {
         args.walletConfirmationTracker.requestNext("signature"); signatureStarted(); await signature;
         return { inputs:[], permit2:{} };

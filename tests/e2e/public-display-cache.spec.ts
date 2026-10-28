@@ -17,6 +17,10 @@ const feeDisplaySlots = ["feeTotal", "feeProtocolLabel", "feeProtocolValue", "fe
 
 async function prepareFeeDisplay(page: Page) {
   const observed = await install(page);
+  const economicRequests: Record<string, unknown>[] = [];
+  page.on("request", request => {
+    if (new URL(request.url()).pathname === "/api/economic-quotes") economicRequests.push(request.postDataJSON());
+  });
   await installEthDisplayPrices(page, () => 2000);
   await page.route("**/api/transaction/fees", route => route.fulfill({ json: {
     context, maxFeePerGas: "2000000000", maxPriorityFeePerGas: "1",
@@ -25,14 +29,17 @@ async function prepareFeeDisplay(page: Page) {
   await page.getByRole("button", { name: "Reverse swap direction", exact: true }).click();
   await page.locator("#sell-amount").fill("0.01");
   await expect(page.locator("#buy-amount")).toHaveText("0.01");
+  expect(economicRequests.length).toBeGreaterThan(0);
   await page.getByRole("button", { name: /Total fee/ }).click();
+  const quoteCount = economicRequests.length;
   await page.locator("#execution-tolerance").fill("0.25");
-  await expect.poll(() => observed.intents.at(-1)?.slippageBps).toBe(25);
+  await expect(page.locator("#execution-tolerance")).toHaveValue("0.25");
   await expect(page.getByTestId("swap-minimum-output")).toContainText("0.009975 ETH");
+  expect(economicRequests).toHaveLength(quoteCount);
   await expect(page.getByTestId("swap-network-fee")).toContainText("ETH");
   await expect(page.locator('[data-trade-display="feeTotal"]')).not.toHaveText("...");
   await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-  return observed;
+  return { ...observed, economicRequests };
 }
 
 async function selectPaxg(page: Page) {
@@ -103,7 +110,7 @@ test("expanded fee estimates and the chosen tolerance survive reload before hydr
   await page.addInitScript(key => localStorage.removeItem(key), tokenUsdKey);
   const scripts = await hold(page, "**/_next/static/**/*.js*");
   const held = await Promise.all(["**/api/protocol/config", "**/api/protocol/facts", "**/api/gold", "**/api/fx",
-    "**/api/pools/**", "**/api/quotes/trade/**", "**/api/transaction/fees"].map(pattern => hold(page, pattern)));
+    "**/api/pools/**", "**/api/economic-quotes", "**/api/transaction/fees"].map(pattern => hold(page, pattern)));
   try {
     await page.reload({ waitUntil: "commit" });
     await expect.poll(scripts.requests).toBeGreaterThan(0);
@@ -140,7 +147,9 @@ test("expanded fee estimates and the chosen tolerance survive reload before hydr
     const gasResponse = page.waitForResponse(response => new URL(response.url()).pathname === "/api/transaction/fees");
     held.forEach((value, index) => { if (index !== 4) value.release(); });
     await gasResponse;
-    await expect.poll(() => observed.intents.at(-1)?.slippageBps).toBe(50);
+    await expect(page.locator("#execution-tolerance")).toHaveValue("0.5");
+    // Tolerance changes protect the selected observation; quote requests stay wallet/execution-free.
+    expect(observed.economicRequests.every(request => request.slippageBps === undefined && request.deadline === undefined)).toBe(true);
     await expect(page.getByTestId("swap-minimum-output")).toContainText("0.00995 ETH");
     await expect.poll(held[4].requests).toBeGreaterThan(0);
     await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
@@ -196,7 +205,7 @@ test("editing the cached spend before hydration clears fees belonging to the pre
   await prepareFeeDisplay(page);
   const scripts = await hold(page, "**/_next/static/**/*.js*");
   const held = await Promise.all(["**/api/protocol/config", "**/api/protocol/facts", "**/api/gold", "**/api/fx",
-    "**/api/pools/**", "**/api/quotes/trade/**", "**/api/transaction/fees"].map(pattern => hold(page, pattern)));
+    "**/api/pools/**", "**/api/economic-quotes", "**/api/transaction/fees"].map(pattern => hold(page, pattern)));
   try {
     await page.reload({ waitUntil: "commit" });
     await expect.poll(scripts.requests).toBeGreaterThan(0);
@@ -238,8 +247,8 @@ test("hard reload preserves both selected assets and their nonzero values before
   await expect(page.locator("#sell-token-label")).toHaveText("CYGLD");
   await expect(page.locator("#buy-token-label")).toHaveText("ETH");
   await expect(page.locator("#buy-amount")).toHaveText("0.01");
-  await expect(page.getByTestId("display-currency-control")).toHaveText("EUR");
-  await expect(page.getByTestId("display-gold-unit-control")).toHaveText("IMP");
+  await expect(page.locator('[data-navbar-currency-option="EUR"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-navbar-gold-unit-option="imperial"]')).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: /^Connect wallet$/i })).toBeVisible();
   const equivalents = (side: "sell" | "buy") => page.getByTestId(`${side}-amount-equivalents`).filter({ visible: true });
   for (const side of ["sell", "buy"] as const) {
@@ -275,8 +284,8 @@ test("hard reload preserves both selected assets and their nonzero values before
     await expect(retained("sellEquivalent")).toHaveText(before.sellEquivalent);
     await expect(retained("buyEquivalent")).toHaveText(before.buyEquivalent);
     await expect(retained("reference")).toHaveText(before.reference);
-    await expect(page.getByTestId("display-currency-control")).toHaveText("EUR");
-    await expect(page.getByTestId("display-gold-unit-control")).toHaveText("IMP");
+    await expect(page.locator('[data-navbar-currency-option="EUR"]')).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator('[data-navbar-gold-unit-option="imperial"]')).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("button", { name: /^Connect wallet$/i })).toBeVisible();
     await expect(page.getByText(/updating[.…]*/i)).toHaveCount(0);
 
@@ -299,8 +308,10 @@ test("hard reload preserves both selected assets and their nonzero values before
             const element = [...(root?.querySelectorAll(`[data-trade-display="${key}"]`) ?? [])].find(visible);
             return [key, element instanceof HTMLInputElement ? element.value : element?.textContent?.trim() ?? ""];
           }));
-        const preference = (key: string) => [...document.querySelectorAll(`[data-display-preference="${key}"]`)]
-          .find(visible)?.textContent?.trim() ?? "";
+        const preference = (key: string) => {
+          const attribute = key === "currency" ? "data-navbar-currency-option" : "data-navbar-gold-unit-option";
+          return document.querySelector(`nav [${attribute}][aria-pressed="true"]`)?.getAttribute(attribute) ?? "";
+        };
         const connectVisible = [...document.querySelectorAll("button")].some(button => visible(button)
           && [...button.querySelectorAll("span")].some(label => visible(label) && label.textContent?.trim().toLowerCase() === "connect wallet"));
         state.frames.push({ ...fields, currency: preference("currency"), goldUnit: preference("gold-unit"),
@@ -319,8 +330,8 @@ test("hard reload preserves both selected assets and their nonzero values before
     await expect(page.locator("#buy-amount")).toHaveText("0.01");
     await expect(equivalents("sell")).toHaveText(before.sellEquivalent);
     await expect(equivalents("buy")).toHaveText(before.buyEquivalent);
-    await expect(page.getByTestId("display-currency-control")).toHaveText("EUR");
-    await expect(page.getByTestId("display-gold-unit-control")).toHaveText("IMP");
+    await expect(page.locator('[data-navbar-currency-option="EUR"]')).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator('[data-navbar-gold-unit-option="imperial"]')).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("button", { name: /^Connect wallet$/i })).toBeVisible();
     await expect(page.getByText(/updating[.…]*/i)).toHaveCount(0);
     expect(hydrationErrors).toEqual([]);
@@ -334,7 +345,7 @@ test("hard reload preserves both selected assets and their nonzero values before
     expect(frames.every(frame => JSON.stringify(frame) === JSON.stringify({
       sellSymbol: "CYGLD", buySymbol: "ETH", sellAmount: "0.01", buyAmount: "0.01",
       sellEquivalent: before.sellEquivalent, buyEquivalent: before.buyEquivalent,
-      currency: "EUR", goldUnit: "IMP", connectVisible: "true",
+      currency: "EUR", goldUnit: "imperial", connectVisible: "true",
     }))).toBe(true);
 
     // A retained estimate belongs to its saved input. Editing the amount must

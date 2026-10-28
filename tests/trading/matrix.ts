@@ -139,8 +139,22 @@ export function repetitionManifest(input: { repetitions: number; concurrency: nu
 }
 
 /** Test assertions over the actual clicked request, not a second quotation. */
-export function assertMatrixIntent(scenario: MatrixScenario, observation: { intent?: import('../../app/utils/tradeQuote.ts').TradeQuoteRequest; basketRequest?: import('../../app/utils/basketPreview.ts').BasketPreviewRequest; universalQuote?: import('../../app/utils/universalExactInput.ts').UniversalExactInputQuote }, config: ProtocolConfiguration) {
+export function assertMatrixIntent(scenario: MatrixScenario, observation: { intent?: import('../../app/utils/tradeQuote.ts').TradeQuoteRequest; basketRequest?: import('../../app/utils/basketPreview.ts').BasketPreviewRequest; universalQuote?: import('../../app/utils/universalExactInput.ts').UniversalExactInputQuote; economicQuote?: import('../../app/utils/economicQuotes.ts').EconomicQuote }, config: ProtocolConfiguration) {
   const fail = () => { throw new Error('matrix-intent-mismatch'); };
+  if (observation.economicQuote) {
+    const request = observation.economicQuote.request, basket = scenario.asset === 'BASKET', buy = scenario.side === 'buy';
+    if (scenario.inputMode !== 'exact-in' || request.intent !== (basket ? buy ? 2 : 3 : buy ? 0 : 1)) return fail();
+    const counter = !basket ? configuredToken(config, scenario.asset) : undefined;
+    const counterCurrency = counter?.type === 'erc20' ? counter.address : '0x0000000000000000000000000000000000000000';
+    const output = buy ? config.contracts.core! : basket ? '0x0000000000000000000000000000000000000000' : counterCurrency;
+    if (request.outputCurrency.toLowerCase() !== output.toLowerCase()) return fail();
+    if (basket && buy) {
+      if (request.inputs.length !== scenario.basketAmounts?.length || !request.inputs.every((row, index) =>
+        row.amount === scenario.basketAmounts![index] && row.currency.toLowerCase() === scenario.basketAssets?.[index].toLowerCase())) return fail();
+    } else if (request.inputs.length !== 1 || request.inputs[0].amount !== scenario.amountRaw
+      || request.inputs[0].currency.toLowerCase() !== (buy ? counterCurrency : config.contracts.core!).toLowerCase()) return fail();
+    return;
+  }
   if (scenario.asset !== 'BASKET') {
     const intent = observation.intent, counter = configuredToken(config, scenario.asset === 'ETH' ? 'WETH' : scenario.asset);
     if (!intent || counter.type !== 'erc20' || intent.side !== scenario.side || intent.mode !== scenario.inputMode || intent.amount !== scenario.amountRaw

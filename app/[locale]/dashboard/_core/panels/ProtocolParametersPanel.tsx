@@ -46,7 +46,7 @@ export function ProtocolParametersPanel({
     formatPercent,
 }: ProtocolParametersPanelProps) {
     return (
-        <div className="bg-[var(--background-swap-container)] border border-[var(--swap-container-border)] rounded-lg px-4 py-4">
+        <div className="cg-glass px-4 py-4">
             <h3 className="text-md font-semibold text-[var(--text-input)] flex items-center gap-1">
                 {t("protocolParameters")}
                 <InfoHint text={t("tipProtocolParameters")} />

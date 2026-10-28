@@ -61,7 +61,6 @@
     "disconnectFailedDescription": "Unable to disconnect wallet. Try again."
   },
   "Home": {
-    "exactInputRetentionDisclosure": "The full input amount is funded. After the planned conversions, any returned input is retained in Helpers as a protocol charge for its owner. You receive all final output, subject to the minimum shown.",
     "estimatedRetainedCharge": "Estimated retained charge",
     "retainedProtocolCharge": "Retained protocol charge",
     "retainedCustodian": "Charge custodian",
@@ -106,6 +105,8 @@
     "importTokenBalanceUnavailable": "Token balance is temporarily unavailable. Try again.",
     "noAvailableTokens": "No available tokens",
     "wrongNetwork": "Wrong network — switch to {network}",
+    "refreshQuote": "Refresh quote",
+    "quoteRefreshFailed": "Refresh failed. Showing the previous quote.",
     "quoteProcessing": "Quote processing...",
     "quoteProtocolSupplyExceeded": "The Core redemption exceeds available supply or redemption capacity.",
     "quoteRedemptionSupplyExceeded": "The CYGLD input exceeds the available supply for redemption.",
@@ -262,10 +263,11 @@
     "contactHeading": "Contact:",
     "copyright": "© 2026 CyberGold. All rights reserved.",
     "location": "Switzerland, Geneva",
-    "maintainedBy": "Application maintained by CyberGold.",
-    "deployedVersion": "Deployed commit:",
+    "maintainedBy": "Maintained by CyberGold.",
+    "deployedVersion": "Deployed app commit:",
     "buildUnavailable": "Build information unavailable",
-    "commitLinkLabel": "View deployed commit {commit} on GitHub"
+    "commitLinkLabel": "View deployed commit {commit} on GitHub",
+    "sourceCode": "Source code (AGPL-3.0)"
   },
 
   "Navbar": {
@@ -280,9 +282,16 @@
     "selectCurrency": "Select currency",
     "selectGoldUnit": "Select weight system",
     "weightSystemImperial": "Imperial (ozt)",
-    "weightSystemMetric": "Metric (auto g/kg/t)",
+    "weightSystemMetric": "Metric (gr/kg/t)",
     "weightSystemImperialShort": "IMP",
-    "weightSystemMetricShort": "MET"
+    "weightSystemMetricShort": "MET",
+    "goldMetrics": "Gold metrics",
+    "currency": "Currency",
+    "mainNavigation": "Main navigation",
+    "menu": "Menu",
+    "openNavigation": "Open navigation",
+    "closeNavigation": "Close navigation",
+    "opensInNewTab": "opens in a new tab"
   },
 
   "MarketData": {

@@ -61,7 +61,6 @@
     "disconnectFailedDescription": "Impossible de déconnecter le portefeuille. Réessayez."
   },
   "Home": {
-    "exactInputRetentionDisclosure": "La totalité du montant fourni est débitée. Après les conversions prévues, tout reliquat d’entrée est conservé dans Helpers comme frais de protocole pour son propriétaire. Vous recevez la totalité de la sortie finale, sous réserve du minimum indiqué.",
     "estimatedRetainedCharge": "Frais conservés estimés",
     "retainedProtocolCharge": "Frais de protocole conservés",
     "retainedCustodian": "Dépositaire des frais",
@@ -106,6 +105,8 @@
     "importTokenBalanceUnavailable": "Le solde du jeton est temporairement indisponible. Réessayez.",
     "noAvailableTokens": "Aucun token disponible",
     "wrongNetwork": "Réseau incorrect — passez à {network}",
+    "refreshQuote": "Actualiser le devis",
+    "quoteRefreshFailed": "Échec de l’actualisation. Le devis précédent reste affiché.",
     "quoteProcessing": "Préparation du devis...",
     "quoteProtocolSupplyExceeded": "Le rachat Core dépasse l’offre disponible ou la capacité de rachat.",
     "quoteRedemptionSupplyExceeded": "Le montant de CYGLD dépasse l’offre disponible pour le rachat.",
@@ -262,10 +263,11 @@
     "contactHeading": "Contact :",
     "copyright": "© 2026 CyberGold. Tous droits réservés.",
     "location": "Suisse, Genève",
-    "maintainedBy": "Application modifiée et maintenue par CyberGold.",
-    "deployedVersion": "Commit déployé :",
+    "maintainedBy": "Maintenu par CyberGold.",
+    "deployedVersion": "Commit déployé de l’application :",
     "buildUnavailable": "Informations de build indisponibles",
-    "commitLinkLabel": "Voir le commit déployé {commit} sur GitHub"
+    "commitLinkLabel": "Voir le commit déployé {commit} sur GitHub",
+    "sourceCode": "Code source (AGPL-3.0)"
   },
 
   "Navbar": {
@@ -280,9 +282,16 @@
     "selectCurrency": "Sélectionner la devise",
     "selectGoldUnit": "Sélectionner le système d'unités",
     "weightSystemImperial": "Impérial (ozt)",
-    "weightSystemMetric": "Métrique (auto g/kg/t)",
+    "weightSystemMetric": "M?trique (gr/kg/t)",
     "weightSystemImperialShort": "IMP",
-    "weightSystemMetricShort": "MET"
+    "weightSystemMetricShort": "MET",
+    "goldMetrics": "Mesures d?or",
+    "currency": "Devise",
+    "mainNavigation": "Navigation principale",
+    "menu": "Menu",
+    "openNavigation": "Ouvrir la navigation",
+    "closeNavigation": "Fermer la navigation",
+    "opensInNewTab": "s?ouvre dans un nouvel onglet"
   },
 
   "MarketData": {

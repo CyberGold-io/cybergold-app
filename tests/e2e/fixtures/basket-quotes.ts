@@ -40,7 +40,7 @@ export async function install(page: Page, unavailable = false, recoveryUnavailab
       await route.fulfill(precision === "unavailable" ? { status: 503, json: { error: "Precision unavailable" } }
         : { json: { context: { ...context, blockTimestamp: "1790800000" },
           core: protocolAddresses.core, asset, shareDecimals: precision } });
-    } else if(path==="/api/quotes/universal-exact-input") {
+    } else if(path==="/api/economic-quotes") {
       const request=route.request().postDataJSON();
       const mode=request.intent===2?"issue-exact-in":"redeem-exact-in";previews.push(mode);
       const timing={mode,request,receivedAt:Date.now(),completedAt:undefined as number|undefined};timings.push(timing);
@@ -74,7 +74,8 @@ export async function install(page: Page, unavailable = false, recoveryUnavailab
     else if (path === "/api/rpc") {
       expect(path).not.toBe("/api/rpc");
       await route.continue();
-    } else await route.fulfill({ status: 503, json: { error: "Unrelated fixture data unavailable" } });
+    } else if (path === '/api/tx-preparations') await route.fallback();
+    else await route.fulfill({ status: 503, json: { error: "Unrelated fixture data unavailable" } });
   });
   return { timings, diagnosticTimings, previews, rpcSelectors, recoveryReads, precisionReads, diagnostics };
 }

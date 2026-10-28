@@ -6,6 +6,7 @@ import type { QuoteIntent } from "../../app/utils/quoteIntent.ts";
 import type { MarketQuote } from "../../app/utils/marketQuote.ts";
 import { preserveExactInputMinimum, preserveExactInputBasketMinimums } from "../../app/utils/universalExactInput.ts";
 import type { UniversalExactInputQuote, WireExactInputAsset } from "../../app/utils/universalExactInput.ts";
+import { economicRequest, type EconomicQuote, type EconomicRequest } from "../../app/utils/economicQuotes.ts";
 import { semanticDigest } from "./matrix.ts";
 import type { TradeQuote, TradeQuoteRequest } from "../../app/utils/tradeQuote.ts";
 import { fetchQuoteStream } from "../../app/utils/quoteStream.ts";
@@ -17,6 +18,8 @@ import type { WalletRequestDiagnostic } from "./runnerDiagnostics.ts";
 import type { QualityTerms, QualityMeasurement } from "./quoteQuality.ts";
 import { tradeQualityTerms, basketQualityTerms } from "./quoteQuality.ts";
 import { SandboxFundingError } from "./sandboxFunding.ts";
+import { quoterProducerTimings, type QuoterProducerTimings } from './quoterBenchmark.ts';
+import type { RegressionStatus } from './runPolicy.ts';
 
 export type UiObservationPhase = "ui-prepare" | "ui-facts" | "ui-balances" | "ui-submit" | "ui-confirmation"
   | "ui-hash" | "ui-receipt-read" | "ui-transaction-read" | "ui-receipt-assertions" | "ui-balance-postchecks";
@@ -41,8 +44,9 @@ export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "ass
   selectedProvider?: Provider | "universal"; planDigest?: string; revalidatedPlanDigest?: string; executionAttempted?: boolean;
   transactionDisposition?: "not-submitted" | "submitted" | "confirmed" | "unknown";
   requestedStrategy: "core" | "market" | "auto";
-  status: "pass" | "fail" | "unavailable" | "skipped"; actualStrategy: "core" | "market" | "mixed" | "universal" | "unknown";
+  status: RegressionStatus; actualStrategy: "core" | "market" | "mixed" | "universal" | "unknown";
   actualOperation?: string; quotedOperation?: string; layer: "api" | "browser" | "execution"; durationMs?: number; firstExecutableMs?: number;
+  producerTimings?: QuoterProducerTimings;
   code?: string; reason?: QuotePreviewError["code"] | SandboxFundingError["reason"] | UiObservationPhase | "unsupported" | "no-qualified-plan" | "quote-observation-unavailable" | "predecessor-submission-unknown"; refs?: DiagnosticReferences; transactionHash?: string;
   quoteDiagnostics?: QuoteDiagnostics; selectedPlan?: import("./selectedPlan.ts").SelectedPlan;
   constraint?: QuoteConstraint;
@@ -61,9 +65,10 @@ export type RegressionReport = { schema: "cybergold.trade-regression.v1"; runId:
   context?: { appRevision?: string; backendRevision?: string; backendImageId?: string; blockNumber?: string; blockHash?: string };
   qualification?: { result?: "running" | "pass" | "fail"; stage?: string; errorClass?: string;
     cleanup?: Partial<Record<"processes" | "containers" | "network" | "source", "complete" | "failed">> };
-  runnerOutcome?: "pass" | "fail" | "unavailable"; runnerCode?: string; scenarios: ScenarioResult[]; fixtures?: ScenarioResult[] };
-export type QuoteObservation = { scenario: Scenario; request: TradeQuoteRequest | BasketPreviewRequest;
-  value: QuoteIntent | MarketQuote | BasketPreview | UniversalExactInputQuote; result: ScenarioResult };
+  runnerOutcome?: "pass" | "fail" | "unavailable"; runnerCode?: string;
+  outcome?: "pass" | "completed-with-rejections" | "fail"; scenarios: ScenarioResult[]; fixtures?: ScenarioResult[] };
+export type QuoteObservation = { scenario: Scenario; request: TradeQuoteRequest | BasketPreviewRequest | EconomicRequest;
+  value: QuoteIntent | MarketQuote | BasketPreview | UniversalExactInputQuote | EconomicQuote; result: ScenarioResult };
 
 export class RegressionAssertionError extends Error {
   readonly code: string;
@@ -92,14 +97,22 @@ const unexercisedRunnerCodes = new Set([
   "app-origin-unavailable", "fork-fixture-configuration-unavailable", "browser-unavailable",
   "wallet-setup-unavailable", "wallet-rpc-unavailable", "valuation-unavailable",
 ]);
+// These existing public reasons identify a protocol/market constraint. Generic
+// routing, contract, transport and timeout codes still require investigation.
+const identifiedQuoteRejections = new Set<QuotePreviewError['code']>([
+  'insufficient-protocol-supply', 'issuance-cap-exceeded', 'redemption-supply-exceeded',
+  'insufficient-reserve-balance', 'insufficient-recovery-shares', 'redemption-capacity-exceeded',
+  'quote-insufficient-liquidity',
+]);
 export function failureResult(result: ScenarioResult, error: unknown) {
   const code = error instanceof QuotePreviewError || error instanceof RegressionAssertionError || error instanceof ScenarioUnavailableError
     ? error.code : "unexpected-error";
   const unavailable = error instanceof ScenarioUnavailableError && unexercisedRunnerCodes.has(error.code);
+  const rejected = error instanceof QuotePreviewError && identifiedQuoteRejections.has(error.code);
   const timedOut = /Timeout|Abort/.test((error as Error)?.name ?? "");
   const work = quoteDiagnostics(error) ?? quoteDiagnostics(result);
   const constraint = safeQuoteConstraint((error as { constraint?: unknown } | null)?.constraint) ?? result.constraint;
-  return { ...result, status: unavailable ? "unavailable" as const : "fail" as const,
+  return { ...result, status: rejected ? "rejected" as const : unavailable ? "unavailable" as const : "fail" as const,
     code: timedOut && code === "unexpected-error" ? "service-unavailable" : code,
     quoteDiagnostics: work,
     ...(error instanceof SandboxFundingError ? { reason: error.reason } : {}),
@@ -179,6 +192,36 @@ export function applyUniversalExactInputQuote(result: ScenarioResult, value: Uni
   result.planDigest = semanticDigest({ plan: value.plan, deployment: value.deployment });
   result.selectedPlan = { provider: "universal", intent: value.plan.intent, routeFamily: value.routeFamily, quotedOutput: value.quotedOutput };
   result.context = value.context;
+}
+
+/** Economic observations have measured quantities and routes, without execution guards or bytes. */
+export function economicQuoteEvidence(value: EconomicQuote, request: EconomicRequest):
+  Pick<ScenarioResult, 'quotedOperation' | 'actualStrategy' | 'quoteTerms' | 'producerTimings'> & {
+    bounds: NonNullable<ScenarioResult['bounds']>; selectedProvider: 'universal'; planDigest: string;
+    selectedPlan: NonNullable<ScenarioResult['selectedPlan']>; context: EconomicQuote['context'];
+  } {
+  requireInvariant(JSON.stringify(economicRequest(value.request)) === JSON.stringify(economicRequest(request)), "economic-request-mismatch");
+  requireInvariant(value.inputs.length === request.inputs.length && value.inputs.every((row, index) =>
+    row.currency.toLowerCase() === request.inputs[index].currency.toLowerCase()
+    && uint(row.amount, "required-funding") <= uint(request.inputs[index].amount, "input-budget")), "economic-input-budget-exceeded");
+  uint(value.quotedOutput, "quoted-output");
+  const inputTerms = value.inputs.map(row => ({ asset: row.currency.toLowerCase(), amount: row.amount }));
+  const bounds = { inputMaximum: value.inputs.length === 1 ? value.inputs[0].amount : value.inputs.map(row => row.amount),
+    protocolFeeCygld: value.fees.coreProtocolFeeCygld, helperFeeCygld: value.fees.coreHelpersFeeCygld,
+    marketFeeCygld: value.fees.marketFeeCygld };
+  const quoteTerms: QualityTerms = { inputSpent: inputTerms, inputMaximum: inputTerms,
+    requestedInput: request.inputs.map(row => ({ asset: row.currency.toLowerCase(), amount: row.amount })),
+    netOutput: value.estimatedRecipientOutputs.map(row => ({ asset: row.token.toLowerCase(), amount: row.amount,
+      kind: row.kind, id: row.id })), refundCoverage: "not-disclosed" };
+  return { bounds, quoteTerms, quotedOperation: "executeExactInput", selectedProvider: "universal" as const,
+    actualStrategy: value.routeFamily,
+    planDigest: semanticDigest({ request: economicRequest(value.request), plan: value.plan, deployment: value.deployment }),
+    selectedPlan: { provider: "universal", intent: value.request.intent, routeFamily: value.routeFamily,
+      quotedOutput: value.quotedOutput }, context: value.context, producerTimings: quoterProducerTimings(value) };
+}
+
+export function applyEconomicQuote(result: ScenarioResult, value: EconomicQuote, request: EconomicRequest) {
+  Object.assign(result, economicQuoteEvidence(value, request));
 }
 
 /** Match the edited basket amount, rather than an earlier empty warm request. */
@@ -262,13 +305,14 @@ export async function observeScenario(scenario: Scenario, config: ProtocolConfig
       : [{ currency: scenario.side === "sell" ? config.contracts.core! : scenario.asset === "ETH" ? zeroAddress : (request as TradeQuoteRequest).counterToken,
         amount: "amount" in request ? request.amount : "grossCygldIn" in request ? request.grossCygldIn : "0" }];
     const outputCurrency = scenario.side === "buy" ? config.contracts.core! : scenario.asset === "ETH" || scenario.asset === "BASKET" ? zeroAddress : (request as TradeQuoteRequest).counterToken;
-    const value = await readJson<UniversalExactInputQuote>(fetcher, "/api/quotes/universal-exact-input", {
+    const economic: EconomicRequest = {
       intent: scenario.asset === "BASKET" ? scenario.side === "buy" ? 2 : 3 : scenario.side === "buy" ? 0 : 1,
-      inputs, outputCurrency, recipient, deadline: "deadline" in request ? request.deadline : String(Math.floor(Date.now() / 1000) + 1200), slippageBps: 100 });
-    applyUniversalExactInputQuote(result, value, inputs);
+      inputs, outputCurrency };
+    const value = await readJson<EconomicQuote>(fetcher, "/api/economic-quotes", economic);
+    applyEconomicQuote(result, value, economic);
     result.deployment = { core: config.contracts.core as `0x${string}`, helpers: value.deployment.helpers as `0x${string}`, adapter: value.deployment.adapter as `0x${string}` };
     result.status = "pass"; delete result.code; result.durationMs = Math.round(performance.now() - started);
-    return { scenario, request, value, result };
+    return { scenario, request: economic, value, result };
   }
   let request: TradeQuoteRequest | BasketPreviewRequest, value: QuoteObservation["value"];
   if (scenario.asset === "BASKET") {

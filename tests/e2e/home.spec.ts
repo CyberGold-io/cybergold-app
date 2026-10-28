@@ -1,3 +1,4 @@
+import { openNavbarSettings } from "./fixtures/navbar-settings";
 import { expect, test } from "./fixtures/app-test";
 import { context, install } from "./fixtures/token-quotes";
 import { selectBasket } from "./fixtures/swap-selection";
@@ -62,8 +63,8 @@ test("switches from English to French from the language menu", async ({ page }) 
   await page.goto("/en");
 
   await expect(page.getByText("Your budget", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Language" }).click();
-  await page.getByRole("button", { name: /Fran/i }).click();
+  await openNavbarSettings(page, "locale");
+  await page.getByRole("button", { name: "French", exact: true }).click();
 
   await expect(page).toHaveURL(/\/fr$/);
   await expect(page.locator("html")).toHaveAttribute("lang", "fr");
@@ -75,8 +76,8 @@ test("switches from English to German from the language menu", async ({ page }) 
   await page.goto("/en");
 
   await expect(page.getByText("Your budget", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Language" }).click();
-  await page.getByRole("button", { name: /Deutsch/i }).click();
+  await openNavbarSettings(page, "locale");
+  await page.getByRole("button", { name: "German", exact: true }).click();
 
   await expect(page).toHaveURL(/\/de$/);
   await expect(page.locator("html")).toHaveAttribute("lang", "de");

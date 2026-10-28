@@ -92,7 +92,7 @@ async function fixture(page: Page, strategy: "core" | "market") {
     fetchedAt: new Date().toISOString(), stale: false } }));
   let held = false, count = 0;
   const releases: (() => void)[] = [];
-  await page.route("**/api/quotes/universal-exact-input", async route => {
+  await page.route("**/api/economic-quotes", async route => {
     const request: UniversalExactInputRequest = route.request().postDataJSON();
     if (request.intent >= 2) return route.fallback();
     count++;
@@ -365,13 +365,13 @@ async function plateauFixture(page: Page, strategy: "core" | "market", bounded =
       budgetRange: { minimumBudget: value.inputMaximum, ...(bounded ? { maximumBudget: request.amount } : {}),
         quotedInput: value.quotedInput, quotedOutput: value.quotedOutput } };
   };
-  await page.route("**/api/quotes/trade/model", async route => {
+  await page.route("**/api/economic-estimates", async route => {
     modelRequests++;
     if (modelHeld) await new Promise<void>(resolve => modelReleases.push(resolve));
     const request = route.request().postDataJSON();
     await route.fulfill({ json: packet(request) });
   });
-  await page.route("**/api/quotes/universal-exact-input", async route => {
+  await page.route("**/api/economic-quotes", async route => {
     const request: UniversalExactInputRequest = route.request().postDataJSON();
     if (request.intent >= 2) return route.fallback();
     quoteRequests++;
@@ -427,7 +427,7 @@ for (const strategy of ["core", "market"] as const) for (const editedBudget of [
     await expect(spending).toHaveText(`${editedBudget} PAXG`);
     await expect(page.locator("[data-trade-action]")).toBeDisabled();
     // Receiving another display model does not confirm an executable quote.
-    const modelResponse = page.waitForResponse(response => new URL(response.url()).pathname === "/api/quotes/trade/model");
+    const modelResponse = page.waitForResponse(response => new URL(response.url()).pathname === "/api/economic-estimates");
     observed.releaseModel();
     await modelResponse;
     await page.clock.runFor(0);
@@ -443,7 +443,7 @@ for (const strategy of ["core", "market"] as const) for (const editedBudget of [
     await expectThemeColor(page, output, "--text-input");
     await test.info().attach("capped-range-reuse", { contentType: "application/json", body: JSON.stringify({
       strategy, budgetBefore: "1", budgetAfter: editedBudget, spendingRaw: String(plateauSpending), outputRaw: String(plateauOutput),
-      immediateLogicalMilliseconds: 0, heldFreshEndpoints: ["/api/quotes/trade/model", "/api/quotes/universal-exact-input"],
+      immediateLogicalMilliseconds: 0, heldFreshEndpoints: ["/api/economic-estimates", "/api/economic-quotes"],
       modelRequests: observed.modelRequests(), quoteRequests: observed.quoteRequests(), freshSpending: `${editedBudget} PAXG`, freshOutput: "0.6 CYGLD",
       pendingColor: "--text-input-disabled", modelAloneConfirms: false,
       scope: "Backend advisory output capacity; universal acquisition stays exact Q; no transaction submitted" }) });

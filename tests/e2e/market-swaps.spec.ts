@@ -49,7 +49,7 @@ test("one trading form acquires a fee-aware baseline before an amount or wallet"
   await page.locator("#sell-amount").fill("1"); await expect(page.locator("#buy-amount")).toHaveText("0.999");
   await expect.poll(() => observed.requests.length).toBeGreaterThan(0);
   await page.locator("#sell-amount").fill("2"); await expect(page.locator("#buy-amount")).toHaveText("1.998");
-  finish(); await expect(page.getByTestId("exact-input-retention-disclosure")).toBeVisible();
+  finish(); await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "confirmed");
   await page.getByRole("button", { name: /Total fee/ }).click();
   await expect(page.getByTestId("swap-minimum-output")).toContainText("CYGLD");
 });
@@ -70,16 +70,16 @@ test("input-driven market purchases and sales carry exact gross inputs and prote
 
 test("the Backend-selected universal plan supplies the complete market economics", async ({ page }) => {
   await installMarket(page);
-  await page.route("**/api/quotes/universal-exact-input", route => route.fulfill({ json: marketUniversalFixture(route.request().postDataJSON()) }));
+  await page.route("**/api/economic-quotes", route => route.fulfill({ json: marketUniversalFixture(route.request().postDataJSON()) }));
   await page.goto("/en"); await selectPaxg(page); await page.locator("#sell-amount").fill("1");
   await expect(page.locator("#buy-amount")).toHaveText("0.999");
-  await expect(page.getByTestId("exact-input-retention-disclosure")).toContainText("full input amount is funded");
+  await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "confirmed");
   await expect(page.getByTestId("trade-mechanism")).toHaveCount(0);
 });
 
 test("a later canonical quote replaces the whole selected plan on a new input", async ({ page }) => {
   await installMarket(page);
-  await page.route("**/api/quotes/universal-exact-input", route => {
+  await page.route("**/api/economic-quotes", route => {
     const request = route.request().postDataJSON();
     return route.fulfill({ json: BigInt(request.inputs[0].amount) === 10n ** 18n ? marketUniversalFixture(request)
       : universalFixture(request, { routeFamily: "mixed", quotedOutput: "3000000000000000000" }) });
@@ -92,7 +92,7 @@ test("a later canonical quote replaces the whole selected plan on a new input", 
 test("input edits cancel an obsolete universal answer", async ({ page }) => {
   let release!: () => void; const waiting = new Promise<void>(resolve => { release = resolve; });
   const observed = await installMarket(page, () => waiting); const aborted: string[] = [];
-  page.on("requestfailed", request => { if (new URL(request.url()).pathname === "/api/quotes/universal-exact-input") aborted.push(request.postDataJSON().inputs[0].amount); });
+  page.on("requestfailed", request => { if (new URL(request.url()).pathname === "/api/economic-quotes") aborted.push(request.postDataJSON().inputs[0].amount); });
   await page.goto("/en"); await selectPaxg(page); await page.locator("#sell-amount").fill("1");
   await expect.poll(() => observed.requests.length).toBe(1);
   await page.locator("#sell-amount").fill("2"); await expect.poll(() => observed.requests.length).toBe(2);
@@ -103,6 +103,8 @@ test("input edits cancel an obsolete universal answer", async ({ page }) => {
 
 for (const native of [false, true]) for (const rejected of native ? [false] : [false, true]) test(`${native ? "native ETH funds exact msg.value" : "ERC20 exact-input permit"}${rejected ? " rejection stops" : " settles one frozen universal plan"}`, async ({ page }) => {
   const observed = await installMarket(page); await wallet(page, rejected, !native && !rejected);
+  const preparations: { quote: { request: unknown; plan: unknown }; sender: string; recipient: string; slippageBps: number }[] = [];
+  page.on('request', request => { if (new URL(request.url()).pathname === '/api/tx-preparations') preparations.push(request.postDataJSON()); });
   const helpers = protocolAddresses.helpers as Address;
   let head = { ...context }; const permitReads: string[] = [], simulated: { operation:string; args:[{body:string;inputs:unknown[]},{authorizations:unknown[]}]; value:string }[] = [];
   await page.route("**/api/transaction/wait/head", route => route.fulfill({ json: { ...head, blockTimestamp: String(Math.floor(Date.now() / 1000)) } }));
@@ -141,16 +143,23 @@ for (const native of [false, true]) for (const rejected of native ? [false] : [f
   await page.goto("/en"); await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
   if (native) await choose(page, "ETH"); else { await selectPaxg(page); await page.getByRole("button", { name: "Reverse swap direction" }).click(); }
   await page.locator("#sell-amount").fill("1"); await expect.poll(() => observed.quotes.length).toBeGreaterThan(0);
-  await expect(page.getByTestId("exact-input-retention-disclosure")).toBeVisible();
+  await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "confirmed");
   await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
   const selected = observed.quotes.at(-1)!; const quoteCount = observed.requests.length;
+  expect(preparations).toEqual([]);
   await page.getByRole("button", { name: "Swap currencies", exact: true }).click();
+  await expect.poll(() => preparations.length).toBe(1);
+  expect(preparations[0].sender.toLowerCase()).toBe(owner.toLowerCase());
+  expect(preparations[0].recipient.toLowerCase()).toBe(owner.toLowerCase());
+  expect(preparations[0].quote.request).not.toHaveProperty('deadline');
+  expect(preparations[0].quote.plan).not.toHaveProperty('minimumOutput');
   if (rejected) { await expect(page.getByText("Wallet request cancelled", { exact: true })).toBeVisible(); expect(simulated).toEqual([]); }
   else {
     if (!native) {
       await expect.poll(() => page.evaluate(() => (window as unknown as {__marketWalletRequests:{method:string}[]}).__marketWalletRequests.filter(row => row.method === "eth_signTypedData_v4").length)).toBe(1);
       expect(simulated).toEqual([]); await page.clock.install(); head = { ...head, blockHash: `0x${"e".repeat(64)}` };
       await page.clock.runFor(12_500); expect(observed.requests).toHaveLength(quoteCount);
+      expect(preparations).toHaveLength(1);
       await expect(page.locator("#sell-amount")).toBeDisabled();
       await page.evaluate(() => (window as unknown as {__resumeMarketSignature:()=>void}).__resumeMarketSignature());
     }

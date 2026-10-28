@@ -1,5 +1,5 @@
 'use client';
-import type { UniversalExactInputQuote } from "@/app/utils/universalExactInput";
+import { isEconomicQuote, type SelectedExactInputQuote } from "@/app/utils/economicQuotes";
 import { ExactInputRetentionDisclosure, ExactInputSettlement } from "@/app/components/ExactInputSettlement";
 import { useQuoteCacheScope } from "@/app/context/chainHeadContext";
 import { useCachedTradeQuote } from "@/app/hooks/flows/quotes/useCachedTradeQuote";
@@ -204,7 +204,7 @@ const swapStyles = {
   maxButton:
     "inline-flex h-5 w-14 shrink-0 items-center justify-center px-2 tracking-[0.12em] text-text-input rounded-full transition-colors hover:bg-gold-cg/15 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
   basketBox:
-    "mt-3 p-2 text-sm bg-background-swap border border-swap-container-border rounded-2xl",
+    "cg-surface-secondary mt-3 p-2 text-sm border border-swap-container-border rounded-cg-hero",
   basketHeader:
     "flex items-center justify-between gap-2 p-1 border-b border-swap-container-border",
   basketRow:
@@ -393,7 +393,7 @@ function TradingScreen() {
   const [displayedQuoteProgressPercent, setDisplayedQuoteProgressPercent] = useState(0);
   const [isSubmittingSwap, setIsSubmittingSwap] = useState(false);
   const [frozenTrade, setFrozenTrade] = useState<TradeQuoteResult>();
-  const [frozenUniversal, setFrozenUniversal] = useState<UniversalExactInputQuote>();
+  const [frozenUniversal, setFrozenUniversal] = useState<SelectedExactInputQuote>();
   const [swapFailureReference, setSwapFailureReference] = useState<string>();
   const [isSubmittedSwapCleanupInProgress, setIsSubmittedSwapCleanupInProgress] = useState(false);
   const [transactionNotice, setTransactionNotice] = useState<SwapTransactionNoticeProps>();
@@ -812,7 +812,6 @@ function TradingScreen() {
   // retain their input debounce; exact cached quotes and MAX remain immediate.
   const immediatePageQuote = flowState?.route === "basket" || exactBrowserHit;
   const debouncedSellAmount = useDebouncedValue(sellAmount, QUOTE_INPUT_DEBOUNCE_MS, immediatePageQuote);
-  const debouncedTradeSlippageBps = useDebouncedValue(slippageBps, QUOTE_INPUT_DEBOUNCE_MS, immediatePageQuote);
 
   const sellAmountFromInputBigInt = useMemo(() => {
     if (!isNativeOrErc20Token(sellToken)) return 0n;
@@ -823,8 +822,7 @@ function TradingScreen() {
 
   // Disable/cancel the old token intent on the raw edit, before the replacement
   // amount passes its typing debounce.
-  const quoteInputPending = sellAmount !== debouncedSellAmount
-    || (isActiveTokenFlow && slippageBps !== debouncedTradeSlippageBps);
+  const quoteInputPending = sellAmount !== debouncedSellAmount;
 
   // Keep every flow hook mounted and select its activity through enabled flags.
   const issueFromBasketExactInFlow = useIssueFromBasketExactInFlow({
@@ -847,16 +845,15 @@ function TradingScreen() {
   });
   const basketAmountsOutObtained = redeemToBasketExactInFlow.amountsOut;
 
-  const tradeInput = { ...rawTradeIntent, slippageBps: debouncedTradeSlippageBps, amount: String(sellAmountFromInputBigInt) };
+  const tradeInput = { ...rawTradeIntent, amount: String(sellAmountFromInputBigInt) };
   const tradeFlow = useTradeFlow({ input: tradeInput, frozen: frozenTrade, enabled: isActiveTokenFlow && !quoteInputPending,
     onNetworkFeeEstimate: setNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange: setIsNetworkFeeEstimateLoading });
   const helperFeePercent = tradeFlow.selected?.value.strategy === "market"
     ? formatPpmAsPercent(BigInt(tradeFlow.selected.value.providerQuote.fee.ratePpm)) : coreHelperFeePercent;
-  // Lightweight Backend models follow the edited amount immediately; exact
-  // route searches retain their debounce, including tolerance-only edits.
+  // Lightweight Backend estimates follow edited amounts. Execution tolerance
+  // changes only the displayed guard and the later preparation request.
   const localTradeEstimate = useTradeModel({ side: rawTradeIntent.side, mode: rawTradeIntent.mode,
-    counterToken: rawTradeIntent.counterToken, native: rawTradeIntent.native, amount: rawTradeIntent.amount, slippageBps: debouncedTradeSlippageBps },
-    isActiveTokenFlow && slippageBps === debouncedTradeSlippageBps);
+    counterToken: rawTradeIntent.counterToken, native: rawTradeIntent.native, amount: rawTradeIntent.amount }, isActiveTokenFlow);
   const localQuoteAmount = localTradeEstimate?.quotedOutput;
   // Existing basket interactions remain separate. Token amounts share one Backend-selected plan.
   const issueFromTokenExactInFlow = tradeFlow;
@@ -874,6 +871,8 @@ function TradingScreen() {
     : isIssueFromBasketExactIn ? issueFromBasketExactInFlow.universalQuote : isRedeemToBasketExactIn ? redeemToBasketExactInFlow.universalQuote : undefined;
   const activeQuoteStatus = activeFlow?.quoteStatus;
   const activeQuoteError = activeFlow?.quoteError;
+  const qualifiedBasketQuote = !isActiveTokenFlow && activeQuoteStatus === "success" && !quoteInputPending
+    ? activeUniversalQuote : undefined;
   const purchaseCapacity = cygldPurchaseCapacity(issuanceModel);
   const remainingNetCapacity = isActiveTokenFlow ? undefined : purchaseCapacity?.available;
   const requestedBasketPurchase = isIssueFromBasketExactIn
@@ -889,8 +888,9 @@ function TradingScreen() {
     observedCap?.availableRaw !== undefined ? observedCap.availableRaw === "0" : purchaseCapacity?.available === 0n
   );
   const isPurchaseCapacityExhausted = isIssuanceCapError ? isIssuanceCapacityExhausted : remainingNetCapacity === 0n;
-  // MAX was sized and previewed by the Backend; a cached model cannot override it.
-  const isObservedBasketPurchaseOverCap = !basketMaxAmounts && (
+  // A successful Backend quote and MAX already account for capacity. A cached
+  // model of the entered budget cannot override their selected funding/output.
+  const isObservedBasketPurchaseOverCap = !basketMaxAmounts && !qualifiedBasketQuote && (
     (remainingNetCapacity === 0n && (rawQuoteAmount > 0n || hasDerivedBasketAmounts)) || (
     requestedGrossIssuance !== undefined && remainingGrossCapacity !== undefined && requestedGrossIssuance > remainingGrossCapacity
   ));
@@ -1148,9 +1148,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
     if (!issueFromBasketExactInFlow.canSubmit) {
       return EMPTY_PREFILL;
     }
-    const netCygldOut = isPurchaseOverCap
-      ? requestedBasketPurchase?.net ?? netCygldIssueFromBasketExactIn ?? 0n
-      : netCygldIssueFromBasketExactIn ?? 0n;
+    const netCygldOut = netCygldIssueFromBasketExactIn ?? 0n;
     return {
       main: formatAmount(netCygldOut, cygldDecimals),
       mainRaw: netCygldOut,
@@ -1201,7 +1199,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
     };
   }
   return EMPTY_PREFILL;
-}, [isPurchaseOverCap, requestedBasketPurchase?.net, cygldDecimals, basketComponents, netCygldIssueFromBasketExactIn, netCygldIssueFromTokenExactIn, basketAmountsOutObtained, netAmountOutRedeemToTokenExactIn, issueFromBasketExactInFlow.canSubmit, issueFromTokenExactInFlow.canSubmit, issueFromTokenExactInFlow.quoteStatus, isIssueFromBasketExactIn, isIssueFromTokenExactIn, isRedeemToBasketExactIn, isRedeemToTokenExactIn, redeemToBasketExactInFlow.canSubmit, redeemToTokenExactInFlow.canSubmit, redeemToTokenExactInFlow.quoteStatus, buyTokenDecimals]);
+}, [cygldDecimals, basketComponents, netCygldIssueFromBasketExactIn, netCygldIssueFromTokenExactIn, basketAmountsOutObtained, netAmountOutRedeemToTokenExactIn, issueFromBasketExactInFlow.canSubmit, issueFromTokenExactInFlow.canSubmit, issueFromTokenExactInFlow.quoteStatus, isIssueFromBasketExactIn, isIssueFromTokenExactIn, isRedeemToBasketExactIn, isRedeemToTokenExactIn, redeemToBasketExactInFlow.canSubmit, redeemToTokenExactInFlow.canSubmit, redeemToTokenExactInFlow.quoteStatus, buyTokenDecimals]);
 
   const displayQuoteIdentity = [flowState?.direction, flowState?.route, flowState?.inputMode,
     sellTokenId, buyTokenId, configurationIdentity,
@@ -1249,6 +1247,11 @@ const computedReceiveQuote = useMemo((): Prefill => {
   const isBasketComponentAmountOverWalletBalance = useCallback(
     (component: BasketComponent, amountStr: string) => {
       if (!isConnected) return false;
+      const funded = qualifiedBasketQuote?.inputs.find(row => row.currency.toLowerCase() === component.token.address.toLowerCase());
+      if (funded) {
+        const balance = walletBalanceByTokenId[component.token.id];
+        return balance !== undefined && BigInt(funded.amount) > balance;
+      }
       return isBasketComponentAmountOverBalance({
         component,
         amountStr,
@@ -1256,7 +1259,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
         locale,
       });
     },
-    [isConnected, locale, walletBalanceByTokenId]
+    [isConnected, locale, walletBalanceByTokenId, qualifiedBasketQuote]
   );
 
   // Suppress token balance warnings while quotes or post-submission balances are changing.
@@ -1269,6 +1272,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
     if (!sellTokenBalanceKnown) return false;
     const amount = isIssueFromTokenExactIn
       ? activeQuoteStatus === "success" && !quoteInputPending ? selectedQuote?.inputMaximum : undefined
+      : isRedeemToBasketExactIn ? qualifiedBasketQuote ? BigInt(qualifiedBasketQuote.inputs[0].amount) : undefined
       : editedSellAmount;
     if (amount === undefined || amount <= 0n) return false;
     return amount > sellTokenWalletBalance;
@@ -1279,6 +1283,8 @@ const computedReceiveQuote = useMemo((): Prefill => {
     isSellTokenSpendable,
     editedSellAmount,
     isIssueFromTokenExactIn,
+    isRedeemToBasketExactIn,
+    qualifiedBasketQuote,
     activeQuoteStatus,
     quoteInputPending,
     selectedQuote,
@@ -1654,15 +1660,24 @@ const computedReceiveQuote = useMemo((): Prefill => {
   const liveDisplayedQuotedBuyAmount = formatMeaningfulDecimalString(receiveQuote.main, locale);
   const keepCompletedQuotePresentation = !isSpendAmountZero && cachedTradeDisplay?.quoteComplete === "true" &&
     (quoteInputPending || activeQuoteStatus !== "success");
-  const showPurchaseSpending = !showSellBasket;
+  const showPurchaseSpending = !showSellBasket || isIssueFromBasketExactIn;
   const readySpendingQuote = activeQuoteStatus === "success" && !quoteInputPending
-    ? selectedQuote ?? (isRedeemToBasketExactIn ? { quotedInput: editedSellAmount, inputMaximum: editedSellAmount } : undefined)
+    ? selectedQuote ?? (isRedeemToBasketExactIn && qualifiedBasketQuote ? {
+      quotedInput: BigInt(qualifiedBasketQuote.inputs[0].amount), inputMaximum: BigInt(qualifiedBasketQuote.inputs[0].amount) } : undefined)
     : undefined;
   const indicativeSpending = !readySpendingQuote && activeQuoteStatus !== "failed" && localTradeEstimate?.quotedInput !== undefined
     // The range models output capacity. Universal execution still acquires the full declared input.
     ? { quotedInput: editedSellAmount, inputMaximum: editedSellAmount } : undefined;
-  const currentPurchaseSpending = showPurchaseSpending ? purchaseBudgetAmounts(editedSellAmount,
+  const currentPurchaseSpending = !showSellBasket ? purchaseBudgetAmounts(editedSellAmount,
     readySpendingQuote ?? indicativeSpending) : undefined;
+  const basketSpendingInputs = isIssueFromBasketExactIn ? qualifiedBasketQuote?.inputs : undefined;
+  const basketSpendingMatchesBudget = basketSpendingInputs?.every(row =>
+    BigInt(row.amount) === derivedBasketAmountsAsBigIntLst[basketComponents.findIndex(component =>
+      component.token.address.toLowerCase() === row.currency.toLowerCase())]);
+  const basketSpendingValue = basketSpendingInputs?.map(row => {
+    const component = basketComponents.find(component => component.token.address.toLowerCase() === row.currency.toLowerCase())!;
+    return `${formatNumberWithSpaces(formatUnits(BigInt(row.amount), component.token.decimals), locale)} ${component.token.symbol}`;
+  }).join(" + ");
   const formatBudgetAmount = (amount: bigint) => `${formatNumberWithSpaces(formatUnits(amount, sellTokenDecimals ?? 18), locale)} ${sellTokenDisplaySymbol}`;
   const cachedSpendingValue = cachedTradeDisplay?.purchaseSpendingValue ?? cachedTradeDisplay?.purchaseEstimatedSpend;
   const purchaseSpendingPresentation = keepCompletedQuotePresentation && cachedSpendingValue ? {
@@ -1671,8 +1686,9 @@ const computedReceiveQuote = useMemo((): Prefill => {
     purchaseSpendingLimited: cachedTradeDisplay?.purchaseSpendingLimited ?? String(Boolean(cachedTradeDisplay?.purchaseEstimatedSpend)),
   } : {
     purchaseSpendingVisible: String(showPurchaseSpending),
-    purchaseSpendingValue: currentPurchaseSpending ? formatBudgetAmount(currentPurchaseSpending.spending) : "…",
-    purchaseSpendingLimited: String(currentPurchaseSpending !== undefined && !currentPurchaseSpending.matchesBudget),
+    purchaseSpendingValue: basketSpendingValue ?? (currentPurchaseSpending ? formatBudgetAmount(currentPurchaseSpending.spending) : "…"),
+    purchaseSpendingLimited: String(basketSpendingInputs ? !basketSpendingMatchesBudget
+      : currentPurchaseSpending !== undefined && !currentPurchaseSpending.matchesBudget),
   };
   const purchaseSpendingLimited = purchaseSpendingPresentation.purchaseSpendingLimited === "true";
   const spendAmountLabel = buyTokenId === cygldTokenId ? t("purchaseBudgetLabel") : t("youSell");
@@ -1687,13 +1703,18 @@ const computedReceiveQuote = useMemo((): Prefill => {
   const zeroAmountEquivalents = `~ ${formatCombinedDisplayValueFromUsd({
     amountUsd: 0, formatFiat, formatGoldAmount,
   })}`;
-  const spendingUsd = currentPurchaseSpending && sellTokenDecimals !== undefined && sellPriceUsd !== undefined
+  const spendingUsd = basketSpendingInputs ? basketSpendingInputs.reduce<number | undefined>((total, row) => {
+    const component = basketComponents.find(component => component.token.address.toLowerCase() === row.currency.toLowerCase())!;
+    const price = displayPrices[component.token.id];
+    return total === undefined || price === undefined ? undefined
+      : total + Number(formatUnits(BigInt(row.amount), component.token.decimals)) * price;
+  }, 0) : currentPurchaseSpending && sellTokenDecimals !== undefined && sellPriceUsd !== undefined
     ? Number(formatUnits(currentPurchaseSpending.spending, sellTokenDecimals)) * sellPriceUsd : undefined;
   const spendingValueMatchesCache = purchaseSpendingPresentation.purchaseSpendingValue === cachedSpendingValue;
   const cachedSpendingEquivalent = spendingValueMatchesCache ? cachedTradeDisplay?.purchaseSpendingEquivalent : undefined;
   const spendingEquivalent = (keepCompletedQuotePresentation || restoreFormattedDisplay) && cachedSpendingEquivalent
     ? cachedSpendingEquivalent : currentPurchaseSpending?.spending === 0n ? zeroAmountEquivalents
-    : currentPurchaseSpending ? formatAmountEquivalentDisplayValue(spendingUsd, cachedSpendingEquivalent ?? amountEquivalentsPlaceholder)
+    : currentPurchaseSpending || basketSpendingInputs ? formatAmountEquivalentDisplayValue(spendingUsd, cachedSpendingEquivalent ?? amountEquivalentsPlaceholder)
     : "…";
   const sellAmountEquivalentsPlaceholderText = isSpendAmountZero ? zeroAmountEquivalents : cachedTradeDisplay?.sellEquivalent ?? amountEquivalentsPlaceholder;
   const buyAmountEquivalentsPlaceholderText = isSpendAmountZero ? zeroAmountEquivalents : shouldBlockQuotedBuyInput
@@ -1801,7 +1822,6 @@ const computedReceiveQuote = useMemo((): Prefill => {
         mainAction: isSubmittingSwap ? cachedTradeDisplay?.mainAction ?? t("swapCurrencies") : mainActionPresentation,
         quoteComplete: String((activeQuoteStatus === "success" && !quoteInputPending) || keepCompletedQuotePresentation),
         retentionDisclosure: document.querySelector('[data-trade-live] [data-trade-display="retentionDisclosure"]')?.textContent ?? "",
-        retentionDisclosurePlain: t("exactInputRetentionDisclosure"),
         evaluationStatus,
         sellTokenId, buyTokenId, sellSymbol: sellTokenDisplaySymbol, buySymbol: buyTokenDisplaySymbol,
         sellAmount: showSellBasket ? driverAmountStr : sellAmount,
@@ -1931,12 +1951,16 @@ const computedReceiveQuote = useMemo((): Prefill => {
     const frozenSelection = selectedTrade && captureTradeQuote(selectedTrade);
     setFrozenTrade(frozenSelection);
     setFrozenUniversal(activeUniversalQuote && structuredClone(activeUniversalQuote));
-    if (frozenSelection) {
+    if (frozenSelection?.value.strategy === "universal" && isEconomicQuote(frozenSelection.value)) {
+      observeTradeSelection({ attemptId: diagnostics.id, economicQuote: frozenSelection.value,
+        deployment: frozenSelection.deployment, diagnostics: frozenSelection.diagnostics });
+    } else if (frozenSelection) {
       observeTradeSelection({ attemptId: diagnostics.id, quote: frozenSelection.value,
         deployment: frozenSelection.deployment, diagnostics: frozenSelection.diagnostics,
         intent: { ...tradeInput, deadline: frozenSelection.value.providerRequest.deadline } });
     } else if (activeUniversalQuote) {
-      observeTradeSelection({ attemptId: diagnostics.id, universalQuote: structuredClone(activeUniversalQuote),
+      observeTradeSelection({ attemptId: diagnostics.id, ...(isEconomicQuote(activeUniversalQuote)
+        ? { economicQuote: structuredClone(activeUniversalQuote) } : { universalQuote: structuredClone(activeUniversalQuote) }),
         deployment: { core: addresses.core, helpers: activeUniversalQuote.deployment.helpers as Address, adapter: activeUniversalQuote.deployment.adapter as Address } });
 
     }
@@ -1956,7 +1980,8 @@ const computedReceiveQuote = useMemo((): Prefill => {
     const requiredBalances = isIssueFromBasketExactIn
       ? basketComponents.map((component, index) => ({ tokenId: component.token.id,
           amount: issueFromBasketExactInFlow.amountsInUsed?.[index] ?? 0n }))
-      : [{ tokenId: sellTokenId, amount: frozenSelection?.inputMaximum ?? editedSellAmount }];
+      : [{ tokenId: sellTokenId, amount: frozenSelection?.inputMaximum
+          ?? (activeUniversalQuote ? BigInt(activeUniversalQuote.inputs[0].amount) : editedSellAmount) }];
     setIsSubmittingSwap(true);
     diagnostics.stage("balance");
     try {
@@ -2220,7 +2245,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
               className="glass-container swap-panel-underlay pointer-events-none absolute -inset-x-[1cm] -inset-y-[1cm] rounded-[calc(1.5rem+1cm)]"
             />
             <section id="swapsection" data-trade-evaluation={evaluationStatus}
-              className="glass-container swap-panel-surface relative z-10 flex w-full min-w-0 flex-col rounded-3xl p-3 sm:p-5 lg:p-6"
+              className="glass-container swap-panel-surface relative z-10 flex w-full min-w-0 flex-col rounded-cg-hero p-3 sm:p-5 lg:p-6"
             >
             <MarketDataFreshnessNotice
               className="mb-3"
@@ -2706,7 +2731,21 @@ const computedReceiveQuote = useMemo((): Prefill => {
           </details>
 
         <ExactInputRetentionDisclosure charges={(frozenUniversal ?? activeUniversalQuote)?.estimatedRetainedInputCharges ?? []}
-          presentation={restoreFormattedDisplay || !(frozenUniversal ?? activeUniversalQuote) ? cachedTradeDisplay?.retentionDisclosure : undefined} />
+          presentation={restoreFormattedDisplay || !(frozenUniversal ?? activeUniversalQuote)
+            ? cachedTradeDisplay?.retentionDisclosure?.replace(cachedTradeDisplay.retentionDisclosurePlain ?? "", "").trim() : undefined} />
+
+        <div className="order-3 mt-3 flex flex-col items-end gap-2">
+          <button type="button" data-trade-refresh onClick={() => void activeFlow?.refresh()}
+            disabled={!activeFlow || !hasEnteredSwapAmount || isSubmittingSwap || activeFlow.refreshing || quoteInputPending}
+            aria-busy={activeFlow?.refreshing || undefined}
+            className={cn("text-sm text-text-muted underline underline-offset-4 disabled:opacity-50",
+              (!activeFlow || !hasEnteredSwapAmount) && "invisible")}>
+            {t("refreshQuote")}
+          </button>
+          {activeFlow?.refreshError && <p role="alert" className="text-sm text-text-amber">
+            {t("quoteRefreshFailed")} {activeFlow.refreshError}
+          </p>}
+        </div>
         {confirmedTrade && <section data-testid="trade-receipt" role="status" className="order-5 my-3 rounded-xl border border-swap-container-border p-3 text-sm">
           <p className="font-semibold">{confirmedTrade.receipt.strategy === "market" ? marketT("confirmed") : t("transactionConfirmed")}</p>
           {confirmedTrade.receipt.strategy === "universal" && <ExactInputSettlement receipt={confirmedTrade.receipt} />}

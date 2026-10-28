@@ -1,3 +1,4 @@
+import { openNavbarSettings } from "./fixtures/navbar-settings";
 import { expect, test, type Page } from "./fixtures/app-test";
 import { install } from "./fixtures/token-quotes";
 
@@ -18,11 +19,11 @@ test("desktop display preferences and an open currency menu stay unchanged throu
   await page.setViewportSize({ width: 1440, height: 1000 });
   await install(page);
   await page.goto("/en");
-  await page.getByTestId("display-currency-control").click();
+  await openNavbarSettings(page, "currency");
   await page.locator('[data-navbar-menu="currency"]').getByRole("button", { name: "EUR", exact: true }).click();
-  await page.getByTestId("display-gold-unit-control").click();
+  await openNavbarSettings(page, "goldUnit");
   await page.locator('[data-navbar-menu="goldUnit"]').getByRole("button", { name: "Imperial (ozt)", exact: true }).click();
-  await page.getByTestId("display-currency-control").click();
+  await openNavbarSettings(page, "currency");
   const menu = page.locator('[data-navbar-menu="currency"]');
   await expect(menu).toBeVisible();
   const background = await menu.evaluate(node => getComputedStyle(node).backgroundColor);
@@ -33,18 +34,18 @@ test("desktop display preferences and an open currency menu stay unchanged throu
     await firstPaint(page);
     await expect(menu).toBeVisible();
     await expect(menu).toHaveCSS("background-color", background);
-    await expect(page.getByTestId("display-currency-control")).toHaveText("EUR");
+    await expect(page.locator('[data-navbar-currency-option="EUR"]')).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("display-currency-control")).toHaveAttribute("aria-expanded", "true");
-    await expect(page.getByTestId("display-gold-unit-control")).toHaveText("IMP");
+    await expect(page.locator('[data-navbar-gold-unit-option="imperial"]')).toHaveAttribute("aria-pressed", "true");
     scripts.release();
     await expect(page.locator("nav[data-navbar-ready='true']")).toBeVisible();
     await expect(menu).toBeVisible();
-    await page.getByTestId("display-currency-control").click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
     await expect(menu).toBeHidden();
   } finally { scripts.release(); }
 });
 
-test("mobile navigation keeps its disclosure and selected preferences before hydration", async ({ page }) => {
+test("mobile settings keep their disclosure and selected preferences before hydration", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 900 });
   await install(page);
   await page.addInitScript(() => {
@@ -52,9 +53,9 @@ test("mobile navigation keeps its disclosure and selected preferences before hyd
     localStorage.setItem("display-gold-unit", "imperial");
   });
   await page.goto("/en");
-  const toggle = page.getByRole("button", { name: "Toggle navigation menu", exact: true });
-  await toggle.click();
-  const menu = page.locator('[data-navbar-menu="mobile"]');
+  const toggle = page.getByRole("button", { name: "Settings", exact: true });
+  await openNavbarSettings(page, "currency");
+  const menu = page.locator('[data-navbar-menu="settings"]');
   await expect(menu).toBeVisible();
   await expect(menu.locator('[data-navbar-currency-option="CHF"]')).toHaveAttribute("aria-pressed", "true");
   const scripts = await holdScripts(page);
@@ -96,10 +97,10 @@ test("the document keeps its scroll position through a full reload", async ({ pa
 
 
 test("an open mobile navigation menu retains its own scroll before hydration and through handoff", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 360 });
+  await page.setViewportSize({ width: 390, height: 180 });
   await install(page);
   await page.goto("/en");
-  await page.getByRole("button", { name: "Toggle navigation menu", exact: true }).click();
+  await page.getByRole("button", { name: "Open navigation", exact: true }).click();
   const menu = page.locator('[data-navbar-menu="mobile"]');
   const before = await menu.evaluate(node => { node.scrollTop = 80; return node.scrollTop; });
   expect(before).toBeGreaterThan(0);

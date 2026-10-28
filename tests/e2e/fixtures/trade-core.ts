@@ -68,13 +68,13 @@ export function tradeIntentBody(body: string, request: QuoteIntentRequest): stri
 /** Adapt retained synthetic economic cases to the canonical exact-input transport. */
 export function coreIntentRoute(route: Route, assets?: readonly string[]): Route {
   const incoming=route.request(),path=new URL(incoming.url()).pathname;
-  const canonical=path.endsWith("/quotes/universal-exact-input")?incoming.postDataJSON():undefined;
+  const canonical=path.endsWith("/economic-quotes")?incoming.postDataJSON():undefined;
   if(!canonical&&!path.endsWith("/quotes/trade/stream"))return route;
   const request=coreIntentRequest(canonical?tradeRequestFromUniversal(canonical):incoming.postDataJSON(),assets);
   const requestView=new Proxy(incoming,{get(target,key){
     if(key==="postDataJSON")return()=>request;
     if(key==="postData")return()=>JSON.stringify(request);
-    if(key==="url")return()=>target.url().replace(/\/quotes\/(?:trade\/stream|universal-exact-input)$/, "/quotes/intent/stream");
+    if(key==="url")return()=>target.url().replace(/\/(?:quotes\/trade\/stream|economic-quotes)$/, "/quotes/intent/stream");
     const value=Reflect.get(target,key);return typeof value==="function"?value.bind(target):value;
   }});
   const fulfill=async(options:Parameters<Route["fulfill"]>[0])=>{
@@ -101,5 +101,5 @@ export function coreIntentRoute(route: Route, assets?: readonly string[]): Route
 
 export async function routeCoreIntent(page: Page, handler: (route: Route) => Promise<void>, assets?: readonly string[]) {
   await page.route("**/api/quotes/trade/stream", route => handler(coreIntentRoute(route, assets)));
-  await page.route("**/api/quotes/universal-exact-input", route => handler(coreIntentRoute(route, assets)));
+  await page.route("**/api/economic-quotes", route => handler(coreIntentRoute(route, assets)));
 }

@@ -18,7 +18,34 @@ import { protocolConfigurationFixture } from "../../tests/fixtures/protocol-conf
 import { activeMatrixTemplates } from "../../tests/trading/matrix.ts";
 import { installQuoteObservation } from "../../tests/trading/quoteObservation.ts";
 import { createUiQuoteDiagnostics, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion } from "../../tests/trading/uiDiagnostics.ts";
-import { readWalletSetupDiagnostic, safeRunnerError, walletFixtureOutput, walletOnboardingStep, observeWalletOnboarding } from "../../tests/trading/runnerDiagnostics.ts";
+import { qualificationBackendRevision, readWalletSetupDiagnostic, safeRunnerError, walletFixtureOutput, walletOnboardingStep, observeWalletOnboarding } from "../../tests/trading/runnerDiagnostics.ts";
+import { ownedUsdcStartupFunding } from "../../tests/trading/ownedWalletFunding.ts";
+
+test("owned USDC startup funding covers cumulative issue tiers before sale credits", () => {
+  const plan = ownedUsdcStartupFunding("10000000000", 6);
+  assert.equal(plan.plannedAmount, "10101000000");
+  assert.equal(plan.transferAmount, "10101000000");
+  assert.deepEqual(plan.debits.map(row => row.amount), ["1000000", "100000000", "10000000000"]);
+  let balance = BigInt(plan.transferAmount);
+  for (const debit of plan.debits) {
+    balance -= BigInt(debit.amount);
+    assert.ok(balance >= 0n);
+  }
+  assert.equal(balance, 0n);
+  assert.equal(10_000_000_000n - BigInt(plan.debits[0].amount) - BigInt(plan.debits[1].amount), 9_899_000_000n);
+  assert.ok(9_899_000_000n < BigInt(plan.debits[2].amount));
+  assert.equal(ownedUsdcStartupFunding("20000000000", 6).transferAmount, "20000000000");
+  assert.equal(ownedUsdcStartupFunding("0", 18).transferAmount, "10101000000000000000000");
+});
+
+test("qualification identifies the running Backend independently of its cached image", () => {
+  const runtime = "6".repeat(40), historical = "9".repeat(40), image = "a".repeat(40);
+  assert.equal(qualificationBackendRevision({ backendRuntimeCommit: runtime, backendCommit: historical, backendImageCommit: image }), runtime);
+  assert.equal(qualificationBackendRevision({ backendCommit: historical, backendImageCommit: image }), historical);
+  assert.equal(qualificationBackendRevision({ backendRuntimeCommit: "unavailable", backendCommit: historical }), historical);
+  assert.equal(qualificationBackendRevision({ backendImageCommit: image }), undefined);
+  assert.equal(qualificationBackendRevision(null), undefined);
+});
 
 test("plain native Node imports the actual wallet setup before any browser callback", () => {
   const child = spawnSync(process.execPath, ["--input-type=module", "-e", `

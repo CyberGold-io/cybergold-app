@@ -2,9 +2,8 @@
 
 @custom-variant dark (&:is(.dark *));
 
-/* Semantic utilities. Typography: IBM Plex Sans for UI, monospace for code.
-   Use text-xs/sm for metadata, text-base for body, text-xl/2xl/3xl for headings.
-   Weights: 400 regular, 500 body, 600 emphasis, 700 bold. */
+/* Website foundations. Keep the dApp's 16px root and geometry; website rem
+   values below are converted from its 20px root. Controls retain their styles. */
 @theme inline {
   --color-background: var(--background);
   --color-background-input: var(--background-input);
@@ -14,7 +13,17 @@
   --color-popover-foreground: var(--popover-foreground);
   --color-background-badge: var(--background-badge);
   --color-background-swap: var(--background-swap-container);
-  --font-sans: var(--font-ibm-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-ibm-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --color-cg-gold: var(--cg-gold);
+  --color-cg-link: var(--cg-link-gold);
+  --color-cg-page: var(--cg-page);
+  --color-cg-text: var(--cg-text);
+  --color-cg-section: var(--cg-section-text);
+  --color-cg-muted: var(--cg-muted);
+  --color-cg-border: var(--cg-border);
+  --color-cg-divider: var(--cg-divider);
+  --radius-cg-hero: var(--cg-glass-radius);
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
     "Liberation Mono", "Courier New", monospace;
   --color-gold-cg: var(--gold-cg);
@@ -36,8 +45,46 @@
 }
 
 :root {
+  /* Exact active website palette; light-mode adaptations are semantic aliases. */
+  --cg-gold: rgb(223 185 65);
+  --cg-link-gold: #e2bd49;
+  --cg-page: #000;
+  --cg-text: #d2d6da;
+  --cg-section-text: #e3e1dc;
+  --cg-muted: #c9c7c1;
+  --cg-emphasis: #f0eee8;
+  --cg-bright: #f1eee6;
+  --cg-white: #fff;
+  --cg-nav-text: rgb(241 238 230 / 0.7);
+  --cg-hero-subtitle: rgb(226 223 215 / 0.72);
+  --cg-label: rgb(223 185 65 / 0.9);
+  --cg-quote: #dedbd3;
+  --cg-attribution: #97948d;
+  --cg-footer-note: rgb(241 238 230 / 0.65);
+  --cg-hero-surface: rgb(9 9 9 / 0.62);
+  --cg-menu: #0d0d0d;
+  --cg-footer: #111;
+  --cg-nav: rgb(8 8 8 / 0.38);
+  --cg-nav-scrolled: rgb(8 8 8 / 0.9);
+  --cg-border: rgb(255 255 255 / 0.1);
+  --cg-divider: rgb(255 255 255 / 0.12);
+  --cg-divider-faint: rgb(255 255 255 / 0.08);
+  --cg-menu-border: rgb(223 185 65 / 0.45);
+  --cg-menu-hover: rgb(223 185 65 / 0.12);
+  --cg-row-hover: rgb(255 255 255 / 0.04);
+  --cg-glass-radius: 0.5rem; /* website 0.4rem = 8px */
+  --cg-glass-filter: blur(8px);
+  --cg-glass-shadow: none;
+  --cg-body-size: 1rem; /* website 0.8rem = 16px */
+  --cg-body-leading: 1.7;
+  --cg-page-title-size: clamp(1.6875rem, 2vw, 2.0625rem);
+  --cg-section-title-size: 1.25rem;
+  --cg-card-title-size: 1.1875rem;
+  --cg-heading-tracking: -0.015em;
+  --cg-card-tracking: -0.0125rem;
+
   /* Brand and geometry */
-  --gold-cg: rgb(223 185 65);
+  --gold-cg: var(--cg-gold);
   --radius: 0.625rem;
 
   /* Surfaces */
@@ -55,6 +102,8 @@
   --text-input-disabled: var(--text-muted);
   --text-amber: oklch(0.666 0.179 58.318);
   --popover-foreground: oklch(0.145 0 0);
+  --body-text: #343434;
+  --heading-color: #80651a;
 
   /* Borders and controls */
   --swap-container-border: oklch(0.92 0 0);
@@ -65,71 +114,82 @@
   --primary: oklch(0.205 0 0);
   --accent: oklch(0.97 0 0);
 
-  /* Glass appearance */
-  --glass-underlay-shadow: 0 18px 60px rgb(15 23 42 / 0.08);
-  --glass-underlay-border: 1px solid rgb(255 255 255 / 0.28);
-  --glass-underlay-background: rgb(255 255 255 / 0.05);
-  --glass-underlay-filter: blur(10px) saturate(155%);
-  --glass-surface-shadow: 0 16px 44px rgb(15 23 42 / 0.1);
-  --glass-surface-border: 1px solid rgb(255 255 255 / 0.62);
-  --glass-surface-background: linear-gradient( 180deg, rgb(255 255 255 / 0.78), rgb(255 255 255 / 0.62) );
-  --glass-surface-filter: blur(18px) saturate(180%);
-  --glass-surface-highlight: radial-gradient(circle at top left, rgb(255 255 255 / 0.55), transparent 42%), linear-gradient(135deg, rgb(255 255 255 / 0.18), transparent 60%);
+  /* The website has no light theme; retain a readable dApp adaptation. */
+  --glass-surface-background: rgb(255 255 255 / 0.82);
+  --glass-surface-border: rgb(0 0 0 / 0.1);
+  --page-content-overlay: rgb(255 255 255 / 0.94);
+  --page-hero-overlay-top: rgb(255 255 255 / 0.78);
+  --page-hero-overlay-bottom: rgb(255 255 255 / 0.88);
+  --page-header-overlay-top: rgb(255 255 255 / 0.38);
+  --page-header-overlay-bottom: rgb(255 255 255 / 0.64);
 }
 
 .dark {
   /* Surfaces */
-  --background: oklch(0 0 0);
-  --background-swap-container: oklch(0.18 0.02 250);
-  --background-input: var(--background);
-  --background-badge: var(--background);
-  --navbar-bg: var(--background-swap-container);
-  --popover: oklch(0.205 0 0);
+  --background: var(--cg-page);
+  --background-swap-container: var(--cg-menu);
+  --background-input: var(--cg-menu);
+  --background-badge: var(--cg-footer);
+  --navbar-bg: var(--cg-menu);
+  --popover: var(--cg-menu);
 
   /* Text */
-  --text-input: oklch(1 0 0);
-  --text-muted: oklch(0.72 0 0);
-  --text-minor-data: var(--text-input);
-  --text-input-disabled: oklch(0.82 0 0);
-  --popover-foreground: oklch(0.985 0 0);
+  --text-input: var(--cg-emphasis);
+  --text-muted: var(--cg-muted);
+  --text-minor-data: var(--cg-text);
+  --text-input-disabled: var(--cg-attribution);
+  --popover-foreground: var(--cg-bright);
+  --body-text: var(--cg-text);
+  --heading-color: var(--cg-gold);
 
   /* Borders and controls */
-  --swap-container-border: oklch(0.28 0.02 250);
+  --swap-container-border: var(--cg-border);
   --navbar-border: var(--swap-container-border);
-  --border: oklch(1 0 0 / 10%);
+  --border: var(--cg-border);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
   --primary: oklch(0.922 0 0);
   --accent: oklch(0.269 0 0);
 
-  /* Glass appearance */
-  --glass-underlay-shadow: 0 18px 60px rgb(0 0 0 / 0.24);
-  --glass-underlay-border: 1px solid rgb(255 255 255 / 0.08);
-  --glass-underlay-background: rgb(2 6 23 / 0.05);
-  --glass-underlay-filter: blur(10px) saturate(150%);
-  --glass-surface-shadow: 0 16px 44px rgb(0 0 0 / 0.3);
-  --glass-surface-border: 1px solid rgb(255 255 255 / 0.12);
-  --glass-surface-background: linear-gradient( 180deg, rgb(15 23 42 / 0.72), rgb(2 6 23 / 0.54) );
-  --glass-surface-filter: blur(18px) saturate(170%);
-  --glass-surface-highlight: radial-gradient(circle at top left, rgb(255 255 255 / 0.11), transparent 38%), linear-gradient(135deg, rgb(255 255 255 / 0.08), transparent 58%);
+  --glass-surface-background: var(--cg-hero-surface);
+  --glass-surface-border: var(--cg-border);
+  --page-content-overlay: rgb(8 8 8 / 0.88);
+  --page-hero-overlay-top: rgb(5 5 5 / 0.58);
+  --page-hero-overlay-bottom: rgb(5 5 5 / 0.72);
+  --page-header-overlay-top: rgb(6 6 6 / 0.38);
+  --page-header-overlay-bottom: rgb(6 6 6 / 0.64);
 }
 
 @layer base {
   * {
     @apply border-border outline-ring/50;
+    word-spacing: normal;
   }
   body {
-    @apply font-sans font-medium;
+    @apply font-sans font-normal;
+    font-size: var(--cg-body-size);
+    line-height: var(--cg-body-leading);
+    color: var(--body-text);
+    background-color: var(--background);
+    -moz-osx-font-smoothing: grayscale;
   }
   h1,
   h2,
   h3,
   h4,
   h5,
-  h6,
+  h6 {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    letter-spacing: var(--cg-card-tracking);
+  }
   nav a,
   nav button {
     @apply font-semibold;
+  }
+  ::selection {
+    background: rgba(250, 183, 88, 0.7);
+    color: var(--cg-white);
   }
 }
 
@@ -147,8 +207,8 @@
     height: 100dvh;
   }
 
-  /* The desktop wallet shares the space below the full-width, 4rem navbar
-     and its border. The native mobile dialog still fills the viewport. */
+  /* The desktop wallet starts below the website navbar, including its border.
+     The native mobile dialog still fills the viewport. */
   @media (min-width: 1025px) {
     .app-shell:has(.wallet-panel[open]) > main,
     .app-shell:has(.wallet-panel[open]) > footer {
@@ -156,14 +216,37 @@
     }
 
     .wallet-panel {
-      inset: calc(4rem + 1px) 0 0 auto;
+      inset: var(--cg-navbar-height, 58px) 0 0 auto;
       width: 440px;
-      height: calc(100dvh - 4rem - 1px);
+      height: calc(100dvh - var(--cg-navbar-height, 58px));
     }
   }
 
-  /* Clip the decorative layer to the page, while sizing its image against a
-     stable viewport. Dynamic fees, warnings and baskets cannot zoom it. */
+  /* Main pages share the website's darker content layer. The Swap page adds
+     the two original nested header layers, without a flattened substitute. */
+  .cg-content,
+  .swap-page-background {
+    background-repeat: no-repeat;
+    background-size: cover;
+    background-attachment: fixed;
+  }
+
+  .cg-content {
+    background-color: var(--background);
+    background-image:
+      linear-gradient(var(--page-content-overlay), var(--page-content-overlay)),
+      url("/backgrounds/cybergold/bg_bg_header.png");
+    background-position: center top;
+  }
+
+  .swap-page-background {
+    background-color: var(--background);
+    background-image:
+      linear-gradient(var(--page-hero-overlay-top), var(--page-hero-overlay-bottom)),
+      url("/backgrounds/cybergold/bg_bg_header.png");
+    background-position: center 22%;
+  }
+
   .swap-page-backdrop {
     position: absolute;
     inset: 0;
@@ -173,25 +256,50 @@
 
   .swap-page-backdrop::before {
     content: "";
+    /* Anchor the desktop crop to the viewport, as in the existing dApp:
+       expanding fees or baskets must not zoom the decorative photograph. */
     position: fixed;
     inset: 0;
-    background-position: center;
+    background-position: center 24%;
     background-size: cover;
     background-repeat: no-repeat;
-    background-image: url("/backgrounds/light-bg.webp");
-  }
-
-  .dark .swap-page-backdrop::before {
-    background-image: url("/backgrounds/dark-bg.webp");
+    background-image:
+      linear-gradient(var(--page-header-overlay-top), var(--page-header-overlay-bottom)),
+      url("/backgrounds/cybergold/bg_header.png");
+    background-attachment: scroll;
   }
 
   .site-footer {
     background-image:
       linear-gradient(rgb(0 0 0 / 0.72), rgb(0 0 0 / 0.72)),
-      url("/backgrounds/dark-bg.webp");
-    background-position: center bottom;
+      url("/backgrounds/cybergold/bg_bg_header.png");
+    background-position: center top;
     background-repeat: no-repeat;
     background-size: cover;
+    background-attachment: fixed;
+  }
+
+  @media (max-width: 767.98px) {
+    .cg-content,
+    .swap-page-background {
+      background-attachment: scroll;
+    }
+    .swap-page-backdrop::before {
+      position: absolute;
+    }
+  }
+
+  .cg-glass {
+    background: var(--glass-surface-background);
+    border: 1px solid var(--glass-surface-border);
+    border-radius: var(--cg-glass-radius);
+    box-shadow: var(--cg-glass-shadow);
+    -webkit-backdrop-filter: var(--cg-glass-filter);
+    backdrop-filter: var(--cg-glass-filter);
+  }
+
+  .cg-surface-secondary {
+    background: var(--background-input);
   }
 
   .glass-container {
@@ -200,8 +308,7 @@
     overflow: hidden;
   }
 
-  .glass-container::before,
-  .swap-panel-surface::after {
+  .glass-container::before {
     content: "";
     position: absolute;
     inset: 0;
@@ -210,57 +317,59 @@
     pointer-events: none;
   }
 
-  .glass-container::before {
-    -webkit-backdrop-filter: blur(10px) saturate(160%);
-    backdrop-filter: blur(10px) saturate(160%);
-  }
-
-  .glass-container::before,
-  .swap-panel-surface {
-    transition:
-      background 300ms ease,
-      border-color 300ms ease,
-      box-shadow 300ms ease;
-  }
-
   .glass-container > * {
     position: relative;
     z-index: 1;
   }
 
-  .swap-panel-underlay {
-    box-shadow: var(--glass-underlay-shadow);
-    transition:
-      box-shadow 300ms ease;
-  }
-
+  /* Keep the existing decorative node and dimensions, but let the header
+     imagery provide the underlay instead of adding a second frosted plate. */
   .swap-panel-underlay::before {
-    border: var(--glass-underlay-border);
-    background: var(--glass-underlay-background);
-    -webkit-backdrop-filter: var(--glass-underlay-filter);
-    backdrop-filter: var(--glass-underlay-filter);
+    content: none;
   }
 
   .swap-panel-surface {
     background: transparent;
-    box-shadow: var(--glass-surface-shadow);
+    box-shadow: var(--cg-glass-shadow);
     overflow: visible;
     z-index: 20;
   }
 
   .swap-panel-surface::before {
-    border: var(--glass-surface-border);
+    border: 1px solid var(--glass-surface-border);
     background: var(--glass-surface-background);
-    -webkit-backdrop-filter: var(--glass-surface-filter);
-    backdrop-filter: var(--glass-surface-filter);
+    -webkit-backdrop-filter: var(--cg-glass-filter);
+    backdrop-filter: var(--cg-glass-filter);
   }
+}
 
-  .swap-panel-surface::after {
-    background: var(--glass-surface-highlight);
-    transition:
-      background 300ms ease,
-      opacity 300ms ease;
-  }
+/* Own content typography without changing nav, wallet headings or controls.
+   Explicit roles beat existing heading utility colors only inside main. */
+.cg-content :is(h1, h2, h3, h4, h5, h6) {
+  color: var(--heading-color);
+  line-height: 1.45;
+}
+
+.cg-content h1 {
+  font-size: var(--cg-page-title-size);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: var(--cg-heading-tracking);
+}
+
+.cg-content h2 {
+  font-size: var(--cg-section-title-size);
+  font-weight: 500;
+  line-height: 1.25;
+  letter-spacing: var(--cg-heading-tracking);
+}
+
+.cg-content h3 {
+  font-size: var(--cg-card-title-size);
+}
+
+.cg-content :is(input, output, [data-trade-estimate], .tabular-nums) {
+  font-variant-numeric: tabular-nums;
 }
 
 /* Keep quoted swap placeholders lighter than the active editable field */

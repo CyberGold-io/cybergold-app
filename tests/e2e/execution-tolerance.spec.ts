@@ -69,7 +69,7 @@ test("the dark gold swap action keeps black text while disabled, preparing a quo
   await page.addInitScript(() => localStorage.setItem("theme", "dark"));
   let release!: () => void, requests = 0;
   const pending = new Promise<void>(resolve => { release = resolve; });
-  await page.route("**/api/quotes/trade/**", async route => { requests++; await pending; await route.fallback(); });
+  await page.route("**/api/economic-quotes", async route => { requests++; await pending; await route.fallback(); });
   const action = page.locator("main button.bg-gold-cg").last();
   const foreground = () => action.evaluate(button => getComputedStyle(button).color);
   try {
@@ -91,6 +91,8 @@ test("the dark gold swap action keeps black text while disabled, preparing a quo
 
 test("redemption uses the slider's selected minimum in final calldata", async ({ page }) => {
   const observed = await installSyntheticWallet(page);
+  const preparations: Record<string, unknown>[] = [];
+  page.on("request", request => { if (new URL(request.url()).pathname === "/api/tx-preparations") preparations.push(request.postDataJSON()); });
   await page.goto("/en");
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
   await page.getByRole("switch").uncheck(); await choose(page, "ETH");
@@ -106,7 +108,8 @@ test("redemption uses the slider's selected minimum in final calldata", async ({
   await expect(page.locator("#execution-tolerance")).toHaveValue("0.25");
   await expect(page.getByTestId("swap-minimum-output")).toContainText("0.9975 ETH");
   await expect(page.locator("#buy-amount")).toHaveText("1");
-  await expect.poll(() => observed.intents.at(-1)?.slippageBps).toBe(25);
+  expect(observed.rawIntents).toHaveLength(1);
+  expect(observed.rawIntents[0]).not.toHaveProperty("slippageBps");
   const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
   await expect(swap).toBeEnabled(); await swap.click();
   const transactions = () => page.evaluate(() => (window as unknown as { __toleranceTransactions: Submitted[] }).__toleranceTransactions);
@@ -115,7 +118,8 @@ test("redemption uses the slider's selected minimum in final calldata", async ({
   expect(decoded.functionName).toBe("executeExactInput");
   const params = decoded.args![0] as { minimumOutput: bigint; inputs: readonly { amount: bigint }[] };
   expect(params.inputs[0].amount).toBe(unit); expect(params.minimumOutput).toBe(unit * 9975n / 10000n);
-
+  expect(preparations).toHaveLength(1);
+  expect(preparations[0].slippageBps).toBe(25);
 });
 
 for (const width of [1280, 390]) {
@@ -160,24 +164,25 @@ test("fees accordion owns tolerance, retains its value and shows only the active
   await expect(page.getByTestId("swap-minimum-output")).toContainText("0.99 CYGLD");
   await expect(page.getByTestId("swap-maximum-input")).toHaveCount(0);
   await expect.poll(() => observed.intents.at(-1)?.mode).toBe("issue-exact-in");
+  const quoteCount = observed.rawIntents.length;
+  expect(observed.rawIntents[0]).not.toHaveProperty("slippageBps");
   const feePanel = page.getByText(/^Protocol fee/).locator("..").locator("..");
   expect(await feePanel.evaluate(node => node.contains(document.querySelector("#execution-tolerance")))).toBe(true);
 
   await slider.focus(); await slider.press("Home");
   await expect(field).toHaveValue("0"); await expect(slider).toHaveValue("0");
-  await expect.poll(() => observed.intents.at(-1)?.slippageBps).toBe(0);
+  await expect(page.getByTestId("swap-minimum-output")).toContainText("1 CYGLD");
   await slider.press("End");
   await expect(field).toHaveValue("1"); await expect(slider).toHaveValue("1");
   await field.fill("0.5"); await field.blur();
-  await expect.poll(() => observed.intents.at(-1)?.slippageBps).toBe(50);
+  await expect(page.getByTestId("swap-minimum-output")).toContainText("0.995 CYGLD");
   await field.fill("1.01"); await field.blur();
   await expect(field).toHaveValue("0.5"); await expect(slider).toHaveValue("0.5");
   await accordion.click();
   await expect(page.getByTestId("execution-tolerance-control")).not.toBeVisible();
   await expect(page.getByTestId("swap-minimum-output")).not.toBeVisible();
   await accordion.click(); await expect(field).toHaveValue("0.5");
-
-
+  expect(observed.rawIntents).toHaveLength(quoteCount);
 });
 
 for (const side of ["issue", "redeem"] as const) test(`${side}: a complete universal plan binds execution without caller-selected adapter calldata`, async ({ page }) => {

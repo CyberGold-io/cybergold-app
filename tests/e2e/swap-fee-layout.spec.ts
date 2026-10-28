@@ -92,31 +92,68 @@ test("zero fee rows, backdrop crop and footer stay stable while a quote replaces
   await page.evaluate(() => document.fonts.ready);
   // Wait for the CSS backdrop pixels, not an arbitrary quote or wallet timer.
   await page.evaluate(async () => {
-    const node = document.querySelector(".swap-page-backdrop")!;
-    const url = getComputedStyle(node, "::before").backgroundImage.slice(5, -2);
-    const image = new Image(); image.src = url; await image.decode();
+    // Both original PNGs must load; gradients are separate background layers.
+    const layers = [
+      getComputedStyle(document.querySelector(".swap-page-background")!).backgroundImage,
+      getComputedStyle(document.querySelector(".swap-page-backdrop")!, "::before").backgroundImage,
+    ];
+    const urls = new Set(layers.flatMap(layer => [...layer.matchAll(/url\(["']?(.*?)["']?\)/g)].map(match => match[1])));
+    if (urls.size === 0) throw new Error("Swap backdrop images are missing");
+    await Promise.all([...urls].map(async url => {
+      const image = new Image(); image.src = url; await image.decode();
+    }));
   });
   const crop = { x: 0, y: 240, width: 150, height: 180 };
-  const beforePixels = await page.screenshot({ clip: crop });
+  const waitForPaint = () => page.evaluate(() => new Promise<void>(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+  await waitForPaint();
+  const beforePixels = await page.screenshot({ clip: crop, path: test.info().outputPath("backdrop-before.png") });
+  const expectStableBackdrop = async (stage: string) => {
+    // Let layout and the fixed-background compositor commit the new frame.
+    await waitForPaint();
+    const actual = await page.screenshot({ clip: crop });
+    // PNG compression/chunk boundaries can differ for identical pixels.
+    // Decode in the browser and allow only one channel level of compositing
+    // rounding when Chromium repaints the translucent background layers.
+    const samePixels = actual.equals(beforePixels) || await page.evaluate(async ([expected, received]) => {
+      const decode = async (base64: string) => {
+        const image = new Image(); image.src = `data:image/png;base64,${base64}`;
+        await image.decode();
+        const canvas = document.createElement("canvas");
+        canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
+        const context = canvas.getContext("2d")!;
+        context.drawImage(image, 0, 0);
+        return context.getImageData(0, 0, canvas.width, canvas.height).data;
+      };
+      const [left, right] = await Promise.all([decode(expected), decode(received)]);
+      return left.length === right.length && left.every((value, index) => Math.abs(value - right[index]) <= 1);
+    }, [beforePixels.toString("base64"), actual.toString("base64")]);
+    if (!samePixels) {
+      await page.screenshot({ clip: crop, path: test.info().outputPath(`backdrop-${stage}.png`) });
+      await test.info().attach("backdrop-before", { body: beforePixels, contentType: "image/png" });
+      await test.info().attach(`backdrop-${stage}`, { body: actual, contentType: "image/png" });
+    }
+    expect(samePixels, `backdrop remains stable ${stage}`).toBe(true);
+  };
   const card = page.locator("#swapsection");
   const beforeCard = await card.boundingBox();
   const beforeFooter = await page.locator("footer").boundingBox();
   await page.locator('input[inputmode="decimal"]:not(#execution-tolerance)').first().fill("1");
   await expect(fees.getByText(/^0 CYGLD \(/)).toHaveCount(2);
   await expect(fees).toHaveAttribute("aria-busy", "false");
-  const disclosure=page.getByTestId("exact-input-retention-disclosure");
-  await expect(disclosure).toBeVisible();
+  await expect(card).toHaveAttribute("data-trade-evaluation", "confirmed");
   expect((await card.boundingBox())!.height).toBe(beforeCard!.height);
   const afterCard=(await card.boundingBox())!,afterFooter=(await page.locator("footer").boundingBox())!;
   expect(afterFooter.y).toBeGreaterThanOrEqual(afterCard.y+afterCard.height);
   expect(afterFooter.y).toBeGreaterThanOrEqual(beforeFooter!.y);
-  expect(await page.screenshot({ clip: crop })).toEqual(beforePixels);
+  await expectStableBackdrop("after-quote");
   await toggle.click();
   expect((await card.boundingBox())?.height).toBeLessThan(beforeCard!.height);
-  expect(await page.screenshot({ clip: crop })).toEqual(beforePixels);
+  await expectStableBackdrop("after-collapse");
   // Intentional long content keeps normal document scrolling, while the
   // decorative image uses the same viewport crop.
   await page.locator("#swapsection").evaluate(node => { node.style.minHeight = "1400px"; });
-  expect(await page.screenshot({ clip: crop })).toEqual(beforePixels);
+  await expectStableBackdrop("with-long-content");
   expect((await page.locator("footer").boundingBox())!.y).toBeGreaterThan(1000);
 });

@@ -1,9 +1,9 @@
 import { routeWalletBalances } from "./fixtures/wallet-balances";
 import { expect, test, type Page } from "./fixtures/app-test";
 import { choose, context, install } from "./fixtures/token-quotes";
-import type { TradeQuoteRequest } from "../../app/utils/tradeQuote";
+import type { EconomicRequest } from "../../app/utils/economicQuotes";
 
-test("a long exact quote completes across head changes, then resumes refresh and cancels edited input", async ({ page }) => {
+test("a long economic quote completes across heads and searches again only on Refresh or edited input", async ({ page }) => {
   let head = { ...context }, finish!: () => void;
   let waiting = new Promise<void>(resolve => { finish = resolve; });
   const observed = await install(page, "", () => waiting, false, undefined, () => head);
@@ -20,9 +20,8 @@ test("a long exact quote completes across head changes, then resumes refresh and
     await page.clock.runFor(12_000);
     await refreshedFacts;
     await page.clock.runFor(250);
-    await expect.poll(() => observed.intents.length).toBe(process.env.QUOTE_HEAD_COMPLETION_BASELINE === "1" ? index + 1 : 1);
-    if (process.env.QUOTE_HEAD_COMPLETION_BASELINE === "1") await expect(computed).toHaveText("...");
-    else await expect(computed).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
+    await expect.poll(() => observed.intents.length).toBe(1);
+    await expect(computed).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
   }
   const pendingStarts = observed.intents.length;
   finish();
@@ -32,26 +31,28 @@ test("a long exact quote completes across head changes, then resumes refresh and
   waiting = new Promise<void>(resolve => { finish = resolve; });
   head = { ...head, blockNumber: "104", blockHash: `0x${"5".padStart(64, "0")}` };
   await page.clock.runFor(12_000);
+  expect(observed.intents).toHaveLength(pendingStarts);
+  await page.locator("[data-trade-refresh]").click();
   await expect.poll(() => observed.intents.length).toBe(pendingStarts + 1);
-  // Ordinary refresh competes across supported families at the new head while
-  // retaining the displayed incumbent. Explicit selected-plan revalidation is
-  // a separate API operation, rather than silently pinning this refresh to Core.
-  const refreshed = observed.rawIntents.at(-1) as TradeQuoteRequest;
+  // Explicit Refresh can search current state while keeping the old observation visible.
+  const refreshed = observed.rawIntents.at(-1) as EconomicRequest & { refresh: boolean };
   expect(refreshed).toMatchObject({ intent:0,inputs:[{amount:"1000000000000000000"}] });
-  expect(refreshed.retainedPlan).toBeUndefined();
+  expect(refreshed.refresh).toBe(true);
+  expect(refreshed).not.toHaveProperty("retainedPlan");
+  expect(refreshed).not.toHaveProperty("deadline");
   expect("orderedAssets" in refreshed).toBe(false);
   await expect(computed).toHaveText("1");
   await edited.fill("2");
   await page.clock.runFor(150);
   await expect.poll(() => observed.intents.length).toBe(pendingStarts + 2);
   expect(observed.intents.at(-1)?.amount).toBe("2000000000000000000");
-  expect((observed.rawIntents.at(-1) as TradeQuoteRequest).retainedPlan).toBeUndefined();
+  expect(observed.rawIntents.at(-1)).not.toHaveProperty("retainedPlan");
   finish();
   await expect(computed).not.toHaveAttribute("aria-busy", "true");
   await test.info().attach("head-completion-measurement", { contentType: "application/json", body: JSON.stringify({
-    variant: process.env.QUOTE_HEAD_COMPLETION_BASELINE === "1" ? "baseline" : "completion-preserved",
+    variant: "economic-observation-preserved",
     headChangesWhilePending: 3, logicalPendingMs: 36_750, pendingIntentStarts: pendingStarts,
-    totalStartsAfterNormalRefreshAndEdit: observed.intents.length,
+    totalStartsAfterExplicitRefreshAndEdit: observed.intents.length,
     finalCompleted: true, scope: "Synthetic delayed producer across three twelve-second head changes; request counts, not measured live RPC work or computation latency.",
   }) });
 });
@@ -70,7 +71,7 @@ test("slow first head reuses facts context without duplicating the initial quote
   await expect(quoted).toHaveText("1");
   await expect.poll(() => observed.intents.length).toBe(1);
   release(); await page.waitForTimeout(500);
-  expect(observed.intents.length).toBe(process.env.QUOTE_HEAD_BOOTSTRAP_BASELINE === "1" ? 2 : 1);
+  expect(observed.intents.length).toBe(1);
 });
 
 async function wallet(page: Page) {
@@ -86,11 +87,10 @@ async function wallet(page: Page) {
   }, { account: "0x00000000000000000000000000000000000000a1", chain: Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 31337) });
 }
 
-test("unchanged heads cause no quote/fee refresh; same-height replacement refreshes both and retains display", async ({ page }) => {
+test("unchanged heads keep reads stable; replacement refreshes facts and fees while retaining the economic quote", async ({ page }) => {
   await wallet(page);
-  let head = { ...context }, finish!: () => void;
-  let finalPreview = Promise.resolve();
-  const observed = await install(page, "", () => finalPreview, false, undefined, () => head);
+  let head = { ...context };
+  const observed = await install(page, "", undefined, false, undefined, () => head);
   let fees = 0, facts = 0, failFees = false;
   page.on("request", request => { if (new URL(request.url()).pathname === "/api/protocol/facts") facts++; });
   await page.route("**/api/transaction/fees", route => {
@@ -113,7 +113,7 @@ test("unchanged heads cause no quote/fee refresh; same-height replacement refres
   await expect(computed).not.toHaveAttribute("aria-busy", "true");
   await expect(computed).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
   await expect(computed).toHaveText("1");
-  await expect(page.getByTestId("exact-input-retention-disclosure")).toBeVisible();
+  await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "confirmed");
   await expect(page.getByRole("button",{name:"Swap currencies",exact:true})).toBeEnabled();
   await expect(computed).not.toHaveAttribute("aria-busy", "true"); // Complete plan, after advisory/debounce.
   // Wallet-free gas starts at mount; development Strict Mode can cancel and
@@ -125,16 +125,14 @@ test("unchanged heads cause no quote/fee refresh; same-height replacement refres
   await page.clock.runFor(60_000);
   await expect(computed).toHaveText(value);
   expect({ fees, facts, quotes: observed.quotes.length, previews: observed.previews.length }).toEqual(initial);
-  finalPreview = new Promise<void>(resolve => { finish = resolve; });
   head = { ...head, blockHash: `0x${"b".repeat(64)}` }; // Same height, different state identity.
   await page.clock.runFor(1_000);
   await expect.poll(async () => { await page.clock.runFor(1_000); return fees; }).toBe(initial.fees + 1);
-  await expect.poll(() => observed.quotes.length).toBeGreaterThan(initial.quotes);
+  expect(observed.quotes).toHaveLength(initial.quotes);
   await expect(computed).toHaveText(value);
   await expect(page.getByRole("status").filter({ hasText: "Estimate — preparing final quote" })).toBeHidden();
   await expect(computed).not.toHaveAttribute("aria-busy", "true");
   await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
-  finish();
   await expect(computed).not.toHaveAttribute("aria-busy", "true");
   await page.clock.runFor(5_000);
   expect(fees).toBe(initial.fees + 1);
@@ -148,7 +146,7 @@ test("unchanged heads cause no quote/fee refresh; same-height replacement refres
   await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
 });
 
-test("revisiting an amount at one head reuses route observations and exact preview calldata", async ({ page }) => {
+test("revisiting an amount reuses its completed economic quote without another request", async ({ page }) => {
   const observed = await install(page);
   await page.goto("/en");
   await choose(page, "WETH");

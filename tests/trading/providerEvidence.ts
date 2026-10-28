@@ -1,6 +1,7 @@
 import type { components } from '../../app/contracts/backend/http';
 import type { TradeSelectionObservation } from '../../app/utils/tradeSelectionObservation.ts';
 import type { TradeQuote, ActiveTradeQuote, TradeQuoteRequest } from '../../app/utils/tradeQuote.ts';
+import { isEconomicQuote } from '../../app/utils/economicQuotes.ts';
 import { diagnosticReferences, safeDiagnosticReferences, safeQuoteDiagnostics, type QuoteDiagnostics } from '../../app/utils/diagnosticReferences.ts';
 import { fetchQuoteStream } from '../../app/utils/quoteStream.ts';
 import { knownQuoteError, safeQuoteConstraint, type QuoteConstraint } from '../../app/utils/quoteErrors.ts';
@@ -9,8 +10,9 @@ import type { ProtocolConfiguration } from '../../app/utils/protocolConfiguratio
 import type { Page } from '@playwright/test';
 import { semanticDigest, type MatrixScenario } from './matrix.ts';
 import type { QuoteObservation as BrowserQuoteObservation } from './quoteObservation.ts';
-import { resultFor, validateTrade, failureResult, requireInvariant, matchesBasketIntent, type QuoteObservation, type ScenarioResult } from './regression.ts';
+import { economicQuoteEvidence, resultFor, validateTrade, failureResult, requireInvariant, matchesBasketIntent, type QuoteObservation, type ScenarioResult } from './regression.ts';
 import { safeSelectedPlan, type SelectedPlan } from './selectedPlan.ts';
+import { regressionStatuses } from './runPolicy.ts';
 import type { Scenario } from './scenarios.ts';
 import { tradeQualityTerms, basketQualityTerms, type QualityTerms, type QualityMeasurement } from './quoteQuality.ts';
 
@@ -27,7 +29,8 @@ const observationFields = new Set(['metrics', 'evaluation', 'diagnostics', 'quot
 const executableTerms = (v: unknown): unknown => Array.isArray(v) ? v.map(executableTerms) : v && typeof v === 'object'
   ? Object.fromEntries(Object.entries(v).filter(([key]) => !observationFields.has(key)).map(([key, child]) => [key, executableTerms(child)])) : v;
 export function planDigest(value: Candidate | ActiveTradeQuote, deployment?: SelectionCapture['deployment']) {
-  if (value.strategy === "universal") return semanticDigest({ plan: value.plan, deployment: value.deployment });
+  if (value.strategy === "universal") return isEconomicQuote(value)
+    ? economicQuoteEvidence(value, value.request).planDigest : semanticDigest({ plan: value.plan, deployment: value.deployment });
   return semanticDigest({ strategy: value.strategy, side: value.side, mode: value.mode, tokenIn: value.tokenIn, tokenOut: value.tokenOut,
     quotedInput: value.quotedInput, quotedOutput: value.quotedOutput, inputMaximum: value.inputMaximum, outputMinimum: value.outputMinimum,
     context: executableTerms(value.context), providerRequest: executableTerms(value.providerRequest), providerQuote: executableTerms(value.providerQuote), deployment });
@@ -56,7 +59,7 @@ export function installSelectionCapture(scope: SelectionWindow = window) {
   scope.__cybergoldSelections = [];
   scope.addEventListener('cybergold:trade-selection', event => {
     const detail = (event as CustomEvent<SelectionCapture>).detail;
-    if (detail?.quote || detail?.basketRequest || detail?.universalQuote) scope.__cybergoldSelections!.push(structuredClone(detail));
+    if (detail?.quote || detail?.basketRequest || detail?.universalQuote || detail?.economicQuote) scope.__cybergoldSelections!.push(structuredClone(detail));
   });
 }
 export async function selectionCaptures(page: Page): Promise<SelectionCapture[]> {
@@ -64,8 +67,14 @@ export async function selectionCaptures(page: Page): Promise<SelectionCapture[]>
 }
 export function captureSelection(value: SelectionCapture) {
   const captured = structuredClone(value), quote = captured.quote;
+  const economic = captured.economicQuote ?? (quote?.strategy === 'universal' && isEconomicQuote(quote) ? quote : undefined);
+  if (economic) return { captured, primary: { ...economicQuoteEvidence(economic, economic.request),
+    deployment: captured.deployment, providers: emptyProviders(), refs: safeDiagnosticReferences(captured.diagnostics) }, alternate: undefined };
   if (!quote) throw new Error('token-selection-not-observed');
-  if (quote.strategy === "universal") return { captured, primary: { selectedProvider: "universal" as const,
+  if (quote.strategy === "universal") {
+    if (isEconomicQuote(quote)) return { captured, primary: { ...economicQuoteEvidence(quote, quote.request),
+      deployment: captured.deployment, providers: emptyProviders(), refs: safeDiagnosticReferences(captured.diagnostics) }, alternate: undefined };
+    return { captured, primary: { selectedProvider: "universal" as const,
     planDigest: planDigest(quote), bounds: { quotedInput: quote.quotedInput, quotedOutput: quote.quotedOutput,
       inputMaximum: quote.inputMaximum, outputMinimum: quote.outputMinimum }, context: quote.context, deployment: captured.deployment,
     providers: emptyProviders(), selectedPlan: { provider: "universal", routeFamily: quote.routeFamily, quotedInput: quote.quotedInput, quotedOutput: quote.quotedOutput,
@@ -74,12 +83,17 @@ export function captureSelection(value: SelectionCapture) {
       netOutput: [{ asset: quote.tokenOut, amount: quote.quotedOutput }],
       requestedInput: quote.inputs.map(row => ({ asset: row.currency, amount: row.amount })), refundCoverage: "not-disclosed" as const },
     refs: safeDiagnosticReferences(captured.diagnostics) }, alternate: undefined };
+  }
   return { captured, primary: { selectedProvider: quote.strategy, planDigest: planDigest(quote, captured.deployment),
     bounds: { quotedInput: quote.quotedInput, quotedOutput: quote.quotedOutput, inputMaximum: quote.inputMaximum, outputMinimum: quote.outputMinimum }, context: quote.context, deployment: captured.deployment,
     ...(safeQuoteDiagnostics((quote.providerQuote as { quoteDiagnostics?: unknown }).quoteDiagnostics) ? { quoteDiagnostics: safeQuoteDiagnostics((quote.providerQuote as { quoteDiagnostics?: unknown }).quoteDiagnostics) } : {}), selectedPlan: safeSelectedPlan(quote.providerQuote, quote.strategy, quote), providers: providerSummaries(quote, captured.deployment), quoteTerms: tradeQualityTerms(quote), refs: { ...diagnosticReferences(quote.providerQuote), ...safeDiagnosticReferences(captured.diagnostics) } }, alternate: quote.providerCandidates?.[quote.strategy === 'core' ? 'market' : 'core'] };
 }
 /** A basket winner is linked only to the preview frozen by its actual click. */
 export function captureBasketSelection(value: SelectionCapture): Pick<ScenarioResult, 'selectedProvider' | 'planDigest' | 'selectedPlan' | 'quoteDiagnostics'> {
+  if (value.economicQuote) {
+    const evidence = economicQuoteEvidence(value.economicQuote, value.economicQuote.request);
+    return { selectedProvider: evidence.selectedProvider, planDigest: evidence.planDigest, selectedPlan: evidence.selectedPlan };
+  }
   if (value.universalQuote) return { selectedProvider: "universal", planDigest: semanticDigest({ plan:value.universalQuote.plan,deployment:value.universalQuote.deployment }),
     selectedPlan: { provider:"universal",intent:value.universalQuote.plan.intent,routeFamily:value.universalQuote.routeFamily,quotedOutput:value.universalQuote.quotedOutput } };
   const preview = value.basketPreview;
@@ -192,7 +206,7 @@ export function observedBasketProviderEvidence(observations: readonly BrowserQuo
 }
 
 export function executionCoverage(rows: readonly ScenarioResult[]) {
-  const count = (values: { status: string }[]) => Object.fromEntries(['pass', 'fail', 'unavailable', 'skipped'].map(status => [status, values.filter(v => v.status === status).length]));
+  const count = (values: { status: string }[]) => Object.fromEntries(regressionStatuses.map(status => [status, values.filter(v => v.status === status).length]));
   const alternates = rows.flatMap(row => row.alternateExecution ? [row.alternateExecution] : []);
   return { scenarios: rows.length, providerAssessments: rows.reduce((n, row) => n + Object.keys(row.providers ?? {}).length, 0),
     uiAttempted: rows.filter(row => row.executionAttempted).length, ui: count([...rows]),

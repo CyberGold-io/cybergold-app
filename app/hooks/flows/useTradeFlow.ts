@@ -17,7 +17,7 @@ export function useTradeFlow({ input, enabled, frozen, onNetworkFeeEstimate, onN
   const active = enabled && BigInt(input.amount) > 0n;
   const quote = useTradeQuote(input, active && !frozen), selected = frozen ?? quote.data;
   const { submitTokenPurchase } = useTokenPurchaseExecution({ onNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange });
-  const universal = useUniversalExactInputExecution({ onNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange });
+  const universal = useUniversalExactInputExecution({ slippageBps: input.slippageBps, onNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange });
   const market = useMarketSwapExecution();
   const core = selected?.value.strategy === "core" ? quoteIntentResult(selected.value.providerQuote, input.slippageBps) : undefined;
   const universalRecovery = selected?.value.strategy === "universal" ? selected.value.recoveryShares.map(row => ({ ...row, kind: CORE_TOKEN_KIND.ERC1155, token: row.token as `0x${string}`, id: BigInt(row.id), amount: BigInt(row.amount) })) : undefined;
@@ -33,6 +33,7 @@ export function useTradeFlow({ input, enabled, frozen, onNetworkFeeEstimate, onN
   const expected = selected ? input.mode === "exact-in" ? selected.quotedOutput : selected.quotedInput : quote.estimate;
   return {
     selected, strategy: selected?.value.strategy, optimizing: !frozen && quote.optimizing,
+    refresh: quote.refresh, refreshing: !frozen && quote.refreshing, refreshError: frozen ? undefined : quote.refreshError,
     adapter: selected ? tradeAdapter(selected.value) : undefined,
     requiresSwapAdapter: selected?.value.strategy === "universal" ? false : selected?.value.strategy === "market" || (core?.quotes.length ?? 0) + (core?.redemptionQuotes.length ?? 0) > 0,
     estimatedRetainedInputCharges: selected?.value.strategy === "universal" ? selected.value.estimatedRetainedInputCharges : undefined,

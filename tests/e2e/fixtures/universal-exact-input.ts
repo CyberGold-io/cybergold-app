@@ -20,7 +20,7 @@ const decimals = (token: string) => [tokenAddresses.USDC.toLowerCase(),tokenAddr
 export function tradeRequestFromUniversal(request: UniversalExactInputRequest): TradeQuoteRequest {
   const buy=request.intent===0,counter=buy?request.inputs[0].currency:request.outputCurrency;
   return {side:buy?"buy":"sell",mode:"exact-in",counterToken:normalized(counter),native:counter.toLowerCase()===zeroAddress,
-    amount:request.inputs[0].amount,recipient:request.recipient,deadline:request.deadline,slippageBps:request.slippageBps};
+    amount:request.inputs[0].amount,recipient:request.recipient??zeroAddress,deadline:request.deadline??"2000000000",slippageBps:request.slippageBps??100};
 }
 
 /** Synthetic canonical producer: new bodies, exact acquired inputs and complete scalar/vector bounds. */
@@ -77,7 +77,7 @@ export function universalFromCoreQuote(request: UniversalExactInputRequest, valu
 
 /** Retained numerical Basket cases supply economics; the browser receives fresh universal bodies. */
 export async function routeBasketQuote(page: import("@playwright/test").Page, handler:(route:import("@playwright/test").Route)=>Promise<void>){
-  await page.route("**/api/quotes/universal-exact-input",async target=>{
+  await page.route("**/api/economic-quotes",async target=>{
     const incoming=target.request(),request:UniversalExactInputRequest=incoming.postDataJSON();
     if(request.intent<2){await target.fallback();return;}
     const legacy=request.intent===2?{mode:"issue-exact-in",maximumAmountsIn:request.inputs.map(row=>row.amount)}:{mode:"redeem-exact-in",grossCygldIn:request.inputs[0].amount};

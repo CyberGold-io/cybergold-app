@@ -6,7 +6,7 @@ test("fee row stays visible and complete universal execution uses final net outp
   await install(page,"",undefined,false,undefined,undefined,undefined,true);
   let release!:()=>void,requests=0;
   const pending=new Promise<void>(resolve=>{release=resolve;});
-  await page.route("**/api/quotes/universal-exact-input",async route=>{
+  await page.route("**/api/economic-quotes",async route=>{
     requests++;const request=route.request().postDataJSON();await pending;
     await route.fulfill({json:universalFixture(request,{quotedOutput:"3000000000000000000",coreProtocolFeeCygld:"1000000000000000"})});
   });
@@ -16,6 +16,6 @@ test("fee row stays visible and complete universal execution uses final net outp
   await expect.poll(()=>requests).toBe(1);release();
   await expect(output).not.toHaveAttribute("aria-busy","true");await expect(output).toHaveText("3");
   await expect(page.getByText(/^0\.001 CYGLD/)).toBeVisible();await expect(page.getByTestId("quote-estimate-description")).not.toBeAttached();
-  await expect(page.getByTestId("exact-input-retention-disclosure")).toBeVisible();
+  await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "confirmed");
   await page.locator("#sell-amount").fill("");await expect(output).toHaveText(/^0(?:[.,]0+)?$/);await expect(feeRow).toBeVisible();
 });

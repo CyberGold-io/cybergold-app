@@ -515,7 +515,7 @@ export default function Dashboard() {
 
     return (
         <RetainedPageDisplay page="dashboard" ready={onchainSummary !== null || onchainSummaryError !== null}>
-        <div className="flex flex-1 flex-col items-center bg-background font-sans">
+        <div className="flex flex-1 flex-col items-center font-sans">
             <div className="flex min-w-0 flex-col w-full max-w-7xl mx-auto px-3 py-4 sm:px-6 lg:px-8">
                 {/* HEADER SECTION */}
                 <section className="flex w-full min-w-0 flex-wrap justify-between gap-3 pt-2 sm:pt-4 mt-2 sm:mt-4 items-center text-[var(--text-input)]">

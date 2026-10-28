@@ -24,7 +24,7 @@ export function createUiQuoteDiagnostics(scenario: Scenario, config: ProtocolCon
     request(path: string, body: unknown, attempt: unknown) {
       if (!body || typeof body !== "object") return false;
       const value = body as Record<string, unknown>;
-      if (path === "/api/quotes/universal-exact-input") {
+      if (path === "/api/economic-quotes" || path === "/api/quotes/universal-exact-input") {
         if (!universalMatches({ path, request: value, status: 0 })) return false;
       } else if (expected) {
         if (path !== "/api/quotes/trade/stream" || value.mode !== expected.mode || value.side !== expected.side
@@ -53,10 +53,15 @@ export function createUiQuoteDiagnostics(scenario: Scenario, config: ProtocolCon
   };
 }
 
-/** Label the existing assertion without changing its predicate or fail status. */
-export async function uiPreparationAssertion(code: "ui-quoted-amount-not-ready" | "ui-swap-not-enabled", assertion: () => Promise<unknown>) {
+/** Keep an original matched quote error when its UI readiness assertion expires. */
+export async function uiPreparationAssertion(code: "ui-quoted-amount-not-ready" | "ui-swap-not-enabled", assertion: () => Promise<unknown>,
+  quoteEvidence?: () => ReturnType<ReturnType<typeof createUiQuoteDiagnostics>["snapshot"]> | undefined) {
   try { await assertion(); } catch (error) {
-    if (error && typeof error === "object" && "matcherResult" in error) throw new RegressionAssertionError(code);
+    if (error && typeof error === "object" && "matcherResult" in error) {
+      const evidence = quoteEvidence?.();
+      throw knownQuoteError({ code: evidence?.reason, ...evidence?.refs, quoteDiagnostics: evidence?.quoteDiagnostics })
+        ?? new RegressionAssertionError(code);
+    }
     throw error;
   }
 }
@@ -94,6 +99,7 @@ export function uiObservationFailure(result: ScenarioResult, error: unknown, pha
 /** Keep the existing setup failure classification with only projected diagnostics. */
 export function uiSetupFailure(result: ScenarioResult, error: unknown,
   evidence: Pick<ScenarioResult, "refs" | "reason" | "quoteDiagnostics">) {
-  return { ...safeRunnerError(error), ...failureResult({ ...result, ...evidence }, error),
+  const failed = failureResult({ ...result, ...evidence }, error);
+  return { ...safeRunnerError(error), ...failed, status: failed.status === "rejected" ? "fail" as const : failed.status,
     code: error instanceof errors.TimeoutError ? "ui-setup-timeout" : "ui-setup-failed" };
 }

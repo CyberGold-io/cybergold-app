@@ -5,6 +5,7 @@ import type { RecoverySharePortfolio } from "../../app/utils/recoveryPortfolio";
 import type { LiquidityPositionsSnapshot } from "../../app/utils/liquidityPositions";
 import { tokens } from "../fixtures/protocol-configuration";
 import { routeWalletBalances } from "./fixtures/wallet-balances";
+import { openNavbarSettings } from "./fixtures/navbar-settings";
 
 // These are public synthetic addresses, not funded wallets or signing keys.
 const ALICE = "0x00000000000000000000000000000000000000a1";
@@ -758,11 +759,11 @@ test("liquidity loads with the wallet, aligns its collapsed total and reuses tok
   await expect(page.getByTestId("liquidity-provider-panel")).toContainText("2 positions");
   await expect(page.getByTestId("liquidity-fiat-value")).toContainText("4 725.29");
   await expect(page.getByTestId("liquidity-gold-value")).toContainText("47.25 g");
-  await page.getByRole("button", { name: "Select currency", exact: true }).click();
-  await page.getByRole("button", { name: "EUR", exact: true }).click();
+  const settings = await openNavbarSettings(page, "currency");
+  await settings.getByRole("button", { name: "EUR", exact: true }).click();
   await expect(page.getByTestId("liquidity-fiat-value")).toContainText("4 252.76");
-  await page.getByRole("button", { name: "Select weight system", exact: true }).click();
-  await page.getByRole("button", { name: "Imperial (ozt)", exact: true }).click();
+  await openNavbarSettings(page, "goldUnit");
+  await settings.getByRole("button", { name: "Imperial (ozt)", exact: true }).click();
   await expect(page.getByTestId("liquidity-gold-value")).toContainText("1.52 troy oz");
   await expect(page.getByTestId("liquidity-collapsed-value")).toContainText("1.52 troy oz");
   await expect(page.getByTestId("liquidity-provider-panel")).not.toContainText("gold reference");

@@ -85,7 +85,7 @@ for expected in (
     "if: github.event.repository.private == false",
     "actions/dependency-review-action@",
     "if: github.event.repository.private == true",
-    "the independent production and development npm audit remains mandatory",
+    "the common dependency-security comparison remains mandatory",
 ):
     if expected not in dependency_review:
         fail(f"the dependency-review availability boundary is missing: {expected}")
