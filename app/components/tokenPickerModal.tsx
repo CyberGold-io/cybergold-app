@@ -277,7 +277,8 @@ function TokenPickerSurface({ id, query, rows, selectedId, label, searchLabel, s
       {rows.map(row => <button key={row.id} type="button" data-token-picker-option={row.id} aria-pressed={row.id === selectedId} onClick={() => onSelect?.(row.id)}
         className={`w-full text-left flex [&[hidden]]:hidden items-center justify-between border border-transparent p-3 rounded-xl transition-colors hover:bg-[rgba(223,185,65,0.1)] focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring ${row.id === selectedId ? "border-gold-cg/45 bg-transparent" : ""}`}>
         <div className="flex min-w-0 items-center gap-3"><span data-token-picker-basket hidden={!row.basket}><FaBasketShopping className="text-gold-cg text-2xl" /></span>
-          <Image data-token-picker-image hidden={row.basket} src={resolveTokenImagePath(row.id, isDarkMode)} alt={row.symbol} width={28} height={28} className={row.id === "eth" ? "rounded-full scale-80" : "rounded-full"} />
+          <Image data-token-picker-image hidden={row.basket} src={resolveTokenImagePath(row.id, isDarkMode)} alt={row.symbol} width={28} height={28}
+            className={`h-[28px] w-[28px] shrink-0 rounded-full object-contain${row.id === "eth" ? " scale-80" : ""}`} />
           <div className="min-w-0 break-words"><div className="font-semibold text-[var(--text-input)]"><div data-token-picker-name className="truncate" title={row.name}>{row.name}</div></div>
             <div data-token-picker-detail className="text-sm text-[var(--text-muted)]">{row.detail || row.symbol}</div></div></div>
       </button>)}

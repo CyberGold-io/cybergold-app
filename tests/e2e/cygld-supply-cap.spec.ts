@@ -211,7 +211,8 @@ for (const fullModel of [false, true]) for (const scenario of [
   setCapacity(600n * unit);
   await page.reload();
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
-  await page.getByRole("button", { name: /Total fee/ }).click();
+  const feeDetails = page.getByRole("button", { name: /Total fee/ });
+  if (await feeDetails.getAttribute("aria-expanded") === "false") await feeDetails.click();
   await page.locator("#execution-tolerance").fill("0.5");
   await page.locator("#execution-tolerance").blur();
   await expect(page.getByRole("slider", { name: "Adjust execution tolerance", exact: true })).toHaveValue("0.5");

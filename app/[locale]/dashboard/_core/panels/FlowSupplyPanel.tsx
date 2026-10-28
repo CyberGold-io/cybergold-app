@@ -44,7 +44,7 @@ export function FlowSupplyPanel({
     formatSignedTokenEquivalent,
 }: FlowSupplyPanelProps) {
     return (
-        <div className="bg-[var(--background-swap-container)] border border-[var(--swap-container-border)] rounded-lg px-4 py-4">
+        <div className="cg-glass px-4 py-4">
             <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                 <div>
                     <h3 className="text-md font-semibold text-[var(--text-input)]">{t("issuanceRedemptionAndSupply")}</h3>

@@ -146,7 +146,7 @@ export function BasketCompositionPanel({
     const dashboardLocale = resolveDashboardLocale(locale);
 
     return (
-        <div className="bg-[var(--background-swap-container)] border border-[var(--swap-container-border)] rounded-lg px-4 py-4">
+        <div className="cg-glass px-4 py-4">
             <div className="flex items-center">
                 <h3 className="text-base font-semibold text-[var(--text-input)]">{t("basketCompositionSnapshot")}</h3>
             </div>

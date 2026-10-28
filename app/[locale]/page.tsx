@@ -204,7 +204,7 @@ const swapStyles = {
   maxButton:
     "inline-flex h-5 w-14 shrink-0 items-center justify-center px-2 tracking-[0.12em] text-text-input rounded-full transition-colors hover:bg-gold-cg/15 focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
   basketBox:
-    "mt-3 p-2 text-sm bg-background-swap border border-swap-container-border rounded-2xl",
+    "cg-surface-secondary mt-3 p-2 text-sm border border-swap-container-border rounded-cg-hero",
   basketHeader:
     "flex items-center justify-between gap-2 p-1 border-b border-swap-container-border",
   basketRow:
@@ -2245,7 +2245,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
               className="glass-container swap-panel-underlay pointer-events-none absolute -inset-x-[1cm] -inset-y-[1cm] rounded-[calc(1.5rem+1cm)]"
             />
             <section id="swapsection" data-trade-evaluation={evaluationStatus}
-              className="glass-container swap-panel-surface relative z-10 flex w-full min-w-0 flex-col rounded-3xl p-3 sm:p-5 lg:p-6"
+              className="glass-container swap-panel-surface relative z-10 flex w-full min-w-0 flex-col rounded-cg-hero p-3 sm:p-5 lg:p-6"
             >
             <MarketDataFreshnessNotice
               className="mb-3"

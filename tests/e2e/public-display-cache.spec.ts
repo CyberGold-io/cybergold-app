@@ -247,8 +247,8 @@ test("hard reload preserves both selected assets and their nonzero values before
   await expect(page.locator("#sell-token-label")).toHaveText("CYGLD");
   await expect(page.locator("#buy-token-label")).toHaveText("ETH");
   await expect(page.locator("#buy-amount")).toHaveText("0.01");
-  await expect(page.getByTestId("display-currency-control")).toHaveText("EUR");
-  await expect(page.getByTestId("display-gold-unit-control")).toHaveText("IMP");
+  await expect(page.locator('[data-navbar-currency-option="EUR"]')).toHaveAttribute("aria-pressed", "true");
+  await expect(page.locator('[data-navbar-gold-unit-option="imperial"]')).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByRole("button", { name: /^Connect wallet$/i })).toBeVisible();
   const equivalents = (side: "sell" | "buy") => page.getByTestId(`${side}-amount-equivalents`).filter({ visible: true });
   for (const side of ["sell", "buy"] as const) {
@@ -284,8 +284,8 @@ test("hard reload preserves both selected assets and their nonzero values before
     await expect(retained("sellEquivalent")).toHaveText(before.sellEquivalent);
     await expect(retained("buyEquivalent")).toHaveText(before.buyEquivalent);
     await expect(retained("reference")).toHaveText(before.reference);
-    await expect(page.getByTestId("display-currency-control")).toHaveText("EUR");
-    await expect(page.getByTestId("display-gold-unit-control")).toHaveText("IMP");
+    await expect(page.locator('[data-navbar-currency-option="EUR"]')).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator('[data-navbar-gold-unit-option="imperial"]')).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("button", { name: /^Connect wallet$/i })).toBeVisible();
     await expect(page.getByText(/updating[.…]*/i)).toHaveCount(0);
 
@@ -308,8 +308,10 @@ test("hard reload preserves both selected assets and their nonzero values before
             const element = [...(root?.querySelectorAll(`[data-trade-display="${key}"]`) ?? [])].find(visible);
             return [key, element instanceof HTMLInputElement ? element.value : element?.textContent?.trim() ?? ""];
           }));
-        const preference = (key: string) => [...document.querySelectorAll(`[data-display-preference="${key}"]`)]
-          .find(visible)?.textContent?.trim() ?? "";
+        const preference = (key: string) => {
+          const attribute = key === "currency" ? "data-navbar-currency-option" : "data-navbar-gold-unit-option";
+          return document.querySelector(`nav [${attribute}][aria-pressed="true"]`)?.getAttribute(attribute) ?? "";
+        };
         const connectVisible = [...document.querySelectorAll("button")].some(button => visible(button)
           && [...button.querySelectorAll("span")].some(label => visible(label) && label.textContent?.trim().toLowerCase() === "connect wallet"));
         state.frames.push({ ...fields, currency: preference("currency"), goldUnit: preference("gold-unit"),
@@ -328,8 +330,8 @@ test("hard reload preserves both selected assets and their nonzero values before
     await expect(page.locator("#buy-amount")).toHaveText("0.01");
     await expect(equivalents("sell")).toHaveText(before.sellEquivalent);
     await expect(equivalents("buy")).toHaveText(before.buyEquivalent);
-    await expect(page.getByTestId("display-currency-control")).toHaveText("EUR");
-    await expect(page.getByTestId("display-gold-unit-control")).toHaveText("IMP");
+    await expect(page.locator('[data-navbar-currency-option="EUR"]')).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator('[data-navbar-gold-unit-option="imperial"]')).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByRole("button", { name: /^Connect wallet$/i })).toBeVisible();
     await expect(page.getByText(/updating[.…]*/i)).toHaveCount(0);
     expect(hydrationErrors).toEqual([]);
@@ -343,7 +345,7 @@ test("hard reload preserves both selected assets and their nonzero values before
     expect(frames.every(frame => JSON.stringify(frame) === JSON.stringify({
       sellSymbol: "CYGLD", buySymbol: "ETH", sellAmount: "0.01", buyAmount: "0.01",
       sellEquivalent: before.sellEquivalent, buyEquivalent: before.buyEquivalent,
-      currency: "EUR", goldUnit: "IMP", connectVisible: "true",
+      currency: "EUR", goldUnit: "imperial", connectVisible: "true",
     }))).toBe(true);
 
     // A retained estimate belongs to its saved input. Editing the amount must

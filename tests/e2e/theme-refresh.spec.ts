@@ -1,3 +1,4 @@
+import { openNavbarSettings } from "./fixtures/navbar-settings";
 import { expect, test } from "./fixtures/app-test";
 import { install } from "./fixtures/token-quotes";
 
@@ -14,13 +15,15 @@ test("theme changes keep native controls in the saved color scheme after reload"
   await page.goto("/en");
   const root = page.locator("html");
   await expect(root).toHaveCSS("color-scheme", "dark");
-  await page.getByRole("button", { name: "Theme", exact: true }).click();
+  await openNavbarSettings(page, "theme");
+  await page.getByRole("button", { name: "Light", exact: true }).click();
   await expect(root).not.toHaveClass(/dark/);
   await expect(root).toHaveCSS("color-scheme", "light");
   await page.reload();
   await expect(root).not.toHaveClass(/dark/);
   await expect(root).toHaveCSS("color-scheme", "light");
-  await page.getByRole("button", { name: "Theme", exact: true }).click();
+  await openNavbarSettings(page, "theme");
+  await page.getByRole("button", { name: "Dark", exact: true }).click();
   await expect(root).toHaveClass(/dark/);
   await expect(root).toHaveCSS("color-scheme", "dark");
 });
@@ -46,8 +49,8 @@ test("saved dark mode keeps button surfaces unchanged before hydration and throu
       const visible = (node: Element) => Boolean(node.getClientRects().length) && !node.closest("[hidden]");
       const firstVisible = (selector: string) => [...document.querySelectorAll<HTMLElement>(selector)].find(visible);
       const selectors = {
-        currency: '[data-testid="display-currency-control"]',
-        goldUnit: '[data-testid="display-gold-unit-control"]',
+        settings: '[data-navbar-toggle="settings"]',
+        wallet: '[data-wallet-connect-button]',
         sellToken: '[data-trade-display="sellSymbol"]',
         buyToken: '[data-trade-display="buySymbol"]',
         fees: "[data-trade-fees] > summary",
@@ -78,7 +81,7 @@ test("saved dark mode keeps button surfaces unchanged before hydration and throu
   expect(Object.values(baseline.buttons).every(value => value !== null)).toBe(true);
   expect(baseline.dark).toBe(true);
   expect(baseline.colorScheme).toBe("dark");
-  expect(baseline.buttons.currency!.background).not.toMatch(/^(?:white|rgb\(255, 255, 255\)|oklch\(1 0 0\))$/);
+  expect(baseline.buttons.settings!.background).not.toMatch(/^(?:white|rgb\(255, 255, 255\)|oklch\(1 0 0\))$/);
 
   // An absent cookie must not cause a light frame while the browser restores
   // its saved dark preference and the trade presentation hydrates.

@@ -73,6 +73,13 @@ OS/framework variables such as `PATH`, `HOME`, and `NODE_ENV` retain their nativ
 meaning. Test-tool credentials such as `SYNPRESS_*` belong to the test harness,
 not the application's configuration or browser bundle.
 
+The public `NEXT_PUBLIC_CYBERGOLD_APP_COMMIT` supplies the deployed application's
+full 40-character revision. The deployment image receives it through the
+`CYBERGOLD_APP_COMMIT` build argument. The footer shows its first eight characters
+and links to that commit in the App repository; without a valid revision it
+shows the localized build-information-unavailable message. The source-code link
+remains available. Changing this value requires a production rebuild.
+
 Run `npm test` for configuration and consumer tests. The existing `validate:env`
 command additionally checks the selected chain through the fixed head API
 (or an explicit tooling RPC); startup

@@ -263,10 +263,11 @@
     "contactHeading": "Kontakt:",
     "copyright": "© 2026 CyberGold. Alle Rechte vorbehalten.",
     "location": "Schweiz, Genf",
-    "maintainedBy": "Anwendung angepasst und gepflegt von CyberGold.",
-    "deployedVersion": "Bereitgestellter Commit:",
+    "maintainedBy": "Von CyberGold gepflegt.",
+    "deployedVersion": "Bereitgestellter App-Commit:",
     "buildUnavailable": "Build-Information nicht verfügbar",
-    "commitLinkLabel": "Bereitgestellten Commit {commit} auf GitHub anzeigen"
+    "commitLinkLabel": "Bereitgestellten Commit {commit} auf GitHub anzeigen",
+    "sourceCode": "Quellcode (AGPL-3.0)"
   },
 
   "Navbar": {
@@ -281,9 +282,16 @@
     "selectCurrency": "Währung auswählen",
     "selectGoldUnit": "Gewichtssystem auswählen",
     "weightSystemImperial": "Imperial (ozt)",
-    "weightSystemMetric": "Metrisch (auto g/kg/t)",
+    "weightSystemMetric": "Metrisch (gr/kg/t)",
     "weightSystemImperialShort": "IMP",
-    "weightSystemMetricShort": "MET"
+    "weightSystemMetricShort": "MET",
+    "goldMetrics": "Goldmaße",
+    "currency": "Währung",
+    "mainNavigation": "Hauptnavigation",
+    "menu": "Menü",
+    "openNavigation": "Navigation öffnen",
+    "closeNavigation": "Navigation schließen",
+    "opensInNewTab": "öffnet sich in einem neuen Tab"
   },
 
   "MarketData": {

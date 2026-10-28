@@ -49,3 +49,11 @@ To update the font, review the official IBM/Google Fonts release, replace all
 applicable subsets together, preserve their Unicode ranges and license, and
 check the production build and all supported locales. Keep the Latin-only
 preload to avoid downloading unused script subsets on every page.
+
+Phase 1 website typography (2026-10-26)
+The existing variable normal faces are registered for weights 300-700.
+The six added *-italic.woff2 faces are unmodified Google Fonts v23 variable
+files (available axis 100-700; registered 300-600 in next/font/local).
+Latin normal/italic are provided by next/font/local. italic-subsets.css
+loads other scripts on demand. Both styles share the existing OFL license.
+Source CSS: https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@1,100..700&display=swap
