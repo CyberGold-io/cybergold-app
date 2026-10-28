@@ -7,7 +7,7 @@ export function WalletActionSlot({ children }: { children?: ReactNode }) {
   const t = useTranslations("WalletBalances");
 
   return (
-    <span className="inline-grid shrink-0">
+    <span className="inline-grid shrink-0 font-sans tracking-normal">
       {(["import", "importing", "imported"] as const).map((label) => (
         <span key={label} aria-hidden="true"
           className="invisible col-start-1 row-start-1 whitespace-nowrap rounded-full border px-2.5 py-1 text-[11px] font-semibold">

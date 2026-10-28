@@ -114,8 +114,8 @@ test("zero fee rows, backdrop crop and footer stay stable while a quote replaces
     await waitForPaint();
     const actual = await page.screenshot({ clip: crop });
     // PNG compression/chunk boundaries can differ for identical pixels.
-    // Decode in the browser to preserve an exact visual comparison without
-    // adding an image-processing dependency or allowing a pixel tolerance.
+    // Decode in the browser and allow only one channel level of compositing
+    // rounding when Chromium repaints the translucent background layers.
     const samePixels = actual.equals(beforePixels) || await page.evaluate(async ([expected, received]) => {
       const decode = async (base64: string) => {
         const image = new Image(); image.src = `data:image/png;base64,${base64}`;
@@ -127,7 +127,7 @@ test("zero fee rows, backdrop crop and footer stay stable while a quote replaces
         return context.getImageData(0, 0, canvas.width, canvas.height).data;
       };
       const [left, right] = await Promise.all([decode(expected), decode(received)]);
-      return left.length === right.length && left.every((value, index) => value === right[index]);
+      return left.length === right.length && left.every((value, index) => Math.abs(value - right[index]) <= 1);
     }, [beforePixels.toString("base64"), actual.toString("base64")]);
     if (!samePixels) {
       await page.screenshot({ clip: crop, path: test.info().outputPath(`backdrop-${stage}.png`) });
