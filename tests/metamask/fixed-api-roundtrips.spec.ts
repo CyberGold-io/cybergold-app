@@ -27,6 +27,7 @@ import { confirmedTransactionText, createUiQuoteDiagnostics, isUiCompletionDeadl
 import { enrichResultQuality } from "../trading/quoteQuality";
 import { safeWalletClickError, type UiConfirmationDiagnostic } from "../trading/runnerDiagnostics";
 import { readWalletUiState } from "../trading/walletUiState";
+import { observeWalletRpc } from "../trading/walletRpcObservation";
 import { privateSandboxPhase, privateSandboxScenarios, privateSandboxSelection, sandboxIsolation, scenarioIsolation, type SandboxIsolation } from "../trading/privateSandbox";
 import { cleanupOwnedWalletRequest, closeOwnedWalletContext, isWalletRequestCleanupError, walletRequestContextClosedError } from "../trading/walletRequestLifecycle";
 import { hasUiReceiptOutcome, observeUiReceiptUntilDeadline, recoverUiTransaction, uiWalletRequestSettled } from "../trading/uiTransactionRecovery";
@@ -291,7 +292,15 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     // Later hash/receipt recovery consumes this same window, not a fresh one.
     activeConfirmationDeadline = performance.now() + 90_000;
     let observing = true, readingUi = false;
+    let walletRpc: ReturnType<typeof observeWalletRpc>;
+    try { walletRpc = observeWalletRpc(page.context(), rpcUrl); }
+    catch { /* Optional transport observations cannot change native confirmation. */ }
+    const snapshotRpc = () => {
+      try { const value = walletRpc?.snapshot(); if (value) confirmation.rpc = value; }
+      catch { /* Optional transport observations cannot replace the wallet outcome. */ }
+    };
     try { await approveUntilMined(page, () => Boolean(helpersHash), async () => {
+      snapshotRpc();
       let terminalFailure: ReturnType<typeof uiSwapTerminalFailure>;
       try {
         const observed = await uiSwapObservation(page, activeSwapAttempt);
@@ -319,6 +328,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       // Its hash/outcome does not establish independent receipt economics.
       if (terminalFailure) throw terminalFailure;
     }, event => {
+      snapshotRpc();
       confirmation.elapsedMs = Math.max(0, Math.round(performance.now() - confirmationStarted));
       if (event.selection) Object.assign(confirmation, event.selection);
       if (event.click === "attempted") confirmation.clickAttempts++;
@@ -339,6 +349,8 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       throw error;
     } finally {
       observing = false;
+      snapshotRpc();
+      try { walletRpc?.stop(); } catch { /* Detaching observations cannot change confirmation. */ }
       confirmation.elapsedMs = Math.max(0, Math.round(performance.now() - confirmationStarted));
     }
     if (captureError) throw captureError;

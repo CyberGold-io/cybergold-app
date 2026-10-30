@@ -29,7 +29,7 @@ export type WalletRequestDiagnostic = {
 } & Partial<WalletRequestCleanup>;
 /** Last observed UI/native confirmation progress; never transaction settlement proof. */
 export type UiConfirmationDiagnostic = Pick<WalletRequestDiagnostic, "elapsedMs" | "clickAttempts" | "clickCompleted"
-  | "lastClickErrorClass" | "lastClickErrorKind" | "notificationSelection" | "notificationViewCount" | "uiState" | "requestStage"> & Partial<WalletRequestCleanup> & {
+  | "lastClickErrorClass" | "lastClickErrorKind" | "notificationSelection" | "notificationViewCount" | "uiState" | "requestStage" | "rpc"> & Partial<WalletRequestCleanup> & {
   appStage?: "quote" | "balance" | "network" | "authorization" | "preparation" | "simulation" | "submission" | "confirmation";
   appOutcome?: "started" | "submitted" | "succeeded" | "failed" | "reverted" | "unconfirmed";
   walletStep?: "approval" | "signature" | "transaction";
