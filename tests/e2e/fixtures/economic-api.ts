@@ -1,6 +1,6 @@
 import { decodeAbiParameters, parseAbiParameters } from 'viem';
 import type { Page, Route } from '@playwright/test';
-import type { EconomicQuote, EconomicRequest, PreparedTransaction } from '../../../app/utils/economicQuotes';
+import { economicRequest, type EconomicQuote, type EconomicRequest, type PreparedTransaction } from '../../../app/utils/economicQuotes';
 import type { UniversalExactInputQuote } from '../../../app/utils/universalExactInput';
 import { universalFixture } from './universal-exact-input';
 
@@ -63,7 +63,7 @@ export async function installEconomicApiFixtures(page: Page) {
   page.route = (pattern, handler, options) => originalRoute(pattern, async (route, request) => {
     const path = new URL(request.url()).pathname;
     if (path !== '/api/economic-quotes') return handler(route, request);
-    const economic = request.postDataJSON() as EconomicRequest;
+    const economic = economicRequest(request.postDataJSON() as EconomicRequest);
     const adapted = new Proxy(route, { get(target, key) {
       if (key === 'fulfill') return async (response: Parameters<Route['fulfill']>[0]) => {
         const value = response?.json ?? (typeof response?.body === 'string' ? (() => { try { return JSON.parse(response.body); } catch { return undefined; } })() : undefined);

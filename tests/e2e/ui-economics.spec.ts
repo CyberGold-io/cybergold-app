@@ -1,17 +1,20 @@
 import { encodeAbiParameters, encodeEventTopics, encodeFunctionData, zeroHash, type Address, type Hex } from "viem";
 import { expect, test } from "./fixtures/app-test";
-import { install as installTokens } from "./fixtures/token-quotes";
+import { context, install as installTokens } from "./fixtures/token-quotes";
+import { universalFixture } from "./fixtures/universal-exact-input";
 import { getMainInput, getSwapButton, openFeeDetails, selectToken, showAllSellTokens } from "../metamask/token-flows/helpers";
-import { armUiQuoteCapture, capturedUiQuote, quoteAssets } from "../trading/uiQuoteCapture";
+import { armUiQuoteCapture, capturedUiQuote, displayedUiAmount, quoteAssets } from "../trading/uiQuoteCapture";
 import { uiReceiptResult } from "../trading/uiReceipt";
 import { confirmedTransactionText } from "../trading/uiDiagnostics";
 import { tradeScenarios } from "../trading/scenarios";
-import { protocolConfigurationFixture as config } from "../fixtures/protocol-configuration";
+import { protocolConfigurationFixture as config, tokenAddresses } from "../fixtures/protocol-configuration";
 import { exactInputPlan } from "../../app/utils/universalExactInput";
 import type { PreparedTransaction } from "../../app/utils/economicQuotes";
 import { HELPERS_EXECUTION_ABI } from "../../app/contracts/cybergold-helpers/execution";
 import { installQuoteObservation, quoteObservations } from "../trading/quoteObservation";
-import { waitForUiSwapReady } from "../trading/uiQuotePreparation";
+import { refreshUiQuote, waitForUiSwapReady } from "../trading/uiQuotePreparation";
+import { QuotePreviewError } from "../../app/utils/quoteErrors";
+import { diagnosticReferences } from "../../app/utils/diagnosticReferences";
 
 const emptyTokenPermit={value:0n,deadline:0n,v:0,r:zeroHash,s:zeroHash};
 const emptyPermit2={permit:{permitted:[],nonce:0n,deadline:0n},signature:"0x" as Hex};
@@ -59,6 +62,80 @@ test("MetaMask matrix preparation accepts the real UI universal quote without op
   expect((await quoteObservations(page)).some(row => row.path === "/api/economic-quotes" && row.terminal?.type === "complete")).toBe(true);
   expect((await quoteObservations(page)).some(row => row.path === "/api/quotes/trade/stream")).toBe(false);
   await expect(await getSwapButton(page)).toBeEnabled();
+});
+
+for (const refreshOutcome of ["changed", "unchanged", "failed"] as const) test(`execution preparation waits for explicit Refresh: ${refreshOutcome} economics`, async ({ page }) => {
+  await page.addInitScript(installQuoteObservation as () => void);
+  await installTokens(page); await installReadOnlyWallet(page);
+  let release!: () => void, refreshRequests = 0, preparations = 0;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  const requestId = "a69bb731-0938-4e83-a211-67dc22b3cde0";
+  await page.route("**/api/economic-quotes", async route => {
+    const request = route.request().postDataJSON();
+    if (request.refresh) {
+      refreshRequests++;
+      await held;
+      if (refreshOutcome === "failed") {
+        await route.fulfill({ status: 503, headers: { "X-CyberGold-Request-Id": requestId },
+          json: { code: "quote-timeout", error: "Timed out." } });
+        return;
+      }
+    }
+    await route.fulfill({ json: universalFixture(request, { quotedOutput: request.refresh && refreshOutcome === "changed" ? "2000000000000000000" : "1000000000000000000",
+      context: request.refresh && refreshOutcome === "changed" ? { ...context, blockNumber: "101", blockHash: `0x${"b".repeat(64)}` } : context }) });
+  });
+  page.on("request", request => { if (new URL(request.url()).pathname === "/api/tx-preparations") preparations++; });
+  await page.goto("/en");
+  await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible(); await showAllSellTokens(page);
+  await selectToken(page, "sell", "USDC"); await selectToken(page, "buy", "CYGLD");
+  await getMainInput(page, "sell").fill("1");
+  const scenario = { ...tradeScenarios.find(row => row.id === "core-issue-usdc-exact-in")!, amountRaw: "1000000" };
+  await waitForUiSwapReady(page, config, scenario);
+  await expect(getMainInput(page, "buy")).toHaveText("1");
+  let completed = false;
+  const refreshed = refreshUiQuote(page, config, scenario).then(() => ({ error: undefined }), error => ({ error }))
+    .finally(() => { completed = true; });
+  try {
+    await expect.poll(() => refreshRequests).toBe(1);
+    await expect(page.locator("[data-trade-refresh]")).toHaveAttribute("aria-busy", "true");
+    // The retained quote remains visible and executable. Neither fact completes
+    // the runner's explicit current-state selection while its response is held.
+    await expect(getMainInput(page, "buy")).toHaveText("1");
+    await expect(await getSwapButton(page)).toBeEnabled();
+    expect(completed).toBe(false); expect(preparations).toBe(0);
+    release();
+    const result = await refreshed;
+    if (refreshOutcome === "failed") {
+      expect(result.error).toBeInstanceOf(QuotePreviewError);
+      expect((result.error as QuotePreviewError).code).toBe("quote-timeout");
+      expect(diagnosticReferences(result.error).requestId).toBe(requestId);
+      await expect(page.getByRole("alert").filter({ hasText: "Refresh failed. Showing the previous quote." })).toBeVisible();
+      await expect(getMainInput(page, "buy")).toHaveText("1");
+      await expect(await getSwapButton(page)).toBeEnabled();
+      expect(preparations).toBe(0);
+    } else {
+      expect(result.error).toBeUndefined();
+      const expectedOutput = refreshOutcome === "changed" ? "2" : "1";
+      // This immediate read catches a helper that returned before React
+      // committed, rather than allowing a later assertion to hide that race.
+      expect(await displayedUiAmount(getMainInput(page, "buy"))).toBe(expectedOutput);
+      await openFeeDetails(page);
+      expect(await page.getByTestId("swap-minimum-output").textContent()).toContain(`${refreshOutcome === "changed" ? "1.98" : "0.99"} CYGLD`);
+      const button = await getSwapButton(page); await armUiQuoteCapture(button, quoteAssets(scenario, config, []));
+      const preparation = page.waitForRequest(request => new URL(request.url()).pathname === "/api/tx-preparations");
+      await button.click(); // The read-only wallet fixture rejects all chain writes.
+      const payload = (await preparation).postDataJSON();
+      expect(payload.quote.request).toEqual({ intent: 0, inputs: [{ currency: tokenAddresses.USDC.toLowerCase(), amount: "1000000" }],
+        outputCurrency: config.contracts.core!.toLowerCase() });
+      expect(payload.quote.context.blockNumber).toBe(refreshOutcome === "changed" ? "101" : context.blockNumber);
+      expect(payload.quote.quotedOutput).toBe(refreshOutcome === "changed" ? "2000000000000000000" : "1000000000000000000");
+      expect(payload.acceptedBounds.minimumOutput).toBe(refreshOutcome === "changed" ? "1980000000000000000" : "990000000000000000");
+      expect(preparations).toBe(1);
+    }
+  } finally {
+    release();
+    await refreshed;
+  }
 });
 
 test("actual App click captures refreshed displayed amounts and committed tolerance before receipt comparison", async ({ page }) => {
