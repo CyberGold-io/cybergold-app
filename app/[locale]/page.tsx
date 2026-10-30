@@ -1062,7 +1062,10 @@ useQuoteFailureToast({
 });
 
 // Fee display.
-const activeFees = activeFlow?.fees;
+const hasArithmeticFeeEstimate = !isSubmittingSwap && isActiveTokenFlow && Boolean(localTradeEstimate?.fees) &&
+  (quoteInputPending || activeQuoteStatus === "loading");
+const activeFees = hasArithmeticFeeEstimate ? localTradeEstimate?.fees : activeFlow?.fees;
+const feeStrategy = hasArithmeticFeeEstimate ? "universal" : tradeFlow.strategy;
 
 const protocolFeeUsd = useMemo(() => {
   const cygldUsdPrice = Number.isFinite(cygldPriceUsd) ? cygldPriceUsd : undefined;
@@ -1422,7 +1425,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
 
   const totalFeeUsd = useMemo(() => {
     return computeTotalFeeUsd({
-      activeFees, retainedInputCharges: activeUniversalQuote?.estimatedRetainedInputCharges,
+      activeFees, retainedInputCharges: hasArithmeticFeeEstimate ? undefined : activeUniversalQuote?.estimatedRetainedInputCharges,
       cygldDecimals,
       cygldPriceUsd,
       cygldTokenId,
@@ -1431,20 +1434,21 @@ const computedReceiveQuote = useMemo((): Prefill => {
       prices,
       tokenAddressMap,
     });
-  }, [activeFees, activeUniversalQuote?.estimatedRetainedInputCharges, cygldDecimals, cygldPriceUsd, cygldTokenId, networkFeeEstimate?.wei, networkFeeUsd, prices, tokenAddressMap]);
+  }, [activeFees, hasArithmeticFeeEstimate, activeUniversalQuote?.estimatedRetainedInputCharges, cygldDecimals, cygldPriceUsd, cygldTokenId, networkFeeEstimate?.wei, networkFeeUsd, prices, tokenAddressMap]);
 
   // Only the presentation retains previous fees. Submission continues to use
   // the current quote, current balances and existing execution readiness.
   const areFeesUpdating = quoteInputPending || isQuoteLoading || isNetworkFeeEstimateLoading;
+  const currentFeeDisplay = { fees: activeFees, protocolFeeUsd, helpersFeeUsd, networkFeeEstimate, networkFeeUsd, totalFeeUsd,
+    strategy: feeStrategy, helperFeePercent, issuanceFeePercent };
   const retainedFees = useRetainedQuoteDisplay(
     [flowState?.direction, flowState?.route, flowState?.inputMode, sellTokenId, buyTokenId, configurationIdentity,
       basketComponents.map(component => [component.token.address, component.token.decimals, component.targetWeight])],
-    { fees: activeFees, protocolFeeUsd, helpersFeeUsd, networkFeeEstimate, networkFeeUsd, totalFeeUsd,
-      strategy: tradeFlow.strategy, helperFeePercent, issuanceFeePercent },
+    currentFeeDisplay,
     !hasEnteredSwapAmount ? "empty" : quoteInputPending ? "loading" : activeQuoteStatus,
     isSubmittingSwap
   );
-  const feeDisplay = retainedFees.value;
+  const feeDisplay = hasArithmeticFeeEstimate ? currentFeeDisplay : retainedFees.value;
   const isFeeDisplayUpdating = hasEnteredSwapAmount &&
     ((areFeesUpdating && !isToleranceOnlyRefresh) || isDisplayRefreshing);
 
@@ -1480,6 +1484,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
 
   // These strings retain presentation only; execution keeps its live quote.
   const feeText = (slot: string, current?: string, fiatAvailable = true) => {
+    if (hasArithmeticFeeEstimate) return current ?? "...";
     const cached = cachedTradeDisplay?.[slot];
     if (cached !== undefined && (restoreFormattedDisplay || activeQuoteStatus !== "success" || quoteInputPending || current === undefined || !fiatAvailable)) {
       return cached;
@@ -1487,7 +1492,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
     return current ?? "...";
   };
   const feeLabel = (slot: string, current: string, plain: string) =>
-    cachedTradeDisplay?.[slot] && (restoreFormattedDisplay || activeQuoteStatus !== "success" || quoteInputPending)
+    !hasArithmeticFeeEstimate && cachedTradeDisplay?.[slot] && (restoreFormattedDisplay || activeQuoteStatus !== "success" || quoteInputPending)
       ? cachedTradeDisplay[slot] : feeDisplay.fees ? current : cachedTradeDisplay?.[slot] ?? plain;
   const feePresentation = {
     feeTotal: feeText("feeTotal", feeDisplay.totalFeeUsd !== undefined
@@ -1511,9 +1516,10 @@ const computedReceiveQuote = useMemo((): Prefill => {
     feeNetworkValue: feeText("feeNetworkValue", feeDisplay.networkFeeEstimate
       ? `~ ${formatMeaningfulDecimalString(formatEther(feeDisplay.networkFeeEstimate.wei), locale)} ETH (${feeDisplay.networkFeeUsd !== undefined ? formatApproxFiatValue(feeDisplay.networkFeeUsd) : "..."})` : undefined,
       feeDisplay.networkFeeUsd !== undefined),
-    feeMinimumOutput: feeText("feeMinimumOutput", minimumExecutionOutput !== loadingAmountPlaceholder ? minimumExecutionOutput : undefined),
+    feeMinimumOutput: hasArithmeticFeeEstimate ? loadingAmountPlaceholder
+      : feeText("feeMinimumOutput", minimumExecutionOutput !== loadingAmountPlaceholder ? minimumExecutionOutput : undefined),
   };
-  const isFeeDisplayMuted = false;
+  const isFeeDisplayMuted = hasArithmeticFeeEstimate;
   const feeValueClassName = cn(swapStyles.feeValue, isFeeDisplayMuted && "text-text-input-disabled");
 
   const formatAmountEquivalentDisplayValue = (
