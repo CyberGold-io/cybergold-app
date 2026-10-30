@@ -115,7 +115,7 @@ function submitObserver(page: Page, result: ScenarioResult, attemptId: string) {
     ts.forEachChild(node, visit);
   };
   visit(parsed); assert.ok(callback);
-  const scope = { page, uiSwapObservation, uiSwapTerminalFailure, activeSwapAttempt: attemptId,
+  const scope = { page, uiSwapObservation, uiSwapTerminalFailure, snapshotRpc: () => {}, activeSwapAttempt: attemptId,
     helpersHash: undefined as string | undefined, activeResult: () => result,
     currentResult: result, hasUiReceiptOutcome, recoverUiTransaction,
     activeConfirmationDeadline: performance.now() - 1, AbortSignal,
