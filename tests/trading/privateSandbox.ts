@@ -2,6 +2,7 @@ import { protocolConfigurationValues, type ProtocolConfiguration } from '../../a
 import type { TradeQuote, TradeQuoteRequest } from '../../app/utils/tradeQuote.ts';
 import type { MatrixScenario } from './matrix.ts';
 import type { QuoteObservation } from './quoteObservation.ts';
+import { isEconomicQuoteObservation, quoteObservationIncumbent } from './quoteObservation.ts';
 import type { SelectionCapture } from './providerEvidence.ts';
 import { browserQuoteMatcher } from './browserQuoteObservation.ts';
 import type { UniversalExactInputQuote } from '../../app/utils/universalExactInput.ts';
@@ -40,10 +41,12 @@ export function privateSandboxSelection(observations: readonly QuoteObservation[
   configuration: ProtocolConfiguration): SelectionCapture | undefined {
   if (scenario.inputMode === 'exact-in') {
     const matches = browserQuoteMatcher(scenario, configuration, scenario.amountRaw ?? '0', scenario.basketAssets ?? []);
-    const observed = observations.findLast(row => matches(row) && row.terminal?.type === 'complete');
+    const matching = observations.filter(matches), accepted = quoteObservationIncumbent(matching);
+    const observed = matching.some(isEconomicQuoteObservation) ? accepted?.observation
+      : matching.findLast(row => row.terminal?.type === 'complete');
     if (observed) return {
-      ...(observed.path === '/api/economic-quotes'
-        ? { economicQuote: structuredClone(observed.terminal!.value as EconomicQuote) }
+      ...(['/api/economic-quotes','/api/economic-quotes/stream'].includes(observed.path)
+        ? { economicQuote: structuredClone(accepted!.value as EconomicQuote) }
         : { universalQuote: structuredClone(observed.terminal!.value as UniversalExactInputQuote) }),
       deployment: protocolConfigurationValues(configuration).addresses };
   }

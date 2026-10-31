@@ -103,7 +103,7 @@ function transportFailure(path: PublicBackendPath, error: unknown, elapsedMs: nu
   if (path === "/api/quotes/uniswap") {
     return Response.json({ error: "Uniswap quotes are temporarily unavailable." }, { status: 503, headers });
   }
-  if (path === "/api/economic-quotes" || path === "/api/tx-preparations" || path === "/api/quotes/universal-exact-input" || path === "/api/quotes/intent/stream" || path === "/api/quotes/market/stream" || path === "/api/quotes/market" || path === "/api/quotes/trade/stream") {
+  if (path === "/api/economic-quotes" || path === "/api/economic-quotes/stream" || path === "/api/tx-preparations" || path === "/api/quotes/universal-exact-input" || path === "/api/quotes/intent/stream" || path === "/api/quotes/market/stream" || path === "/api/quotes/market" || path === "/api/quotes/trade/stream") {
     return Response.json({ code: timedOut ? "quote-timeout" : "quote-service-unavailable",
       error: timedOut ? "Quote service request timed out." : "Quote service connection failed.", ...references }, { status: 503, headers });
   }
@@ -170,7 +170,7 @@ export function backendRoute(path: PublicBackendPath, fetchImpl: typeof fetch = 
         if (value !== null) responseHeaders.set(name, value);
       }
       return new Response(request.method === "HEAD" || response.status === 204 || response.status === 304
-        ? null : (path === "/api/quotes/routes/stream" || path === "/api/quotes/intent/stream" || path === "/api/quotes/market/stream" || path === "/api/quotes/trade/stream") ? response.body : await response.arrayBuffer(), { status: response.status, headers: responseHeaders });
+        ? null : (path === "/api/economic-quotes/stream" || path === "/api/quotes/routes/stream" || path === "/api/quotes/intent/stream" || path === "/api/quotes/market/stream" || path === "/api/quotes/trade/stream") ? response.body : await response.arrayBuffer(), { status: response.status, headers: responseHeaders });
     } catch (error) {
       if (request.signal.aborted) throw error;
       return transportFailure(path, error, Math.round(performance.now() - started), attemptId);

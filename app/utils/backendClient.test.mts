@@ -170,7 +170,7 @@ test("cancellation propagates and backend error bytes/correlation IDs are unchan
   });
 });
 
-for (const path of ["/api/quotes/routes/stream", "/api/quotes/intent/stream", "/api/quotes/market/stream", "/api/quotes/trade/stream"] as const) test(`${path} forwards a chunk before upstream completion and preserves cancellation`, async () => {
+for (const path of ["/api/economic-quotes/stream", "/api/quotes/routes/stream", "/api/quotes/intent/stream", "/api/quotes/market/stream", "/api/quotes/trade/stream"] as const) test(`${path} forwards a chunk before upstream completion and preserves cancellation`, async () => {
   await withEnvironment({ CYBERGOLD_BACKEND_URL: "http://127.0.0.1:3210", CYBERGOLD_BACKEND_BEARER_TOKEN: "fixture-private" }, async () => {
     let writer!: ReadableStreamDefaultController<Uint8Array>;
     let cancelled = false;

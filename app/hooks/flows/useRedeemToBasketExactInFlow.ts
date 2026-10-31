@@ -10,6 +10,7 @@ import { applySlippageFloor, DEFAULT_SLIPPAGE_BPS } from "@/app/utils/swapPolicy
 import { useUniversalExactInputExecution } from "./shared/useUniversalExactInputExecution";
 import { useEconomicQuote } from "./quotes/useEconomicQuote";
 import type { FlowNetworkFeeEstimateHandlers,SubmitBasketFlowParams } from "./shared/types";
+import type { TradeQuoteResult } from "@/app/utils/tradeQuote";
 
 export function useRedeemToBasketExactInFlow({enabled,grossCygldIn,slippageBps=DEFAULT_SLIPPAGE_BPS,onNetworkFeeEstimate,onNetworkFeeEstimateLoadingChange}:
   {enabled:boolean;grossCygldIn:bigint;basketComponents:readonly BasketComponent[]}&FlowNetworkFeeEstimateHandlers){
@@ -27,13 +28,21 @@ export function useRedeemToBasketExactInFlow({enabled,grossCygldIn,slippageBps=D
     if(!quote||!canSubmit)throw new Error("RedeemToBasketExactIn is not ready");
     return submitUniversal(quote,params);
   },[quote,canSubmit,submitUniversal]);
+  const captureUniversalReady = universal.captureReady;
+  const captureSubmission=useCallback(()=>{
+    const captured=captureUniversalReady();if(!captured)return undefined;
+    const acceptedBounds={inputs:structuredClone(captured.inputs),minimumOutput:"0",expectedCoreOutputs:captured.estimatedRecipientOutputs.map(row=>({
+      kind:row.kind,token:row.token,id:row.id,minimumAmount:String(applySlippageFloor(BigInt(row.amount),slippageBps))}))};
+    return {selectedTrade:undefined as TradeQuoteResult|undefined,universalQuote:captured,
+      submit:(params:SubmitBasketFlowParams)=>submitUniversal(captured,params,acceptedBounds)};
+  },[captureUniversalReady,slippageBps,submitUniversal]);
   return {...universal,quote,universalQuote:quote,grossCygldIn:fundedCygldIn,maximumInputAmount:fundedCygldIn,
     netCygldIn:quote&&fundedCygldIn!==undefined?fundedCygldIn-BigInt(quote.fees.coreProtocolFeeCygld)-BigInt(quote.fees.coreHelpersFeeCygld):undefined,
     fees:quote?{protocolFeeCygld:BigInt(quote.fees.coreProtocolFeeCygld),helperFeeCygld:BigInt(quote.fees.coreHelpersFeeCygld),marketFeeCygld:BigInt(quote.fees.marketFeeCygld)}:undefined,
     amountsOut:erc20?.map(row=>row.amount),minimumOutputAmounts:expectedCoreOutputs?.filter(row=>row.kind===0).map(row=>row.minimumAmount),projectedCoreOutputs,
     recoverySharesOut:recovery?.map(row=>row.amount),orderedRecoveryAssets:recovery?.map(row=>getAddress(toHex(row.id,{size:20}))),
     estimatedRetainedInputCharges:quote?.estimatedRetainedInputCharges,quoteStatus,
-    refresh:universal.refresh,refreshing:universal.isFetching,
+    refresh:universal.refresh,refreshing:universal.isFetching,captureSubmission,stopSearch:universal.stopSearch,
     refreshError:universal.refreshError?quoteErrorMessage(universal.refreshError,t):undefined,
     quoteError:quoteStatus==="failed"?quoteErrorMessage(universal.error??new Error("Quote unavailable"),t):undefined,canSubmit,submit};
 }

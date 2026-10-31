@@ -4,7 +4,7 @@ import type { ProtocolDeployment } from "./protocolConfiguration";
 import type { UniversalExactInputQuote } from "./universalExactInput.ts";
 import { fetchQuoteStream } from "./quoteStream.ts";
 import { receiveMarketQuoteModel, receiveQuoteModel, receiveTradeBudgetRange } from "./quoteModelStore.ts";
-import { diagnosticReferences, type DiagnosticReferences } from "./diagnosticReferences.ts";
+import { diagnosticReferences, retainDiagnosticReferences, type DiagnosticReferences } from "./diagnosticReferences.ts";
 import { isEconomicQuote, type EconomicQuote } from "./economicQuotes.ts";
 import { applySlippageFloor } from "./swapPolicy.ts";
 
@@ -48,7 +48,8 @@ export function tradeAdapter(value: ActiveTradeQuote): Address | undefined {
 
 /** Capture the accepted complete plan before any wallet or other asynchronous work. */
 export function captureTradeQuote<Value extends ActiveTradeQuote>(value: TradeQuoteResult<Value>): TradeQuoteResult<Value> {
-  return { ...value, value: structuredClone(value.value), diagnostics: value.diagnostics && { ...value.diagnostics }, deployment: value.deployment && { ...value.deployment } };
+  const captured = structuredClone(value.value); retainDiagnosticReferences(captured, diagnosticReferences(value.value));
+  return { ...value, value: captured, diagnostics: value.diagnostics && { ...value.diagnostics }, deployment: value.deployment && { ...value.deployment } };
 }
 
 /** Refresh observations without replacing the selected economic tuple. */
@@ -100,7 +101,8 @@ export async function fetchTradeModel(request: TradeModelRequest, signal?: Abort
 export function economicTradeQuote(quote: EconomicQuote, request: Omit<TradeQuoteRequest, "deadline" | "retainedPlan">): EconomicTradeQuote {
   const intent = { side: request.side, mode: request.mode, counterToken: request.counterToken,
     native: request.native, amount: request.amount, slippageBps: request.slippageBps };
-  return { ...quote, quotedInput: quote.quotedInput ?? quote.inputs[0].amount, inputMaximum: quote.inputMaximum ?? quote.inputs[0].amount,
+  const value: EconomicTradeQuote = { ...quote, quotedInput: quote.quotedInput ?? quote.inputs[0].amount, inputMaximum: quote.inputMaximum ?? quote.inputs[0].amount,
     side: request.side, mode: "exact-in", tokenIn: quote.inputs[0].currency,
     tokenOut: quote.request.outputCurrency, providerRequest: intent };
+  retainDiagnosticReferences(value, diagnosticReferences(quote)); return value;
 }

@@ -2,7 +2,7 @@ import { expect, type Page } from "@playwright/test";
 import type { ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
 import { getSwapButton } from "../metamask/token-flows/helpers.ts";
 import type { QuoteObservation } from "./quoteObservation.ts";
-import { quoteObservations } from "./quoteObservation.ts";
+import { isEconomicQuoteObservation, quoteObservationIncumbent, quoteObservations } from "./quoteObservation.ts";
 import type { Scenario } from "./scenarios.ts";
 import { uiPreparationAssertion } from "./uiDiagnostics.ts";
 import { browserQuoteMatcher } from "./browserQuoteObservation.ts";
@@ -11,7 +11,10 @@ export function uiQuoteReady(observations: readonly QuoteObservation[], scenario
   configuration: ProtocolConfiguration, swapEnabled: boolean) {
   const matches = observations.filter(browserQuoteMatcher(scenario, configuration,
     scenario.amountRaw ?? "0", scenario.basketAssets ?? []));
-  return Boolean(matches.at(-1)?.terminal) && swapEnabled;
+  // Legacy producers still require the latest request's terminal winner.
+  const ready = matches.some(isEconomicQuoteObservation) ? Boolean(quoteObservationIncumbent(matches))
+    : matches.at(-1)?.terminal?.type === 'complete';
+  return ready && swapEnabled;
 }
 
 /** Observe the original quote within the existing enabled-Swap deadline. */

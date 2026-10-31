@@ -3,10 +3,12 @@ import type { components } from "../contracts/backend/http";
 import { exactInputBasketMinimums, type UniversalExactInputQuote } from "./universalExactInput.ts";
 import { QuotePreviewError, quoteResponseError } from "./quoteErrors.ts";
 import { diagnosticAttemptId, diagnosticReferences, retainDiagnosticReferences } from "./diagnosticReferences.ts";
+import { fetchQuoteStream } from "./quoteStream.ts";
 
 export type EconomicRequest = components["schemas"]["EconomicRequest"];
 export type EconomicPlan = components["schemas"]["EconomicPlan"];
 export type EconomicQuote = components["schemas"]["EconomicQuote"];
+export type EconomicQuoteEvent = components["schemas"]["EconomicQuoteEvent"];
 export type AcceptedExecutionBounds = NonNullable<components["schemas"]["TransactionPreparationRequest"]["acceptedBounds"]>;
 export type PreparedTransaction = components["schemas"]["PreparedTransaction"] & {
   plan: { body: Hex } };
@@ -61,6 +63,15 @@ export function fetchEconomicQuote(request: EconomicRequest, signal?: AbortSigna
   return quoteRequest("/api/economic-quotes", { ...economicRequest(request), ...(refresh ? { refresh: true } : {}) }, signal, fetchImpl);
 }
 
+/** Canonical-ready whole quotes arrive before refinement finishes. JSON clients keep their endpoint. */
+export function fetchEconomicQuoteStream(request: EconomicRequest, signal: AbortSignal,
+  onEvent: (event: Extract<EconomicQuoteEvent, { type: "qualified" | "invalidated" }>) => void,
+  refresh = false, fetchImpl: typeof fetch = fetch): Promise<EconomicQuote> {
+  return fetchQuoteStream<EconomicQuote, Extract<EconomicQuoteEvent, { type: "qualified" | "invalidated" }>>(
+    "/api/economic-quotes/stream", { ...economicRequest(request), ...(refresh ? { refresh: true } : {}) },
+    signal, onEvent, fetchImpl);
+}
+
 export function fetchTxPreparation(quote: EconomicQuote, input: { sender: Address; recipient: Address; slippageBps?: number;
   acceptedBounds?: AcceptedExecutionBounds }, signal?: AbortSignal, fetchImpl: typeof fetch = fetch): Promise<PreparedTransaction> {
   return quoteRequest("/api/tx-preparations", { quote, ...input }, signal, fetchImpl);
@@ -71,4 +82,11 @@ export function economicQuoteOptions(request: EconomicRequest, scope: EconomicQu
   return { queryKey: economicQuoteKey(request, scope), retry: false as const, staleTime: Infinity, gcTime: Infinity,
     refetchOnMount: false as const, refetchOnWindowFocus: false as const, refetchOnReconnect: false as const,
     queryFn: ({ signal }: { signal: AbortSignal }) => fetchEconomicQuote(request, signal, false, fetchImpl) };
+}
+
+/** A cleared/disproved cache slot is not a reusable observation on a revisit. */
+export function progressiveEconomicQuoteOptions(request: EconomicRequest, scope: EconomicQuoteScope) {
+  const cleared = (query: { state: { data: unknown } }) => query.state.data === null;
+  return { ...economicQuoteOptions(request, scope), staleTime: (query: { state: { data: unknown } }) => cleared(query) ? 0 : Infinity,
+    refetchOnMount: cleared };
 }

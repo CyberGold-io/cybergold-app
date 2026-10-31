@@ -9,7 +9,7 @@ test('economic quote lifecycle: elapsed time, heads, focus and tolerance keep th
   let head = { ...context };
   await page.route('**/api/transaction/wait/head', route => route.fulfill({ json: { ...head, blockTimestamp: '2000000000' } }));
   page.on('request', request => {
-    if (new URL(request.url()).pathname === '/api/economic-quotes') economicRequests.push(request.postDataJSON());
+    if (new URL(request.url()).pathname === '/api/economic-quotes/stream') economicRequests.push(request.postDataJSON());
     if (new URL(request.url()).pathname === '/api/tx-preparations') preparationRequests.push(request.postDataJSON());
   });
   await page.goto('/en'); await page.locator('#sell-amount').fill('1');
