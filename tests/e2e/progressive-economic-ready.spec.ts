@@ -58,6 +58,126 @@ function value(input:EconomicRequest,output="10",funding=input.inputs[0].amount)
   if(input.intent<2)quote.reuseSample={referenceInput:funding,netOutput:quote.quotedOutput,fees:quote.fees,basis:"observed-nonretained"};return quote;
 }
 
+async function upperModel(page:Page,output:()=>string=()=>"12",modelContext:()=>typeof context=()=>context){
+  await page.route('**/api/economic-estimates',async route=>{
+    const input=route.request().postDataJSON();
+    await route.fulfill({json:{namespace:'trade',intent:input,models:[],estimate:{strategy:'universal',source:'cached-upper',
+      amount:String(BigInt(output())*unit),referenceInput:input.amount,basis:'observed-nonretained',context:modelContext(),
+      fees:{coreProtocolFeeCygld:String(unit/25n),coreHelpersFeeCygld:'0',marketFeeCygld:String(unit/1000n)}}}});
+  });
+}
+async function received(page:Page,output:string,paused=false){
+  await expect.poll(async()=>(await quoteObservations(page)).at(-1)?.frames?.some(frame=>
+    frame.type==='qualified'&&(frame.value as EconomicQuote).quotedOutput===String(BigInt(output.replace('.',''))*unit/(output.includes('.')?10n:1n)))).toBe(true);
+  if(paused)await page.clock.runFor(16);
+  else await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>resolve())));
+}
+
+for(const release of ['settled','complete','error']as const)test(`cold-tab upper estimate retains display until ${release}, without leaking hidden execution values`,async({page})=>{
+  await install(page);await wallet(page);await upperModel(page);await page.addInitScript(installQuoteObservation as()=>void);const wire=await streams(page);
+  try{
+    await page.goto('/en');await expect(page.getByRole('button',{name:'Open wallet menu',exact:true})).toBeVisible();
+    await page.locator('#sell-amount').fill('1');await expect.poll(()=>wire.connections.length).toBe(1);
+    await expect(page.locator('#buy-amount')).toHaveText('12');await page.getByRole('button',{name:/Total fee/}).click();
+    const connection=wire.connections[0];connection.frame({type:'qualified',value:value(connection.input,'9')});
+    await received(page,'9');
+    await expect(page.locator('#buy-amount')).toHaveText('12');await expect(page.locator('[data-trade-action]')).toBeDisabled();
+    await expect(page.getByTestId('quote-estimate-description')).toBeAttached();
+    await expect(page.getByTestId('swap-minimum-output')).toContainText('...');
+    await expect(page.locator('[data-trade-display="feeProtocolValue"]')).toContainText('0.04 CYGLD');
+    if(release==='settled')connection.frame({type:'upper-replay-settled'});
+    else if(release==='complete')connection.frame({type:'complete',value:value(connection.input,'9')});
+    else connection.frame({type:'error',code:'rpc-timeout'});
+    await expect(page.locator('#buy-amount')).toHaveText('9');await expect(page.locator('[data-trade-action]')).toBeEnabled();
+    await expect(page.locator('#swapsection')).toHaveAttribute('data-trade-evaluation','confirmed');
+    await expect(page.locator('[data-trade-display="feeProtocolValue"]')).toContainText('0.02 CYGLD');
+    if(release==='settled'){expect(connection.closed).toBe(false);connection.frame({type:'complete',value:value(connection.input,'9')});}
+    connection.end();
+  }finally{await wire.close();}
+});
+
+test('a strict improvement over the upper estimate becomes ready before its replay settles',async({page})=>{
+  await install(page);await wallet(page);await upperModel(page);await page.addInitScript(installQuoteObservation as()=>void);const wire=await streams(page);
+  try{
+    await page.goto('/en');await expect(page.getByRole('button',{name:'Open wallet menu',exact:true})).toBeVisible();
+    await page.locator('#sell-amount').fill('1');await expect.poll(()=>wire.connections.length).toBe(1);await expect(page.locator('#buy-amount')).toHaveText('12');
+    const connection=wire.connections[0];connection.frame({type:'qualified',value:value(connection.input,'12',String(unit*9n/10n))});
+    await received(page,'12');
+    await expect(page.locator('[data-trade-action]')).toBeDisabled();await expect(page.locator('#swapsection')).toHaveAttribute('data-trade-evaluation','pending');
+    connection.frame({type:'qualified',value:value(connection.input,'13')});
+    await expect(page.locator('#buy-amount')).toHaveText('13');await expect(page.locator('[data-trade-action]')).toBeEnabled();expect(connection.closed).toBe(false);
+    connection.frame({type:'qualified',value:value(connection.input,'14')});await expect(page.locator('#buy-amount')).toHaveText('14');
+    connection.frame({type:'complete',value:value(connection.input,'13')});connection.end();await expect(page.locator('#buy-amount')).toHaveText('14');
+  }finally{await wire.close();}
+});
+
+test('cached-upper typing cancels hidden work without caching it, and click captures only the visible winner',async({page})=>{
+  await install(page);await wallet(page);await page.addInitScript(installQuoteObservation as()=>void);const wire=await streams(page),errors:string[]=[];
+  const posted:{quote:EconomicQuote;acceptedBounds:{minimumOutput:string}}[]=[];
+  page.on('pageerror',error=>errors.push(error.message));
+  await page.route('**/api/tx-preparations',async route=>{posted.push(route.request().postDataJSON());await route.fulfill({status:503,json:{code:'quote-unavailable'}});});
+  try{
+    await page.goto('/en');await expect(page.getByRole('button',{name:'Open wallet menu',exact:true})).toBeVisible();
+    await showAllSellTokens(page);await selectToken(page,'sell','USDT');await page.locator('#sell-amount').fill('200');
+    await expect.poll(()=>wire.connections.length).toBe(1);const first=wire.connections[0];
+    first.frame({type:'qualified',value:value(first.input,'12','170000000')});first.frame({type:'complete',value:value(first.input,'12','170000000')});first.end();
+    await expect(page.locator('[data-trade-action]')).toBeEnabled();
+    await page.locator('#sell-amount').fill('170');await expect.poll(()=>wire.connections.length).toBe(2);
+    const hidden=wire.connections[1];hidden.frame({type:'qualified',value:value(hidden.input,'9')});
+    await received(page,'9');
+    await expect(page.locator('#buy-amount')).toHaveText('12');await expect(page.locator('[data-trade-action]')).toBeDisabled();
+    await page.locator('#sell-amount').fill('160');await expect.poll(()=>hidden.closed).toBe(true);await expect.poll(()=>wire.connections.length).toBe(3);
+    hidden.frame({type:'upper-replay-settled'});
+    await page.locator('#sell-amount').fill('170');await expect.poll(()=>wire.connections.length).toBe(4);
+    await expect(page.locator('#buy-amount')).toHaveText('12');await expect(page.locator('[data-trade-action]')).toBeDisabled();
+    const revisit=wire.connections[3];revisit.frame({type:'qualified',value:value(revisit.input,'13')});
+    await expect(page.locator('#buy-amount')).toHaveText('13');await expect(page.locator('[data-trade-action]')).toBeEnabled();
+    await page.locator('[data-trade-action]').click();await expect.poll(()=>posted.length).toBe(1);await expect.poll(()=>revisit.closed).toBe(true);
+    expect(posted[0].quote.quotedOutput).toBe(String(13n*unit));expect(posted[0].acceptedBounds.minimumOutput).toBe(String(13n*unit*99n/100n));
+    expect(posted.some(row=>row.quote.quotedOutput===String(9n*unit))).toBe(false);expect(errors).toEqual([]);
+  }finally{await wire.close();}
+});
+
+test('disproof of a hidden candidate cannot expose it through later upper settlement',async({page})=>{
+  await install(page);await wallet(page);await upperModel(page);await page.addInitScript(installQuoteObservation as()=>void);const wire=await streams(page);
+  try{
+    await page.goto('/en');await expect(page.getByRole('button',{name:'Open wallet menu',exact:true})).toBeVisible();
+    await page.locator('#sell-amount').fill('1');await expect.poll(()=>wire.connections.length).toBe(1);await expect(page.locator('#buy-amount')).toHaveText('12');
+    const connection=wire.connections[0],hidden=value(connection.input,'9');connection.frame({type:'qualified',value:hidden});
+    await received(page,'9');
+    connection.frame({type:'invalidated',context:hidden.context});connection.frame({type:'upper-replay-settled'});connection.frame({type:'error',code:'quote-unavailable'});connection.end();
+    await expect(page.locator('[data-trade-action]')).toBeDisabled();await expect(page.locator('#swapsection')).not.toHaveAttribute('data-trade-evaluation','confirmed');
+    await expect(page.locator('#buy-amount')).not.toHaveText('9');
+  }finally{await wire.close();}
+});
+
+test('a disappearing upper model releases hidden readiness and a later model cannot retract it',async({page})=>{
+  let head={...context};await install(page,'',undefined,false,undefined,()=>head);await wallet(page);
+  await upperModel(page,()=>"12",()=>head);await page.addInitScript(installQuoteObservation as()=>void);const wire=await streams(page);
+  let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});
+  try{
+    await page.goto('/en');await expect(page.getByRole('button',{name:'Open wallet menu',exact:true})).toBeVisible();
+    await page.locator('#sell-amount').fill('1');await expect.poll(()=>wire.connections.length).toBe(1);await expect(page.locator('#buy-amount')).toHaveText('12');
+    const connection=wire.connections[0];connection.frame({type:'qualified',value:value(connection.input,'9')});await received(page,'9');
+    await expect(page.locator('[data-trade-action]')).toBeDisabled();
+    await page.clock.install();const now=await page.evaluate(()=>Date.now());await page.clock.pauseAt(new Date(now+1000));
+    head={...context,blockNumber:'101',blockHash:'0x'+'b'.repeat(64)};
+    await page.route('**/api/economic-estimates',async route=>{
+      const input=route.request().postDataJSON();await held;
+      await route.fulfill({json:{namespace:'trade',intent:input,models:[],estimate:{strategy:'universal',source:'cached-upper',amount:String(14n*unit),
+        referenceInput:input.amount,basis:'observed-nonretained',context:head,fees:{coreProtocolFeeCygld:'0',coreHelpersFeeCygld:'0',marketFeeCygld:'0'}}}});
+    });
+    const modelRequest=page.waitForRequest(request=>new URL(request.url()).pathname==='/api/economic-estimates');
+    await page.clock.runFor(1200);await modelRequest;
+    await expect.poll(async()=>{await page.clock.runFor(0);return page.locator('#buy-amount').textContent();}).toBe('9');
+    await expect(page.locator('[data-trade-action]')).toBeEnabled();
+    const replacement=page.waitForResponse(async response=>new URL(response.url()).pathname==='/api/economic-estimates'&&(await response.json()).estimate?.amount===String(14n*unit));
+    release();await replacement;await page.clock.runFor(16);
+    await expect(page.locator('#buy-amount')).toHaveText('9');await expect(page.locator('[data-trade-action]')).toBeEnabled();expect(wire.connections).toHaveLength(1);
+    connection.frame({type:'complete',value:value(connection.input,'9')});connection.end();
+  }finally{release();await wire.close();}
+});
+
 for(const symbol of ["USDT","ETH"])test(`${symbol}: first canonical frame enables Swap before complete, later tuple improves and edited hint stays immediate`,async({page})=>{
   await install(page);await wallet(page);await page.addInitScript(installQuoteObservation as()=>void);const wire=await streams(page);
   try{
@@ -81,6 +201,10 @@ for(const symbol of ["USDT","ETH"])test(`${symbol}: first canonical frame enable
     expect(wire.connections).toHaveLength(1);await expect(page.locator('[data-trade-action]')).toBeDisabled();
     await page.clock.runFor(150);await expect.poll(()=>wire.connections.length).toBe(2);await expect.poll(()=>connection.closed).toBe(true);
     const second=wire.connections[1];second.frame({type:'qualified',value:value(second.input,'11.5')});
+    await received(page,'11.5',true);
+    await expect.poll(async()=>{await page.clock.runFor(0);return page.locator('#buy-amount').textContent();}).toBe('12');
+    await expect(page.locator('[data-trade-action]')).toBeDisabled();
+    second.frame({type:'upper-replay-settled'});
     await expect.poll(async()=>{await page.clock.runFor(0);return page.locator('#buy-amount').textContent();}).toBe('11.5');
     await expect(page.locator('[data-trade-action]')).toBeEnabled();second.frame({type:'complete',value:value(second.input,'10')});second.end();
     await expect(page.locator('#buy-amount')).toHaveText('11.5');

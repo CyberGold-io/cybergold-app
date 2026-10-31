@@ -5,7 +5,7 @@ import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { getAddress, toHex } from "viem";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
-import { createEconomicQuoteSearch } from "./economicQuoteSearch.ts";
+import { createEconomicQuoteSearch, type UpperEstimateDisplayPolicy } from "./economicQuoteSearch.ts";
 import { economicQuoteKey, economicQuoteOptions, progressiveEconomicQuoteOptions, type EconomicQuote, type EconomicRequest } from "./economicQuotes.ts";
 import { diagnosticReferences, retainDiagnosticReferences } from "./diagnosticReferences.ts";
 import { QuotePreviewError } from "./quoteErrors.ts";
@@ -42,10 +42,109 @@ function fixture(prior?:EconomicQuote) {
   const client=new QueryClient(),key=economicQuoteKey(request,scope),wire=transport();
   if(prior)client.setQueryData(key,prior);
   const search=createEconomicQuoteSearch(client,key);
-  const run=(refresh=false)=>client.fetchQuery({...economicQuoteOptions(request,scope),staleTime:0,
-    queryFn:({signal})=>search.run(request,signal,refresh,wire.fetcher)});
+  const run=(refresh=false,upperEstimate?:UpperEstimateDisplayPolicy)=>client.fetchQuery({...economicQuoteOptions(request,scope),staleTime:0,
+    queryFn:({signal})=>search.run(request,signal,refresh,wire.fetcher,upperEstimate)});
   return {client,key,wire,search,run,close:()=>client.clear()};
 }
+
+const upper=(output="10",key:readonly unknown[]=economicQuoteKey(request,scope)):UpperEstimateDisplayPolicy=>
+  ({requestKey:JSON.stringify(key),quotedOutput:BigInt(output)});
+
+test("an early candidate below the displayed upper estimate is private until upper settlement",async()=>{
+  const f=fixture(),pending=f.run(false,upper());
+  try{
+    await tick();f.wire.frame({type:"qualified",value:quote("8")});await tick();
+    f.wire.frame({type:"qualified",value:quote("9","a","90")});await tick();
+    assert.equal(f.search.current(),undefined);assert.equal(f.search.snapshot().value,undefined);
+    assert.equal(f.client.getQueryData(f.key),undefined,"hidden work must not bootstrap another intent");
+    assert.equal(f.client.getQueryState(f.key)?.fetchStatus,"fetching");
+    f.wire.frame({type:"upper-replay-settled"});await tick();
+    assert.equal(f.search.current()?.quotedOutput,"9");assert.equal(f.search.current()?.inputs[0].amount,"90");
+    assert.equal((f.client.getQueryData(f.key)as EconomicQuote).quotedOutput,"9");
+    f.wire.frame({type:"complete",value:quote("8")});assert.equal((await pending).quotedOutput,"9");
+  }finally{f.close();}
+});
+
+for(const output of ["10","11"])test(`upper estimate comparison is strictly higher net output (${output})`,async()=>{
+  const f=fixture(),pending=f.run(false,upper());
+  try{
+    await tick();f.wire.frame({type:"qualified",value:quote(output,"a","90")});await tick();
+    assert.equal(f.search.current()?.quotedOutput,output==="11"?"11":undefined,"lower funding cannot break an estimate tie");
+    f.wire.frame({type:"upper-replay-settled"});await tick();assert.equal(f.search.current()?.quotedOutput,output);
+    f.wire.frame({type:"complete",value:quote(output)});await pending;
+  }finally{f.close();}
+});
+
+test("the current upper display changes before readiness, disappears, and never retracts visible readiness",async()=>{
+  const f=fixture(),pending=f.run(false,upper());
+  try{
+    await tick();f.search.setUpperEstimate(upper("12"));
+    f.wire.frame({type:"qualified",value:quote("11")});await tick();assert.equal(f.search.current(),undefined);
+    f.search.setUpperEstimate(upper("13"));assert.equal(f.search.current(),undefined);
+    f.search.setUpperEstimate(upper("10"));assert.equal(f.search.current()?.quotedOutput,"11");
+    f.search.setUpperEstimate(upper("99"));assert.equal(f.search.current()?.quotedOutput,"11");
+    f.wire.frame({type:"qualified",value:quote("12")});await tick();assert.equal(f.search.current()?.quotedOutput,"12");
+    f.wire.frame({type:"complete",value:quote("12")});await pending;
+  }finally{f.close();}
+  const removed=fixture(),replacement=removed.run(false,upper());
+  try{
+    await tick();removed.wire.frame({type:"qualified",value:quote("8")});await tick();
+    removed.search.setUpperEstimate();assert.equal(removed.search.current()?.quotedOutput,"8");
+    removed.wire.frame({type:"complete",value:quote("8")});await replacement;
+  }finally{removed.close();}
+});
+
+test("upper display policy cannot cross request budget, configuration, generation or native/ERC20 family",async()=>{
+  for(const wrongKey of [economicQuoteKey({...request,inputs:[{currency:token,amount:"101"}]},scope),
+    economicQuoteKey(request,{...scope,configuration:"deployment-b"}),economicQuoteKey(request,{...scope,generation:"fork-b"}),
+    economicQuoteKey({...request,inputs:[{currency:"0x0000000000000000000000000000000000000000",amount:"100"}]},scope)]){
+    const f=fixture(),pending=f.run(false,upper("99",wrongKey));
+    try{await tick();f.wire.frame({type:"qualified",value:quote("8")});await tick();assert.equal(f.search.current()?.quotedOutput,"8");
+      f.wire.frame({type:"complete",value:quote("8")});await pending;}finally{f.close();}
+  }
+});
+
+for(const release of ["stored","marker-first","complete","complete-only","ordinary-error","eof"]as const)
+  test(`${release} releases available validated work without an upper replacement`,async()=>{
+    const f=fixture(),pending=f.run(false,upper()),checked=release==="ordinary-error"||release==="eof"?assert.rejects(pending,QuotePreviewError):undefined;
+    try{
+      await tick();const best=quote("8");if(release==="stored")best.observation={source:"stored",refresh:false};
+      if(release==="marker-first")f.wire.frame({type:"upper-replay-settled"});
+      if(release!=="complete-only")f.wire.frame({type:"qualified",value:best});await tick();
+      assert.equal(f.search.current()?.quotedOutput,release==="stored"||release==="marker-first"?"8":undefined);
+      if(release==="ordinary-error")f.wire.frame({type:"error",code:"rpc-timeout"});
+      else if(release==="eof")f.wire.end();else f.wire.frame({type:"complete",value:best});
+      if(checked)await checked;else assert.equal((await pending).quotedOutput,"8");
+      assert.equal(f.search.current()?.quotedOutput,"8");assert.equal((f.client.getQueryData(f.key)as EconomicQuote).quotedOutput,"8");
+    }finally{f.close();}
+  });
+
+test("caller stop discards hidden work before queued upper settlement and cannot seed a revisit",async()=>{
+  const f=fixture(),pending=f.run(false,upper());
+  try{
+    await tick();f.wire.frame({type:"qualified",value:quote("8")});await tick();
+    f.wire.frame({type:"upper-replay-settled"});f.search.stop();await pending.catch(()=>{});await tick();
+    assert.equal(f.search.current(),undefined);assert.equal(f.client.getQueryData(f.key),undefined);
+    const revisit=createEconomicQuoteSearch(f.client,f.key);assert.equal(revisit.current(),undefined);
+  }finally{f.close();}
+});
+
+test("canonical invalidation discards hidden work and later settlement/error cannot release it",async()=>{
+  const f=fixture(),pending=f.run(false,upper()),checked=assert.rejects(pending,QuotePreviewError);
+  try{
+    await tick();const best=quote("8");f.wire.frame({type:"qualified",value:best});await tick();
+    f.wire.frame({type:"invalidated",context:best.context});f.wire.frame({type:"upper-replay-settled"});
+    f.wire.frame({type:"error",code:"quote-unavailable"});await checked;
+    assert.equal(f.search.current(),undefined);assert.equal(f.client.getQueryData(f.key),null);
+  }finally{f.close();}
+});
+
+test("a visible historical Refresh incumbent preserves existing readiness rather than applying an upper hold",async()=>{
+  const f=fixture(quote("7","b")),pending=f.run(true,upper("99"));
+  try{await tick();f.wire.frame({type:"qualified",value:quote("8")});await tick();
+    assert.equal(f.search.current()?.quotedOutput,"8");f.wire.frame({type:"complete",value:quote("8")});await pending;
+  }finally{f.close();}
+});
 
 test("qualified whole snapshots are ready and cached while the actual QueryClient promise is still fetching",async()=>{
   const f=fixture(),pending=f.run();

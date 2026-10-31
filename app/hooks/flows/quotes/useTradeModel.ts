@@ -10,10 +10,12 @@ import { useQuoteCacheScope } from "@/app/context/chainHeadContext";
 import { usePageVisible } from "@/app/hooks/usePageVisible";
 import { fetchTradeModel, receiveTradeModel, type TradeModelRequest } from "@/app/utils/tradeQuote";
 import { getTradeBudgetRange, subscribeQuoteModels, tradeDisplayModelScope } from "@/app/utils/quoteModelStore";
+import { economicQuoteKey } from "@/app/utils/economicQuotes";
+import type { UpperEstimateDisplayPolicy } from "@/app/utils/economicQuoteSearch";
 import { arithmeticEconomicEstimate, upperEconomicQuote, type ArithmeticEconomicEstimate } from "@/app/utils/nearbyEconomicEstimate";
 
 type TradeDisplayEstimate = Partial<ArithmeticEconomicEstimate> & {
-  quotedOutput: bigint; quotedInput?: bigint; inputMaximum?: bigint;
+  quotedOutput: bigint; quotedInput?: bigint; inputMaximum?: bigint; upperDisplay?: UpperEstimateDisplayPolicy;
 };
 
 export function useTradeModel(input: TradeModelRequest, enabled: boolean): TradeDisplayEstimate | undefined {
@@ -50,11 +52,20 @@ export function useTradeModel(input: TradeModelRequest, enabled: boolean): Trade
     if (!enabled || !visible) void client.cancelQueries({ queryKey: JSON.parse(key), exact: true });
   }, [client, enabled, visible, key]);
   if (!enabled) return undefined;
+  const upperDisplay = (quotedOutput: bigint): UpperEstimateDisplayPolicy | undefined => {
+    if (!addresses.core) return undefined;
+    const counter = input.native ? zeroAddress : input.counterToken;
+    return { requestKey: JSON.stringify(economicQuoteKey({ intent: input.side === "buy" ? 0 : 1,
+      inputs: [{ currency: input.side === "buy" ? counter : addresses.core, amount: input.amount }],
+      outputCurrency: input.side === "buy" ? addresses.core : counter },
+      { chainId: targetChainId, configuration: identity, generation })), quotedOutput };
+  };
   const local = upper?.reuseSample && arithmeticEconomicEstimate(upper.reuseSample, BigInt(input.amount));
-  if (local) return local;
+  if (local) return { ...local, upperDisplay: upperDisplay(local.quotedOutput) };
   const estimate = query.data?.estimate;
   if (estimate?.strategy === "universal") {
     return { quotedOutput: BigInt(estimate.amount), basis: estimate.basis,
+      ...(estimate.source === "cached-upper" ? { upperDisplay: upperDisplay(BigInt(estimate.amount)) } : {}),
       fees: { protocolFeeCygld: BigInt(estimate.fees.coreProtocolFeeCygld),
         helperFeeCygld: BigInt(estimate.fees.coreHelpersFeeCygld), marketFeeCygld: BigInt(estimate.fees.marketFeeCygld) } };
   }

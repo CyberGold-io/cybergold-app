@@ -65,9 +65,9 @@ export function fetchEconomicQuote(request: EconomicRequest, signal?: AbortSigna
 
 /** Canonical-ready whole quotes arrive before refinement finishes. JSON clients keep their endpoint. */
 export function fetchEconomicQuoteStream(request: EconomicRequest, signal: AbortSignal,
-  onEvent: (event: Extract<EconomicQuoteEvent, { type: "qualified" | "invalidated" }>) => void,
+  onEvent: (event: Extract<EconomicQuoteEvent, { type: "qualified" | "invalidated" | "upper-replay-settled" }>) => void,
   refresh = false, fetchImpl: typeof fetch = fetch): Promise<EconomicQuote> {
-  return fetchQuoteStream<EconomicQuote, Extract<EconomicQuoteEvent, { type: "qualified" | "invalidated" }>>(
+  return fetchQuoteStream<EconomicQuote, Extract<EconomicQuoteEvent, { type: "qualified" | "invalidated" | "upper-replay-settled" }>>(
     "/api/economic-quotes/stream", { ...economicRequest(request), ...(refresh ? { refresh: true } : {}) },
     signal, onEvent, fetchImpl);
 }
