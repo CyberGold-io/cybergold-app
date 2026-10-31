@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { zeroAddress } from "viem";
-import { uiQuoteReady } from "../../tests/trading/uiQuotePreparation.ts";
+import { refreshedUiMinimum, refreshedUiQuote, uiQuoteReady } from "../../tests/trading/uiQuotePreparation.ts";
 import { createUiQuoteDiagnostics } from "../../tests/trading/uiDiagnostics.ts";
 import { tokenRequest } from "../../tests/trading/regression.ts";
 import { tradeScenarios, type Scenario } from "../../tests/trading/scenarios.ts";
@@ -10,6 +10,7 @@ import type { QuoteObservation } from "../../tests/trading/quoteObservation.ts";
 import { privateSandboxSelection } from "../../tests/trading/privateSandbox.ts";
 import type { MatrixScenario } from "../../tests/trading/matrix.ts";
 import type { UniversalExactInputQuote } from "./universalExactInput.ts";
+import type { EconomicQuote } from "./economicQuotes.ts";
 
 const assets = [tokenAddresses.PAXG, tokenAddresses.XAUT];
 const attempt = "e9eb96b2-8ecf-429d-9e08-244f43257e8e";
@@ -28,6 +29,16 @@ for (const asset of ["PAXG", "USDC", "ETH", "BASKET"] as const) for (const side 
     assert.equal(uiQuoteReady([{ ...observed, terminal: undefined }], scenario, config, true), false);
     assert.equal(uiQuoteReady([{ ...observed, request: { ...request, intent: 99 } }], scenario, config, true), false);
     assert.equal(uiQuoteReady([observed, { ...observed, terminal: undefined }], scenario, config, true), false);
+    const economic = { ...observed, path: "/api/economic-quotes" };
+    const refreshed = { ...economic, request: { ...request, refresh: true } };
+    assert.equal(refreshedUiQuote([economic], scenario, config), undefined);
+    assert.equal(refreshedUiQuote([refreshed], scenario, config), refreshed);
+    const pending = { ...refreshed, status: 0, terminal: undefined };
+    assert.equal(refreshedUiQuote([refreshed, pending], scenario, config), pending);
+    const failed = { ...refreshed, status: 503, terminal: { type: "error", code: "quote-timeout" } };
+    assert.equal(refreshedUiQuote([economic, failed], scenario, config), failed);
+    assert.equal(refreshedUiQuote([{ ...refreshed, request: { ...refreshed.request, intent: 99 } }], scenario, config), undefined);
+    assert.equal(refreshedUiQuote([{ ...refreshed, path: "/api/quotes/universal-exact-input" }], scenario, config), undefined);
     const diagnostics = createUiQuoteDiagnostics(scenario, config);
     assert.equal(diagnostics.request(observed.path, request, attempt), true);
     assert.equal(diagnostics.diagnostic({ operation: "quote", attemptId: attempt, outcome: "failed", errorClassification: "quote-timeout" }), true);
@@ -42,3 +53,18 @@ for (const asset of ["PAXG", "USDC", "ETH", "BASKET"] as const) for (const side 
     assert.notEqual(value.plan.minimumOutput, "77");
   });
 }
+
+test("explicit Refresh binds scalar and mixed-decimal basket minima to the committed tolerance", () => {
+  const purchase = tradeScenarios.find(row => row.asset === "USDC" && row.side === "buy" && row.inputMode === "exact-in")!;
+  const scalar = { request: { intent: 0 }, quotedOutput: "2000000000000000000" } as EconomicQuote;
+  assert.equal(refreshedUiMinimum(scalar, purchase, config, "1"), "1.98 CYGLD");
+  assert.equal(refreshedUiMinimum(scalar, purchase, config, "0.25"), "1.995 CYGLD");
+  const redemption = { ...tradeScenarios.find(row => row.asset === "BASKET" && row.side === "sell" && row.inputMode === "exact-in")!, basketAssets: assets };
+  const basket = { request: { intent: 3 }, estimatedRecipientOutputs: [
+    { kind: 0, token: tokenAddresses.PAXG, id: "0", amount: "2000000000000000000" },
+    { kind: 1, token: config.contracts.core!, id: "77", amount: "1000000000000000000" },
+    { kind: 0, token: tokenAddresses.XAUT, id: "0", amount: "1000000" },
+  ] } as EconomicQuote;
+  assert.equal(refreshedUiMinimum(basket, redemption, config, "1"), "1.98 PAXG + 0.99 XAUt");
+  assert.equal(refreshedUiMinimum(basket, redemption, config, "0.25"), "1.995 PAXG + 0.9975 XAUt");
+});

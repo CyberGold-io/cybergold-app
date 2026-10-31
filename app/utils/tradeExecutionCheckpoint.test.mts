@@ -87,6 +87,11 @@ export const readWalletBalances = async () => { state.action("balances"); return
 export const selectToken = async () => state.action("token");
 export const showAllSellTokens = async () => state.action("show-tokens");
 `;
+  const stubQuotePreparation = `
+const state = globalThis.__bodyFixture;
+export const refreshUiQuote = async () => state.action("quote-refresh");
+export const waitForUiSwapReady = async () => {};
+`;
   const header = `
 import fs from "node:fs";
 import assert from "node:assert/strict";
@@ -117,9 +122,11 @@ globalThis.fetch = async url => {
         builder.onResolve({ filter: /^(?:@playwright\/test|\.\/testWithMetaMask)$/ }, () => ({ path: "test", namespace: "inert" }));
         builder.onResolve({ filter: /^\.\/wallet-ui$/ }, () => ({ path: "wallet", namespace: "inert" }));
         builder.onResolve({ filter: /^\.\/token-flows\/helpers$/ }, () => ({ path: "helpers", namespace: "inert" }));
+        builder.onResolve({ filter: /^\.\.\/trading\/uiQuotePreparation$/ }, () => ({ path: "quote-preparation", namespace: "inert" }));
         builder.onResolve({ filter: /^\.\.\/metamask\/token-flows\/helpers\.ts$/ }, args =>
           args.importer.endsWith("/uiQuotePreparation.ts") ? { path: "helpers", namespace: "inert" } : undefined);
-        builder.onLoad({ filter: /.*/, namespace: "inert" }, args => ({ contents: args.path === "test" ? stubTest : args.path === "wallet" ? stubWallet : stubHelpers, loader: "js" }));
+        builder.onLoad({ filter: /.*/, namespace: "inert" }, args => ({ contents: args.path === "test" ? stubTest : args.path === "wallet" ? stubWallet
+          : args.path === "quote-preparation" ? stubQuotePreparation : stubHelpers, loader: "js" }));
       } }] });
     writeFileSync(script, result.outputFiles[0].text);
     const environment = fileURLToPath(new URL("../../tests/fixtures/app.env", import.meta.url));
@@ -157,7 +164,7 @@ test("the real bootstrap retains its held quote stage after funding acceptance a
   assert.equal(value.report.fixtures[0].executionStage, "ui-prepare-quote");
   assert.ok(value.report.scenarios.every((row: { code: string; executionStage: string }) => row.code === "not-exercised" && row.executionStage === "setup-ready"));
   assert.deepEqual(value.actions, ["config", "navigation", "network-add", "network-switch", "connect-request", "connect-confirm", "accounts", "faucet",
-    "navigation", "show-tokens", "token", "token", "amount", "rejection-quote", "fee-details", "balances", "rejection-submit", "rejection-cancel", "balances",
+    "navigation", "show-tokens", "token", "token", "amount", "rejection-quote", "quote-refresh", "fee-details", "balances", "rejection-submit", "rejection-cancel", "balances",
     "navigation", "show-tokens", "token", "token", "amount", "bootstrap-quote"]);
   assert.doesNotMatch(JSON.stringify(value.report), /private-wallet-rpc|public-fixture-request|111111111111/);
 });

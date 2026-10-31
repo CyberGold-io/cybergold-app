@@ -4,7 +4,7 @@ import { addLocalNetwork, connectWallet, notification, walletRequestButton, requ
 import { ensureBasketInputEditable, getMainInput, getSwapButton, openFeeDetails, readWalletBalances, selectToken, showAllSellTokens } from "./token-flows/helpers";
 import { readFile, writeFile, rename } from "node:fs/promises";
 import { type Address, type Hex } from "viem";
-import { configuredToken, basketFacts, ScenarioUnavailableError } from "../trading/scenarios";
+import { configuredToken, basketFacts, ScenarioUnavailableError, type Scenario } from "../trading/scenarios";
 import { checkpointExecutionStage, originFetch, readJson, requireInvariant, resultFor, type ExecutionStage, type ScenarioResult, type UiObservationPhase } from "../trading/regression";
 import { observeUiReceipt } from "../trading/uiReceipt";
 import { assertCapturedTradeInput } from "../trading/planAssertions";
@@ -31,7 +31,7 @@ import { observeWalletRpc } from "../trading/walletRpcObservation";
 import { privateSandboxPhase, privateSandboxScenarios, privateSandboxSelection, sandboxIsolation, scenarioIsolation, type SandboxIsolation } from "../trading/privateSandbox";
 import { cleanupOwnedWalletRequest, closeOwnedWalletContext, isWalletRequestCleanupError, walletRequestContextClosedError } from "../trading/walletRequestLifecycle";
 import { hasUiReceiptOutcome, observeUiReceiptUntilDeadline, recoverUiTransaction, uiWalletRequestSettled } from "../trading/uiTransactionRecovery";
-import { waitForUiSwapReady } from "../trading/uiQuotePreparation";
+import { refreshUiQuote, waitForUiSwapReady } from "../trading/uiQuotePreparation";
 import { regressionPolicy, unexpectedFailure } from "../trading/runPolicy";
 
 async function approveUntilMined(page: Page, submitted: () => boolean, observe: () => Promise<void> = async () => {},
@@ -189,7 +189,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   results.splice(0, results.length, ...scenarios.map(scenario => ({ ...resultFor(scenario, "execution"), id: `ui-${scenario.id}`, requestedStrategy: "auto" as const, executionAttempted: false, transactionDisposition: "not-submitted" as const,
     ...(isolation && privatePhase !== 'prepare' ? { isolation: scenarioIsolation(isolation, privatePhase === 'alternate' ? 'alternate' : 'winner') } : {}) })));
 
-  async function prepare(sell: string, buy: string, amount: string, side: "sell" | "buy" = "sell", scenario?: MatrixScenario) {
+  async function prepare(sell: string, buy: string, amount: string, side: "sell" | "buy", scenario: Scenario) {
     await checkpoint("ui-prepare-navigation");
     await page.goto("/en");
     await checkpoint("ui-prepare-wallet");
@@ -211,6 +211,8 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       await uiPreparationAssertion("ui-quoted-amount-not-ready", () => expect.poll(async () => positiveDisplayedAmount(await displayedUiAmount(getMainInput(page, quotedSide)), decimals), { timeout: 60000 }).toBe(true),
         () => activeQuoteDiagnostics?.snapshot());
     }
+    if (scenario.inputMode === "exact-in")
+      await refreshUiQuote(page, config, scenario, () => activeQuoteDiagnostics?.snapshot());
     // The existing accordion contains the committed tolerance and exact
     // min/max labels. Expose them without editing the chosen trade intent.
     await checkpoint("ui-prepare-details");
@@ -380,7 +382,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   // belongs to its matrix cases, rather than every scenario's shared setup.
   const rejectionPurchase = setupPurchase(config, valuation!, "0.25", "fixture-wallet-rejection");
   try { activeQuoteDiagnostics = createUiQuoteDiagnostics(rejectionPurchase, config); } catch { /* Optional evidence cannot change setup. */ }
-  await prepare("PAXG", "CYGLD", rejectionPurchase.displayAmount);
+  await prepare("PAXG", "CYGLD", rejectionPurchase.displayAmount, "sell", rejectionPurchase);
   const beforeRejected = await readWalletBalances(page, ["cygld"]);
   await checkpoint("setup-rejection-submit");
   await (await getSwapButton(page)).click();
@@ -405,7 +407,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   const bootstrapStarted = performance.now(); await persist();
   try {
     observationPhase = "ui-prepare"; await checkpoint(observationPhase);
-    await prepare("PAXG", "CYGLD", bootstrap.displayAmount);
+    await prepare("PAXG", "CYGLD", bootstrap.displayAmount, "sell", bootstrap);
     observationPhase = "ui-balances"; await checkpoint(observationPhase);
     const walletBefore = await fetchWalletBalances(owner, undefined, fetcher, "swap-preflight");
     fixtures[0].code = "execution-not-completed"; await persist();
