@@ -6,16 +6,17 @@ import { CORE_TOKEN_KIND } from "@/app/types";
 import { captureTradeQuote, tradeAdapter, type TradeQuoteRequest, type TradeQuoteResult } from "@/app/utils/tradeQuote";
 import { submitTradeQuote } from "@/app/utils/tradeExecution";
 import { quoteIntentResult } from "@/app/utils/quoteIntent";
+import type { UpperEstimateDisplayPolicy } from "@/app/utils/economicQuoteSearch";
 import { useTradeQuote } from "./quotes/useTradeQuote";
 import { useTokenPurchaseExecution } from "./shared/useTokenPurchaseExecution";
 import { useUniversalExactInputExecution } from "./shared/useUniversalExactInputExecution";
 import { useMarketSwapExecution } from "./shared/useMarketSwapExecution";
 import type { FlowNetworkFeeEstimateHandlers, SubmitBasketFlowParams } from "./shared/types";
 
-export function useTradeFlow({ input, enabled, frozen, onNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange }:
-  { input: Omit<TradeQuoteRequest, "deadline" | "retainedPlan">; enabled: boolean; frozen?: TradeQuoteResult } & FlowNetworkFeeEstimateHandlers) {
+export function useTradeFlow({ input, enabled, frozen, upperEstimate, onNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange }:
+  { input: Omit<TradeQuoteRequest, "deadline" | "retainedPlan">; enabled: boolean; frozen?: TradeQuoteResult; upperEstimate?: UpperEstimateDisplayPolicy } & FlowNetworkFeeEstimateHandlers) {
   const active = enabled && BigInt(input.amount) > 0n;
-  const quote = useTradeQuote(input, active && !frozen), selected = frozen ?? quote.data;
+  const quote = useTradeQuote(input, active && !frozen, upperEstimate), selected = frozen ?? quote.data;
   const { submitTokenPurchase } = useTokenPurchaseExecution({ onNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange });
   const universal = useUniversalExactInputExecution({ slippageBps: input.slippageBps, onNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange });
   const market = useMarketSwapExecution();

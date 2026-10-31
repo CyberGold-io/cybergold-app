@@ -845,15 +845,16 @@ function TradingScreen() {
   });
   const basketAmountsOutObtained = redeemToBasketExactInFlow.amountsOut;
 
-  const tradeInput = { ...rawTradeIntent, amount: String(sellAmountFromInputBigInt) };
-  const tradeFlow = useTradeFlow({ input: tradeInput, frozen: frozenTrade, enabled: isActiveTokenFlow && !quoteInputPending,
-    onNetworkFeeEstimate: setNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange: setIsNetworkFeeEstimateLoading });
-  const helperFeePercent = tradeFlow.selected?.value.strategy === "market"
-    ? formatPpmAsPercent(BigInt(tradeFlow.selected.value.providerQuote.fee.ratePpm)) : coreHelperFeePercent;
   // Lightweight Backend estimates follow edited amounts. Execution tolerance
   // changes only the displayed guard and the later preparation request.
   const localTradeEstimate = useTradeModel({ side: rawTradeIntent.side, mode: rawTradeIntent.mode,
     counterToken: rawTradeIntent.counterToken, native: rawTradeIntent.native, amount: rawTradeIntent.amount }, isActiveTokenFlow);
+  const tradeInput = { ...rawTradeIntent, amount: String(sellAmountFromInputBigInt) };
+  const tradeFlow = useTradeFlow({ input: tradeInput, frozen: frozenTrade, enabled: isActiveTokenFlow && !quoteInputPending,
+    upperEstimate: localTradeEstimate?.upperDisplay,
+    onNetworkFeeEstimate: setNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange: setIsNetworkFeeEstimateLoading });
+  const helperFeePercent = tradeFlow.selected?.value.strategy === "market"
+    ? formatPpmAsPercent(BigInt(tradeFlow.selected.value.providerQuote.fee.ratePpm)) : coreHelperFeePercent;
   const localQuoteAmount = localTradeEstimate?.quotedOutput;
   // Existing basket interactions remain separate. Token amounts share one Backend-selected plan.
   const issueFromTokenExactInFlow = tradeFlow;

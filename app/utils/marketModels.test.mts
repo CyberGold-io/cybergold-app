@@ -52,6 +52,7 @@ test("the unified hook retains Backend families and prefers optional cached arit
     "@/app/hooks/usePageVisible": { usePageVisible: () => true },
     "@/app/utils/quoteModelStore": { getTradeBudgetRange, subscribeQuoteModels, tradeDisplayModelScope },
     "@/app/utils/nearbyEconomicEstimate": { arithmeticEconomicEstimate, upperEconomicQuote },
+    "@/app/utils/economicQuotes": { economicQuoteKey },
     "@/app/utils/tradeQuote": { receiveTradeModel, fetchTradeModel: (input: TradeModelRequest, signal: AbortSignal) =>
       fetchTradeModel(input, signal, (async (url, options) => {
         assert.equal(url, "/api/economic-estimates"); assert.deepEqual(JSON.parse(String(options?.body)), request);
@@ -62,12 +63,14 @@ test("the unified hook retains Backend families and prefers optional cached arit
   const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
   const exports: { useTradeModel?: (input: TradeModelRequest, enabled: boolean) => {
     quotedOutput: bigint; quotedInput?: bigint; inputMaximum?: bigint;
+    upperDisplay?: { requestKey: string; quotedOutput: bigint };
     fees?: { protocolFeeCygld: bigint; helperFeeCygld: bigint; marketFeeCygld: bigint };
   } | undefined } = {};
   runInNewContext(output, { exports, require: (key: string) => { assert.ok(key in dependencies, key); return dependencies[key]; } });
   clearQuoteModels();
   try {
     assert.equal(exports.useTradeModel!(request, true)?.quotedOutput, 42n, "a cache miss retains the Backend-ranked estimate");
+    assert.equal(exports.useTradeModel!(request, true)?.upperDisplay,undefined,"ordinary models do not impose an upper visibility threshold");
     assert.equal(getMarketQuoteModel(model.family, identity), model, "retain the concrete producer adapter family");
     assert.equal(getMarketQuoteModel(model.family, "other-deployment"), undefined);
     assert.deepEqual(observedKey[4], request, "the unified request requires no caller adapter");
@@ -85,12 +88,22 @@ test("the unified hook retains Backend families and prefers optional cached arit
     assert.equal(plateau.fees?.protocolFeeCygld, 7n, "net output is not charged its displayed fees again");
     assert.equal(plateau.quotedInput, undefined, "the hint does not supply execution funding");
     assert.equal(plateau.inputMaximum, undefined);
+    assert.equal(plateau.upperDisplay?.quotedOutput,99n);
+    assert.equal(plateau.upperDisplay?.requestKey,JSON.stringify(economicQuoteKey({intent:1,inputs:[{currency:model.cygld,amount:request.amount}],
+      outputCurrency:request.counterToken},scope)),"visibility policy belongs to this exact requested budget and scope");
     const smaller = exports.useTradeModel!({ ...request, amount: "300" }, true)!;
     assert.equal(smaller.quotedOutput, 49n);
     assert.equal(smaller.fees?.marketFeeCygld, 0n);
     assert.equal(client.getQueryCache().getAll().length, 1, "arithmetic hints never become cached exact observations");
     assert.equal(exports.useTradeModel!({ ...request, native: true }, true)?.quotedOutput, 42n,
       "native output cannot reuse an ERC20-output family");
+    client.clear();
+    packet.estimate={strategy:"universal",source:"cached-upper",amount:"77",referenceInput:"600",basis:"observed-nonretained",
+      fees:{coreProtocolFeeCygld:"7",coreHelpersFeeCygld:"3",marketFeeCygld:"1"},context:marketFixtureQuote.context};
+    const backendUpper=exports.useTradeModel!(request,true)!;
+    assert.equal(backendUpper.quotedOutput,77n);assert.equal(backendUpper.upperDisplay?.quotedOutput,77n);
+    assert.equal(backendUpper.upperDisplay?.requestKey,plateau.upperDisplay?.requestKey,"Backend and local cached upper share this budget's existing quote key");
+    assert.equal(backendUpper.quotedInput,undefined);assert.equal(backendUpper.inputMaximum,undefined);
     assert.equal(exports.useTradeModel!(request, false), undefined);
   } finally { client.clear(); clearQuoteModels(); }
 });

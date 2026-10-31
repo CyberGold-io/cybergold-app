@@ -6,10 +6,11 @@ import { zeroAddress } from "viem";
 import { useProtocolConfiguration } from "@/app/context/protocolConfigurationContext";
 import { QuotePreviewError, quoteErrorMessage } from "@/app/utils/quoteErrors";
 import { economicTradeQuote, tradeAdapter, tradeQuoteResult, type TradeQuoteRequest } from "@/app/utils/tradeQuote";
+import type { UpperEstimateDisplayPolicy } from "@/app/utils/economicQuoteSearch";
 import { useEconomicQuote } from "./useEconomicQuote";
 import { useLegacyTradeQuote } from "./useLegacyTradeQuote";
 
-export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retainedPlan">, enabled: boolean) {
+export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retainedPlan">, enabled: boolean, upperEstimate?: UpperEstimateDisplayPolicy) {
   const { addresses } = useProtocolConfiguration(), t = useTranslations("Home");
   const inputKey = JSON.stringify(input);
   const legacy = useLegacyTradeQuote(input, enabled && input.mode !== "exact-in");
@@ -17,7 +18,7 @@ export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retai
   const economic = useEconomicQuote({ intent: input.side === "buy" ? 0 : 1,
     inputs: [{ currency: input.side === "buy" ? counter : addresses.core ?? zeroAddress, amount: input.amount }],
     outputCurrency: input.side === "buy" ? addresses.core ?? zeroAddress : counter },
-    enabled && input.mode === "exact-in" && Boolean(addresses.core && addresses.helpers));
+    enabled && input.mode === "exact-in" && Boolean(addresses.core && addresses.helpers), upperEstimate);
   const data = useMemo(() => {
     if (!enabled || !economic.data) return undefined;
     const captured: Omit<TradeQuoteRequest, "deadline" | "retainedPlan"> = JSON.parse(inputKey);
