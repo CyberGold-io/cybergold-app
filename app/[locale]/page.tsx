@@ -2095,6 +2095,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
         diagnosticStage: diagnostics.stage,
         walletConfirmationTracker: {
           setTotal: walletConfirmationTracker.setTotal,
+          signatureFulfilled: diagnostics.signatureFulfilled,
           requestNext(kind, label) {
             diagnostics.walletStep(kind);
             walletConfirmationTracker.requestNext(kind, label);

@@ -6,6 +6,8 @@ import { HELPERS_DIAMOND_ABI } from "../contracts/generated/helpersDiamond.ts";
 import { erc20Abi } from "../contracts/erc20.ts";
 import type { EthereumProvider } from "./ethereumProvider.ts";
 import type { MetaMaskBatchRequest, MetaMaskSignatureRequest } from "./metaMaskRequestBatch.ts";
+import { signWalletTypedDataGroup } from "./walletTypedData.ts";
+import { createSwapDiagnostics, type ClientDiagnostic } from "./clientDiagnostics.ts";
 const mainnetEnvironment = { ...appEnvironment, NEXT_PUBLIC_CHAIN_ID: "1" };
 const { createMetaMaskRequestBatch, prepareWalletSwapBatch, reportWalletRequestBatchDiagnostic, resolveSelectedMetaMaskExtension, WalletRequestBatchStoppedError, WalletSignatureBatchStoppedError } =
   await withEnvironment(mainnetEnvironment, () => import("./metaMaskRequestBatch.ts"));
@@ -327,6 +329,57 @@ test("a lost SDK completion after signing all payloads remains a stopped group w
     assert.ok(error instanceof WalletSignatureBatchStoppedError); assert.equal(error.completedSignatures, 2); return true;
   });
   assert.equal(f.outer.length, 1); assert.equal(f.inner.length, 2); assert.equal(f.raw.request, f.original);
+});
+
+test("SDK signing emits one safe fulfillment for each actual request, without an outer-group duplicate", async () => {
+  const f = signatureFixture(), events: ClientDiagnostic[] = [], observedArguments: unknown[][] = [];
+  const swap = createSwapDiagnostics({}, undefined, event => events.push(event));
+  const signatures = await signWalletTypedDataGroup([f.payload(token), f.payload(helpers)],
+    async () => { assert.fail("The eligible SDK owns signing"); }, f.batch, {
+      requestNext: swap.walletStep, signatureFulfilled: (...args) => { observedArguments.push(args); swap.signatureFulfilled(); },
+    });
+  assert.deepEqual(signatures, [f.signature, f.signature]);
+  assert.equal(f.outer.length, 1); assert.equal(f.inner.length, 2); assert.equal(f.raw.request, f.original);
+  assert.deepEqual(observedArguments, [[], []]);
+  assert.deepEqual(events.map(event => [event.operation, event.outcome]), [
+    ["swap", "started"], ["wallet", "requested"], ["wallet", "succeeded"], ["wallet", "requested"], ["wallet", "succeeded"],
+  ]);
+  assert.ok(events.every(event => event.attemptId === swap.id));
+  assert.equal(events.some(event => event.operation === "swap" && event.outcome === "succeeded"), false);
+  assert.doesNotMatch(JSON.stringify(events), new RegExp(`${f.signature.slice(2)}|primaryType|message|verifyingContract`));
+});
+
+test("SDK signature rejection reports only previously fulfilled requests and preserves no-replay behavior", async () => {
+  const f = signatureFixture(1); let observed = 0;
+  await assert.rejects(f.batch.signTypedData!([f.payload(token), f.payload(helpers), f.payload(permit2)], {
+    requestNext: () => {}, signatureFulfilled: () => { observed++; },
+  }), error => error instanceof WalletSignatureBatchStoppedError && error.completedSignatures === 1);
+  assert.equal(observed, 1); assert.equal(f.outer.length, 1); assert.equal(f.inner.length, 2); assert.equal(f.raw.request, f.original);
+});
+
+test("SDK aggregate failure retains actual fulfilled signatures without claiming group success or retrying", async () => {
+  const f = signatureFixture(-1, undefined, true); let observed = 0;
+  await assert.rejects(f.batch.signTypedData!([f.payload(token), f.payload(helpers)], {
+    requestNext: () => {}, signatureFulfilled: () => { observed++; },
+  }), error => error instanceof WalletSignatureBatchStoppedError && error.completedSignatures === 2);
+  assert.equal(observed, 2); assert.equal(f.outer.length, 1); assert.equal(f.inner.length, 2); assert.equal(f.raw.request, f.original);
+});
+
+test("an SDK fulfillment observer failure never discards a native result or adds signing requests", async () => {
+  const f = signatureFixture(); let observed = 0;
+  assert.deepEqual(await f.batch.signTypedData!([f.payload(token), f.payload(helpers)], {
+    requestNext: () => {}, signatureFulfilled: () => { observed++; throw new Error("observer unavailable"); },
+  }), [f.signature, f.signature]);
+  assert.equal(observed, 2); assert.equal(f.outer.length, 1); assert.equal(f.inner.length, 2); assert.equal(f.raw.request, f.original);
+});
+
+test("a rejected asynchronous SDK fulfillment observation does not escape or change a signature", async () => {
+  const f = signatureFixture(); let observed = 0;
+  assert.deepEqual(await f.batch.signTypedData!([f.payload(token)], {
+    requestNext: () => {}, signatureFulfilled: async () => { observed++; throw new Error("observer unavailable"); },
+  }), [f.signature]);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(observed, 1); assert.equal(f.outer.length, 1); assert.equal(f.inner.length, 1); assert.equal(f.raw.request, f.original);
 });
 
 test("eligible MetaMask atomic accounts retain the SDK signature group and their atomic transaction executor", async () => {

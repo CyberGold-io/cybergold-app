@@ -113,7 +113,7 @@ test("diagnostic failures cannot prevent submission or create retries", async ()
   assert.doesNotThrow(() => reportClientDiagnostic({ operation: "quote" }, fetcher));
   assert.doesNotThrow(() => reportClientDiagnostic({}, (() => { throw new Error("unavailable"); }) as typeof fetch));
   const swap = createSwapDiagnostics({}, undefined, () => { throw new Error("logger unavailable"); });
-  assert.doesNotThrow(() => { swap.walletStep("approval"); swap.submitted("hash"); swap.confirmed(); swap.failed({ code: 4001 }); });
+  assert.doesNotThrow(() => { swap.walletStep("approval"); swap.signatureFulfilled(); swap.submitted("hash"); swap.confirmed(); swap.failed({ code: 4001 }); });
   await new Promise(resolve => setImmediate(resolve)); assert.equal(calls, 1);
 });
 

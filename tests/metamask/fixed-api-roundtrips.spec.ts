@@ -1,6 +1,5 @@
-import { errors, type Page } from "@playwright/test";
 import { expect, test } from "./testWithMetaMask";
-import { addLocalNetwork, connectWallet, notification, walletRequestButton, requestConnection, switchLocalNetwork } from "./wallet-ui";
+import { addLocalNetwork, connectWallet, notification, requestConnection, switchLocalNetwork } from "./wallet-ui";
 import { ensureBasketInputEditable, getMainInput, getSwapButton, openFeeDetails, readWalletBalances, selectToken, showAllSellTokens } from "./token-flows/helpers";
 import { readFile, writeFile, rename } from "node:fs/promises";
 import { type Address, type Hex } from "viem";
@@ -23,7 +22,7 @@ import { installSelectionCapture, selectionCaptures, captureSelection, captureBa
 import { installQuoteObservation, quoteObservations } from "../trading/quoteObservation";
 import { safeDiagnosticReferences } from "../../app/utils/diagnosticReferences";
 import { installUiSwapObservation, uiSwapObservation } from "../trading/uiSwapObservation";
-import { confirmedTransactionText, createUiQuoteDiagnostics, isUiCompletionDeadlineError, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion, uiSetupFailure, uiSwapTerminalFailure } from "../trading/uiDiagnostics";
+import { createUiQuoteDiagnostics, isUiCompletionDeadlineError, uiObservationFailure, uiPreparationAssertion, uiSetupFailure, uiSwapTerminalFailure } from "../trading/uiDiagnostics";
 import { enrichResultQuality } from "../trading/quoteQuality";
 import { safeWalletClickError, type UiConfirmationDiagnostic } from "../trading/runnerDiagnostics";
 import { readWalletUiState } from "../trading/walletUiState";
@@ -33,49 +32,7 @@ import { cleanupOwnedWalletRequest, closeOwnedWalletContext, isWalletRequestClea
 import { hasUiReceiptOutcome, observeUiReceiptUntilDeadline, recoverUiTransaction, uiWalletRequestSettled } from "../trading/uiTransactionRecovery";
 import { waitForUiSwapReady } from "../trading/uiQuotePreparation";
 import { regressionPolicy, unexpectedFailure } from "../trading/runPolicy";
-
-async function approveUntilMined(page: Page, submitted: () => boolean, observe: () => Promise<void> = async () => {},
-  nativeProgress?: (event: { selection?: Pick<UiConfirmationDiagnostic, "notificationSelection" | "notificationViewCount">;
-    click?: "attempted" | "completed"; error?: unknown; view?: Page }) => void) {
-  const record = (event: Parameters<NonNullable<typeof nativeProgress>>[0]) => {
-    try { nativeProgress?.(event); } catch { /* Optional evidence cannot change a native action. */ }
-  };
-  const success = confirmedTransactionText(page);
-  const failure = page.getByText(/^Transaction failed$/i);
-  await uiCompletionAssertion(() => expect.poll(async () => {
-    await observe();
-    if (await failure.isVisible()) throw new Error((await page.locator("[data-sonner-toast]").allTextContents()).join(" | "));
-    if (await success.isVisible()) return true;
-    // A temporary confirmation read failure exposes the product's existing
-    // receipt-only recovery. Exercise it within this same completion window;
-    // never click Swap again or create another wallet request.
-    const recheck = page.getByRole("button", { name: /^Check confirmation$/i });
-    if (await recheck.isVisible() && await recheck.isEnabled()) {
-      await recheck.click({ timeout: 1000 }).catch(error => {
-        if (!(error instanceof errors.TimeoutError)) throw error;
-      });
-      return false;
-    }
-    const step = await (await getSwapButton(page)).innerText();
-    if (!/^MetaMask \d+ of \d+:/.test(step)) return false;
-    const popup = await notification(page, selection => record({ selection }), walletRequestButton);
-    if (popup) {
-      // Selection and click use the same native request control.
-      const confirm = walletRequestButton(popup);
-      // A native request can navigate or close between polls. Let one click
-      // check visibility/enabled state atomically, then re-read the App result.
-      try {
-        record({ click: "attempted" });
-        await confirm.click({ timeout: 1000 });
-        record({ click: "completed" });
-      } catch (error) {
-        record({ error, view: popup });
-        if (!(error instanceof errors.TimeoutError) && !popup.isClosed()) throw error;
-      }
-    }
-    return false;
-  }, { timeout: 90000, intervals: [250, 500, 1000] }).toBe(true), submitted);
-}
+import { approveUntilMined } from "../trading/uiCompletion";
 
 // Run with the disposable local protocol/backend fixture described in the E2E
 // guide. MetaMask signs only against the fixture's independently owned Anvil.
@@ -299,7 +256,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       try { const value = walletRpc?.snapshot(); if (value) confirmation.rpc = value; }
       catch { /* Optional transport observations cannot replace the wallet outcome. */ }
     };
-    try { await approveUntilMined(page, () => Boolean(helpersHash), async () => {
+    try { await approveUntilMined(page, () => Boolean(helpersHash), async (phase = "before-action") => {
       snapshotRpc();
       let terminalFailure: ReturnType<typeof uiSwapTerminalFailure>;
       try {
@@ -316,7 +273,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
           // Preserve observed settlement even if the toast/card check later fails.
           if (observed.outcome === "succeeded" && observed.transactionHash && activeResult())
             activeResult()!.transactionDisposition = "confirmed";
-          if (observed.transactionHash && currentResult && !hasUiReceiptOutcome(currentResult)) {
+          // After native action, capture local progress without delaying visible UI
+          // completion behind another optional receipt HTTP observation.
+          if (phase === "before-action" && observed.transactionHash && currentResult && !hasUiReceiptOutcome(currentResult)) {
             const remaining = Math.max(0, Math.floor((activeConfirmationDeadline ?? 0) - performance.now()));
             await recoverUiTransaction(currentResult, activeSwapAttempt, observed, fetcher,
               remaining > 0 ? AbortSignal.timeout(remaining) : AbortSignal.abort());
@@ -324,9 +283,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
           terminalFailure = uiSwapTerminalFailure(observed);
         }
       } catch { /* Optional observation cannot interrupt the native flow. */ }
-      // Preserve this bound terminal failure outside the optional read catch.
-      // Its hash/outcome does not establish independent receipt economics.
-      if (terminalFailure) throw terminalFailure;
+      // Return this bound terminal failure outside the optional read catch.
+      // The completion helper preserves its identity; optional read errors do not fail the UI.
+      return terminalFailure;
     }, event => {
       snapshotRpc();
       confirmation.elapsedMs = Math.max(0, Math.round(performance.now() - confirmationStarted));
@@ -340,7 +299,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
           if (observing && state) confirmation.uiState = state;
         }).catch(() => {}).finally(() => { readingUi = false; });
       }
-    }); } catch (error) {
+    }, activeConfirmationDeadline); } catch (error) {
       // Finish this original native request before the next case can select
       // another prompt. A late hash is retained; Swap is never clicked again.
       const deadlineExpired = isUiCompletionDeadlineError(error);
