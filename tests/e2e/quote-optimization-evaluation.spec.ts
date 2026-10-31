@@ -34,12 +34,29 @@ for (const symbol of ["WETH", "USDC"] as const) {
       const edited = inputs.first();
       await edited.click(); await edited.fill("1");
       const quoted = page.locator("#buy-amount");
-      await expect(quoted).not.toHaveAttribute("aria-busy", "true"); await expect(quoted).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
+      const form = page.locator("#swapsection"), refresh = page.locator("[data-trade-refresh]");
+      await expect(form).toHaveAttribute("data-trade-evaluation", "confirmed");
+      await expect(refresh).toBeEnabled();
+      await expect.poll(() => observed.intents.length).toBe(1);
+      await expect(quoted).toHaveText("1");
       const before = (await quoted.textContent())!, count = observed.intents.length;
-      pending = new Promise<void>(resolve => { finish = resolve; });
+      await page.clock.install();
+      const changedHash = `0x${"b".repeat(64)}`;
+      const changedFacts = page.waitForResponse(async response => new URL(response.url()).pathname === "/api/protocol/facts"
+        && (await response.json()).context.blockHash === changedHash);
       name = "Updated display name";
-      head = { ...head, blockHash: `0x${"b".repeat(64)}` };
-      await expect.poll(() => observed.intents.length).toBeGreaterThan(count);
+      head = { ...head, blockNumber: "101", blockHash: changedHash };
+      await page.clock.runFor(12_000);
+      const facts = await (await changedFacts).json();
+      expect(facts.context.blockHash).toBe(head.blockHash);
+      expect(facts.basket.metadata[0].name).toEqual({ status: "success", value: name });
+      await page.clock.runFor(250);
+      expect(observed.intents).toHaveLength(count);
+      await expect(quoted).toHaveText(before);
+      pending = new Promise<void>(resolve => { finish = resolve; });
+      await refresh.click();
+      await expect.poll(() => observed.intents.length).toBe(count + 1);
+      expect(observed.rawIntents.at(-1)).toMatchObject({ refresh: true });
       const start = performance.now(), samples: { elapsedMs: number; blank: boolean }[] = [];
       for (let i = 0; i < 20; i++) {
         samples.push({ elapsedMs: performance.now()-start, blank: /^(?:0(?:[.,]0+)?|\.\.\.)?$/.test((await quoted.textContent())!) });
@@ -48,12 +65,21 @@ for (const symbol of ["WETH", "USDC"] as const) {
       expect(samples.some(s => s.blank)).toBe(baseline);
       if (!baseline) await expect(quoted).toHaveText(before);
       await test.info().attach("refresh-measurement", { body: JSON.stringify({ baseline, mode, symbol, sampleIntervalMs:20, samples }), contentType:"application/json" });
-      finish(); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
-      // A changed raw input must not retain the preceding completed amount.
+      finish(); await expect(refresh).toBeEnabled();
+      await expect(form).toHaveAttribute("data-trade-evaluation", "confirmed");
+      // The new draft may have an arithmetic/model hint, but no executable
+      // observation or accepted minimum exists before its own quote qualifies.
       pending = new Promise<void>(resolve => { finish = resolve; });
-      await edited.fill("2");
-      await expect(quoted).toHaveText("...");
-      finish(); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
+      await edited.fill("2");await page.clock.runFor(150);
+      await expect.poll(() => observed.intents.length).toBe(count + 2);
+      await expect(page.getByTestId("quote-estimate-description")).toBeAttached();
+      await expect(quoted).toHaveText("2");
+      await expect(form).toHaveAttribute("data-trade-evaluation", "pending");
+      await expect(page.locator('[data-trade-display="feeMinimumOutput"]')).toHaveText("...");
+      finish(); await expect(refresh).toBeEnabled();
+      await expect(form).toHaveAttribute("data-trade-evaluation", "confirmed");
+      await expect(page.getByTestId("quote-estimate-description")).not.toBeAttached();
+      await expect(quoted).toHaveText("2");
     });
   }
 }
