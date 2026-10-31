@@ -81,20 +81,29 @@ test("a new input after clearing an idle form has economic fields only",async({p
   for(const name of ["deadline","recipient","slippageBps"])expect(fixture.pending.at(-1)!.input).not.toHaveProperty(name);
   await fixture.complete();await expect(page.locator("#buy-amount")).toHaveText("2");
 });
-test("visibility changes preserve a pending request and its measured result",async({page})=>{
+test("visibility cancels an unfinished search, resumes it once, and retains its completed observation",async({page})=>{
   const fixture=await controlled(page,false);await page.goto("/en");await choose(page,"WETH");await page.clock.install();
   await page.locator("#sell-amount").fill("1");await page.clock.runFor(250);await expect.poll(()=>fixture.pending.length).toBe(1);
   await visible(page,false);await page.clock.fastForward(601000);expect(fixture.pending).toHaveLength(1);
-  await fixture.complete();await expect(page.locator("#buy-amount")).toHaveText("1");
-  await visible(page,true);await page.clock.runFor(250);expect(fixture.pending).toHaveLength(1);
-  await expect(page.locator("#buy-amount")).toHaveText("1");
+  await fixture.complete("first",0);await expect(page.locator("#buy-amount")).toHaveText("...");
+  await visible(page,true);await page.clock.runFor(250);await expect.poll(()=>fixture.pending.length).toBe(2);
+  expect(fixture.pending[1].input.inputs[0].amount).toBe("1000000000000000000");
+  for(const name of ["deadline","recipient","slippageBps"])expect(fixture.pending[1].input).not.toHaveProperty(name);
+  await fixture.complete("first",1);await expect(page.locator("#buy-amount")).toHaveText("1");
+  await visible(page,false);await page.clock.fastForward(601000);await visible(page,true);await page.clock.runFor(250);
+  expect(fixture.pending).toHaveLength(2);await expect(page.locator("#buy-amount")).toHaveText("1");
 });
-test("an input edit while hidden starts one request without a visibility refetch",async({page})=>{
+test("hidden input edits wait for visibility and acquire only the latest intent once",async({page})=>{
   await page.addInitScript(()=>{Object.defineProperty(document,"hidden",{configurable:true,get:()=>true});Object.defineProperty(document,"visibilityState",{configurable:true,get:()=>"hidden"});});
   const fixture=await controlled(page,false);await page.goto("/en");await choose(page,"WETH");await page.clock.install();
-  await page.locator("#sell-amount").fill("1");await page.clock.runFor(1000);await expect.poll(()=>fixture.pending.length).toBe(1);
-  await visible(page,true);await page.clock.runFor(250);expect(fixture.pending).toHaveLength(1);
-  await fixture.complete();await expect(page.locator("#buy-amount")).toHaveText("1");
+  await page.locator("#sell-amount").fill("1");await page.clock.runFor(250);
+  await page.locator("#sell-amount").fill("2");await page.clock.fastForward(601000);expect(fixture.pending).toHaveLength(0);
+  await visible(page,true);await page.clock.runFor(250);await expect.poll(()=>fixture.pending.length).toBe(1);
+  expect(fixture.pending[0].input.inputs[0].amount).toBe("2000000000000000000");
+  for(const name of ["deadline","recipient","slippageBps"])expect(fixture.pending[0].input).not.toHaveProperty(name);
+  await fixture.complete();await expect(page.locator("#buy-amount")).toHaveText("2");
+  await visible(page,false);await page.clock.fastForward(601000);await visible(page,true);await page.clock.runFor(250);
+  expect(fixture.pending).toHaveLength(1);await expect(page.locator("#buy-amount")).toHaveText("2");
 });
 test("token selection and reversal clear the previous economic intent",async({page})=>{
   const fixture=await controlled(page,false);await page.goto("/en");await choose(page,"WETH");
