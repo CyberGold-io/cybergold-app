@@ -870,6 +870,7 @@ function TradingScreen() {
   const activeUniversalQuote = isActiveTokenFlow ? (tradeFlow.selected?.value.strategy === "universal" ? tradeFlow.selected.value : undefined)
     : isIssueFromBasketExactIn ? issueFromBasketExactInFlow.universalQuote : isRedeemToBasketExactIn ? redeemToBasketExactInFlow.universalQuote : undefined;
   const activeQuoteStatus = activeFlow?.quoteStatus;
+  const activeQuoteInvalidated = activeFlow?.invalidated ?? false;
   const activeQuoteError = activeFlow?.quoteError;
   const qualifiedBasketQuote = !isActiveTokenFlow && activeQuoteStatus === "success" && !quoteInputPending
     ? activeUniversalQuote : undefined;
@@ -1003,7 +1004,7 @@ function TradingScreen() {
   // the route-search debounce, until the Backend qualifies the new intent.
   const cachedEvaluationConfirmed = cachedTradeDisplay?.evaluationStatus === "confirmed" ||
     (cachedTradeDisplay?.evaluationStatus === undefined && cachedTradeDisplay?.quoteComplete === "true");
-  const keepConfirmedEvaluation = cachedEvaluationConfirmed && (reloadEvaluation === undefined ||
+  const keepConfirmedEvaluation = !activeQuoteInvalidated && cachedEvaluationConfirmed && (reloadEvaluation === undefined ||
     (reloadEvaluation.unchanged && reloadEvaluation.draft === evaluationDraftKey)) &&
     activeQuoteStatus !== "failed" && !isPurchaseOverCap;
   const evaluationStatus = executionBoundsReady || keepConfirmedEvaluation ? "confirmed"
@@ -1211,7 +1212,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
     derivedBasketAmountsAsBigIntLst,
     basketComponents.map(component => [component.token.address, component.token.decimals, component.targetWeight])];
   const retainedReceiveQuote = useRetainedQuoteDisplay(displayQuoteIdentity,
-    quoteInputPending ? EMPTY_PREFILL : computedReceiveQuote, quoteInputPending ? "idle" : activeQuoteStatus, isSubmittingSwap);
+    quoteInputPending ? EMPTY_PREFILL : computedReceiveQuote, activeQuoteInvalidated ? "invalidated" : quoteInputPending ? "idle" : activeQuoteStatus, isSubmittingSwap);
   const localPrefill: Prefill | undefined = localQuoteAmount !== undefined && localQuoteAmount > 0n &&
     (quoteInputPending || activeQuoteStatus === "loading" || isPurchaseOverCap) && !retainedReceiveQuote.retained ? {
       main: formatAmount(localQuoteAmount, buyTokenDecimals ?? 18),
@@ -1484,7 +1485,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
 
   // These strings retain presentation only; execution keeps its live quote.
   const feeText = (slot: string, current?: string, fiatAvailable = true) => {
-    if (hasArithmeticFeeEstimate) return current ?? "...";
+    if (hasArithmeticFeeEstimate || activeQuoteInvalidated) return current ?? "...";
     const cached = cachedTradeDisplay?.[slot];
     if (cached !== undefined && (restoreFormattedDisplay || activeQuoteStatus !== "success" || quoteInputPending || current === undefined || !fiatAvailable)) {
       return cached;
@@ -1492,7 +1493,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
     return current ?? "...";
   };
   const feeLabel = (slot: string, current: string, plain: string) =>
-    !hasArithmeticFeeEstimate && cachedTradeDisplay?.[slot] && (restoreFormattedDisplay || activeQuoteStatus !== "success" || quoteInputPending)
+    !hasArithmeticFeeEstimate && !activeQuoteInvalidated && cachedTradeDisplay?.[slot] && (restoreFormattedDisplay || activeQuoteStatus !== "success" || quoteInputPending)
       ? cachedTradeDisplay[slot] : feeDisplay.fees ? current : cachedTradeDisplay?.[slot] ?? plain;
   const feePresentation = {
     feeTotal: feeText("feeTotal", feeDisplay.totalFeeUsd !== undefined
@@ -1664,7 +1665,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
   const hasProgressiveBuyEstimate = (isIssueFromTokenExactIn || isRedeemToTokenExactIn || isIssueFromBasketExactIn) &&
     (activeQuoteStatus === "loading" || quoteInputPending) && !retainedReceiveQuote.retained && receiveQuote.mainRaw > 0n;
   const liveDisplayedQuotedBuyAmount = formatMeaningfulDecimalString(receiveQuote.main, locale);
-  const keepCompletedQuotePresentation = !isSpendAmountZero && cachedTradeDisplay?.quoteComplete === "true" &&
+  const keepCompletedQuotePresentation = !activeQuoteInvalidated && !isSpendAmountZero && cachedTradeDisplay?.quoteComplete === "true" &&
     (quoteInputPending || activeQuoteStatus !== "success");
   const showPurchaseSpending = !showSellBasket || isIssueFromBasketExactIn;
   const readySpendingQuote = activeQuoteStatus === "success" && !quoteInputPending
@@ -1701,6 +1702,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
   // A cleared draft and a rejected, never-qualified estimate cannot restore
   // their own cached placeholder/value. Confirmed refresh retention is above.
   const displayedQuotedBuyAmount = isSpendAmountZero ? zeroAmountPlaceholder
+    : activeQuoteInvalidated ? loadingAmountPlaceholder
     : keepCompletedQuotePresentation ? cachedTradeDisplay?.buyAmount
     : liveDisplayedQuotedBuyAmount || (activeQuoteStatus !== "failed" ? cachedTradeDisplay?.buyAmount : undefined);
 
@@ -1940,13 +1942,17 @@ const computedReceiveQuote = useMemo((): Prefill => {
     basketMaxRequestRef.current++;
     basketMaxAbortRef.current?.abort();
     // Capture the execution closure and visible terms before the first await.
-    const executionFlow = activeFlow;
-    const selectedTrade = isActiveTokenFlow ? tradeFlow.selected : undefined;
-    const diagnostics = createSwapDiagnostics({ ...diagnosticContext, ...activeQuoteReferences },
-      activeQuoteReferences.attemptId ?? quoteDiagnostics.current?.id);
+    const executionFlow = activeFlow.captureSubmission();
+    if (!executionFlow) return;
+    const selectedTrade = executionFlow.selectedTrade;
+    const capturedUniversal = executionFlow.universalQuote;
+    activeFlow.stopSearch();
+    const capturedReferences = selectedTrade?.diagnostics ?? diagnosticReferences(capturedUniversal);
+    const diagnostics = createSwapDiagnostics({ ...diagnosticContext, ...capturedReferences },
+      capturedReferences.attemptId ?? quoteDiagnostics.current?.id);
     setSwapFailureReference(undefined);
     let executionHelpers: Address;
-    try { executionHelpers = requireProtocolAddress((activeUniversalQuote?.deployment.helpers as Address | undefined) ?? selectedTrade?.deployment?.helpers ?? HELPERS_DIAMOND_ADDRESS, "Helpers"); }
+    try { executionHelpers = requireProtocolAddress((capturedUniversal?.deployment.helpers as Address | undefined) ?? selectedTrade?.deployment?.helpers ?? HELPERS_DIAMOND_ADDRESS, "Helpers"); }
     catch (error) {
       diagnostics.failed(error); setSwapFailureReference(diagnosticReference(error) ?? diagnostics.id);
       toast.error(t("transactionFailed"), { description: t("transactionFailedDescription") }); return;
@@ -1956,7 +1962,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
     setConfirmedTrade(undefined);
     const frozenSelection = selectedTrade && captureTradeQuote(selectedTrade);
     setFrozenTrade(frozenSelection);
-    setFrozenUniversal(activeUniversalQuote && structuredClone(activeUniversalQuote));
+    setFrozenUniversal(capturedUniversal && structuredClone(capturedUniversal));
     if (frozenSelection?.value.strategy === "universal" && isEconomicQuote(frozenSelection.value)) {
       observeTradeSelection({ attemptId: diagnostics.id, economicQuote: frozenSelection.value,
         deployment: frozenSelection.deployment, diagnostics: frozenSelection.diagnostics });
@@ -1964,17 +1970,17 @@ const computedReceiveQuote = useMemo((): Prefill => {
       observeTradeSelection({ attemptId: diagnostics.id, quote: frozenSelection.value,
         deployment: frozenSelection.deployment, diagnostics: frozenSelection.diagnostics,
         intent: { ...tradeInput, deadline: frozenSelection.value.providerRequest.deadline } });
-    } else if (activeUniversalQuote) {
-      observeTradeSelection({ attemptId: diagnostics.id, ...(isEconomicQuote(activeUniversalQuote)
-        ? { economicQuote: structuredClone(activeUniversalQuote) } : { universalQuote: structuredClone(activeUniversalQuote) }),
-        deployment: { core: addresses.core, helpers: activeUniversalQuote.deployment.helpers as Address, adapter: activeUniversalQuote.deployment.adapter as Address } });
+    } else if (capturedUniversal) {
+      observeTradeSelection({ attemptId: diagnostics.id, ...(isEconomicQuote(capturedUniversal)
+        ? { economicQuote: structuredClone(capturedUniversal) } : { universalQuote: structuredClone(capturedUniversal) }),
+        deployment: { core: addresses.core, helpers: capturedUniversal.deployment.helpers as Address, adapter: capturedUniversal.deployment.adapter as Address } });
 
     }
     const confirmSelectedTransaction = async (hash: Hex) => {
       const receipt = await diagnostics.confirm(() => confirmTransaction(hash));
-      if (selectedTrade || activeUniversalQuote) {
+      if (selectedTrade || capturedUniversal) {
         const measured = tradeReceipt(receipt.logs, executionHelpers, address, selectedTrade?.value.strategy ?? "universal",
-          (selectedTrade?.value.tokenIn ?? activeUniversalQuote?.inputs[0]?.currency) as Address);
+          (selectedTrade?.value.tokenIn ?? capturedUniversal?.inputs[0]?.currency) as Address);
         if (measured) setConfirmedTrade({ receipt: measured, input: receiptInput, output: receiptOutput });
       }
       return receipt;
@@ -1985,9 +1991,10 @@ const computedReceiveQuote = useMemo((): Prefill => {
     let walletBatch: WalletSwapBatch | undefined;
     const requiredBalances = isIssueFromBasketExactIn
       ? basketComponents.map((component, index) => ({ tokenId: component.token.id,
-          amount: issueFromBasketExactInFlow.amountsInUsed?.[index] ?? 0n }))
+          amount: capturedUniversal ? BigInt(capturedUniversal.inputs.find(row=>row.currency.toLowerCase()===component.token.address.toLowerCase())?.amount??"0")
+            : issueFromBasketExactInFlow.amountsInUsed?.[index] ?? 0n }))
       : [{ tokenId: sellTokenId, amount: frozenSelection?.inputMaximum
-          ?? (activeUniversalQuote ? BigInt(activeUniversalQuote.inputs[0].amount) : editedSellAmount) }];
+          ?? (capturedUniversal ? BigInt(capturedUniversal.inputs[0].amount) : editedSellAmount) }];
     setIsSubmittingSwap(true);
     diagnostics.stage("balance");
     try {
@@ -2063,8 +2070,8 @@ const computedReceiveQuote = useMemo((): Prefill => {
     const confirmBatch = async (submission: WalletBatchSubmission) => {
       const result = await diagnostics.confirm(() => submission.wait());
       announceTransactionSuccess(result.transactionHash);
-      if (result.logs && (selectedTrade || activeUniversalQuote)) {
-        const measured = tradeReceipt(result.logs, executionHelpers, address, selectedTrade?.value.strategy ?? "universal", (selectedTrade?.value.tokenIn ?? activeUniversalQuote?.inputs[0]?.currency) as Address);
+      if (result.logs && (selectedTrade || capturedUniversal)) {
+        const measured = tradeReceipt(result.logs, executionHelpers, address, selectedTrade?.value.strategy ?? "universal", (selectedTrade?.value.tokenIn ?? capturedUniversal?.inputs[0]?.currency) as Address);
         if (measured) setConfirmedTrade({ receipt: measured, input: receiptInput, output: receiptOutput });
       }
       return result;

@@ -19,7 +19,7 @@ async function prepareFeeDisplay(page: Page) {
   const observed = await install(page);
   const economicRequests: Record<string, unknown>[] = [];
   page.on("request", request => {
-    if (new URL(request.url()).pathname === "/api/economic-quotes") economicRequests.push(request.postDataJSON());
+    if (new URL(request.url()).pathname === "/api/economic-quotes/stream") economicRequests.push(request.postDataJSON());
   });
   await installEthDisplayPrices(page, () => 2000);
   await page.route("**/api/transaction/fees", route => route.fulfill({ json: {

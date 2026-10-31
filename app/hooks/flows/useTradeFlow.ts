@@ -3,7 +3,7 @@
 import { useCallback } from "react";
 import { getAddress, toHex } from "viem";
 import { CORE_TOKEN_KIND } from "@/app/types";
-import { tradeAdapter, type TradeQuoteRequest, type TradeQuoteResult } from "@/app/utils/tradeQuote";
+import { captureTradeQuote, tradeAdapter, type TradeQuoteRequest, type TradeQuoteResult } from "@/app/utils/tradeQuote";
 import { submitTradeQuote } from "@/app/utils/tradeExecution";
 import { quoteIntentResult } from "@/app/utils/quoteIntent";
 import { useTradeQuote } from "./quotes/useTradeQuote";
@@ -26,6 +26,15 @@ export function useTradeFlow({ input, enabled, frozen, onNetworkFeeEstimate, onN
     if (!selected) throw new Error("Trading quote is not ready");
     return submitTradeQuote(selected, params, { universal: universal.submit, market: market.submit, tokenPurchase: submitTokenPurchase });
   }, [selected, universal.submit, market.submit, submitTokenPurchase]);
+  const captureQuoteReady = quote.captureReady;
+  const captureSubmission = useCallback(() => {
+    const current = frozen ?? captureQuoteReady();
+    if (!current) return undefined;
+    const captured = captureTradeQuote(current);
+    return { selectedTrade: captured, universalQuote: captured.value.strategy === "universal" ? captured.value : undefined,
+      submit: (params: SubmitBasketFlowParams) => submitTradeQuote(captured, params,
+        { universal: universal.submit, market: market.submit, tokenPurchase: submitTokenPurchase }) };
+  }, [frozen, captureQuoteReady, universal.submit, market.submit, submitTokenPurchase]);
   const fees = selected?.value.strategy === "universal"
     ? { protocolFeeCygld: BigInt(selected.value.fees.coreProtocolFeeCygld), helperFeeCygld: BigInt(selected.value.fees.coreHelpersFeeCygld), marketFeeCygld: BigInt(selected.value.fees.marketFeeCygld) }
     : selected?.value.strategy === "market"
@@ -33,6 +42,7 @@ export function useTradeFlow({ input, enabled, frozen, onNetworkFeeEstimate, onN
   const expected = selected ? input.mode === "exact-in" ? selected.quotedOutput : selected.quotedInput : quote.estimate;
   return {
     selected, strategy: selected?.value.strategy, optimizing: !frozen && quote.optimizing,
+    captureSubmission, stopSearch: quote.stopSearch, invalidated: quote.invalidated,
     refresh: quote.refresh, refreshing: !frozen && quote.refreshing, refreshError: frozen ? undefined : quote.refreshError,
     adapter: selected ? tradeAdapter(selected.value) : undefined,
     requiresSwapAdapter: selected?.value.strategy === "universal" ? false : selected?.value.strategy === "market" || (core?.quotes.length ?? 0) + (core?.redemptionQuotes.length ?? 0) > 0,

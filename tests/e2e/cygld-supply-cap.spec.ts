@@ -211,10 +211,15 @@ for (const fullModel of [false, true]) for (const scenario of [
   setCapacity(600n * unit);
   await page.reload();
   await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
-  const feeDetails = page.getByRole("button", { name: /Total fee/ });
+  const liveForm = page.getByTestId("trade-live-view");
+  await expect(liveForm).toBeVisible();
+  await expect(page.getByTestId("trade-cached-view")).toBeHidden();
+  const feeDetails = liveForm.getByRole("button", { name: /Total fee/ });
   if (await feeDetails.getAttribute("aria-expanded") === "false") await feeDetails.click();
-  await page.locator("#execution-tolerance").fill("0.5");
-  await page.locator("#execution-tolerance").blur();
+  const tolerance = liveForm.locator("#execution-tolerance");
+  await expect(tolerance).toBeVisible();
+  await tolerance.fill("0.5");
+  await tolerance.blur();
   await expect(page.getByRole("slider", { name: "Adjust execution tolerance", exact: true })).toHaveValue("0.5");
   await page.getByRole("button", { name: "Use maximum sell amount", exact: true }).click();
   await expect.poll(() => maxRequests.at(-1)).toEqual({ driverToken: xautAsset, maximumAmountsIn: [

@@ -92,7 +92,7 @@ test("a later canonical quote replaces the whole selected plan on a new input", 
 test("input edits cancel an obsolete universal answer", async ({ page }) => {
   let release!: () => void; const waiting = new Promise<void>(resolve => { release = resolve; });
   const observed = await installMarket(page, () => waiting); const aborted: string[] = [];
-  page.on("requestfailed", request => { if (new URL(request.url()).pathname === "/api/economic-quotes") aborted.push(request.postDataJSON().inputs[0].amount); });
+  page.on("requestfailed", request => { if (new URL(request.url()).pathname === "/api/economic-quotes/stream") aborted.push(request.postDataJSON().inputs[0].amount); });
   await page.goto("/en"); await selectPaxg(page); await page.locator("#sell-amount").fill("1");
   await expect.poll(() => observed.requests.length).toBe(1);
   await page.locator("#sell-amount").fill("2"); await expect.poll(() => observed.requests.length).toBe(2);

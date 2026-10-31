@@ -25,7 +25,7 @@ export async function fetchQuoteStream<Value, Event extends { type: string }>(
   if (!response.body) throw new QuotePreviewError("quote-stream-interrupted", "Quote stream interrupted.", metadata);
   const reader = response.body.getReader(), decoder = new TextDecoder();
   let pending = "";
-  const cancel = () => { void reader.cancel(signal.reason); };
+  const cancel = () => { void reader.cancel(signal.reason).catch(() => {}); };
   signal.addEventListener("abort", cancel, { once: true });
   try {
     while (true) {

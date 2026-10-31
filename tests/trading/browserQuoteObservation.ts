@@ -19,7 +19,7 @@ export function browserQuoteMatcher(scenario: Scenario, config: ProtocolConfigur
       return body.mode === scenario.inputMode && body.amount === intended!.amount && body.side === intended!.side
         && sameCurrency(body.counterToken, intended!.counterToken) && body.native === intended!.native && positive(body.amount);
     }
-    if (!["/api/economic-quotes", "/api/quotes/universal-exact-input"].includes(observation.path)) return false;
+    if (!["/api/economic-quotes", "/api/economic-quotes/stream", "/api/quotes/universal-exact-input"].includes(observation.path)) return false;
     const basket = scenario.asset === "BASKET", buy = scenario.side === "buy";
     if (body.intent !== (basket ? buy ? 2 : 3 : buy ? 0 : 1)) return false;
     const counter = intended?.native ? zeroAddress : intended?.counterToken;
