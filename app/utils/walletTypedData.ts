@@ -10,6 +10,8 @@ export async function signWalletTypedDataGroup(requests: readonly WalletTypedDat
   for (const request of requests) {
     tracker?.requestNext("signature", "Permit signature");
     signatures.push(await signTypedData(request));
+    try { void Promise.resolve(tracker?.signatureFulfilled?.()).catch(() => {}); }
+    catch { /* Optional observation cannot replace the fulfilled signing result. */ }
   }
   return signatures;
 }

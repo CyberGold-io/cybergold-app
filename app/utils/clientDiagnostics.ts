@@ -132,6 +132,7 @@ export function createSwapDiagnostics(context: DiagnosticContext, quoteId?: stri
     get id() { return attemptId; },
     stage(value: DiagnosticStage) { stage = value; },
     walletStep(walletStep: ClientDiagnostic["walletStep"]) { stage = walletStep === "transaction" ? "submission" : "authorization"; record({ operation: "wallet", outcome: "requested", walletStep }); },
+    signatureFulfilled() { record({ operation: "wallet", outcome: "succeeded", stage: "authorization", walletStep: "signature" }); },
     submitted(hash?: string) { submitted = true; transactionHash = hash; stage = "submission"; record({ outcome: "submitted" }); stage = "confirmation"; },
     confirmed,
     async confirm<T extends { transactionHash?: string }>(read: () => Promise<T>): Promise<T> {

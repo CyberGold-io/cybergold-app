@@ -77,21 +77,21 @@ test("late predecessor events retain their own identity and no raw payload is ca
 });
 
 test("UI confirmation exercises receipt-only recovery inside its existing deadline without resubmitting", async () => {
-  const source = readFileSync(new URL("../../tests/metamask/fixed-api-roundtrips.spec.ts", import.meta.url), "utf8");
+  const source = readFileSync(new URL("../../tests/trading/uiCompletion.ts", import.meta.url), "utf8");
   const parsed = ts.createSourceFile("suite.ts", source, ts.ScriptTarget.Latest, true);
   const declaration = parsed.statements.find(value => ts.isFunctionDeclaration(value) && value.name?.text === "approveUntilMined");
   assert.ok(declaration && ts.isFunctionDeclaration(declaration));
   let confirmed = false, recoveries = 0, observations = 0;
-  const approve = vm.runInNewContext(ts.transpile(declaration.getText(parsed), { target: ts.ScriptTarget.ES2022 }) + "; approveUntilMined", {
-    errors: { TimeoutError: class extends Error {} },
+  const approve = vm.runInNewContext(ts.transpile(declaration.getText(parsed).replace(/^export\s+/, ""), { target: ts.ScriptTarget.ES2022 }) + "; approveUntilMined", {
+    performance, errors: { TimeoutError: class extends Error {} },
     confirmedTransactionText: () => ({ isVisible: async () => confirmed }),
     getSwapButton: () => { throw new Error("must not resubmit Swap or touch an unrelated wallet request"); },
     uiCompletionAssertion: async (action: () => Promise<unknown>) => action(),
     expect: { poll: (read: () => Promise<boolean>, options: { timeout: number; intervals: number[] }) => {
-      assert.equal(options.timeout, 90_000); assert.deepEqual(Array.from(options.intervals), [250, 500, 1000]);
-      return { toBe: async (value: boolean) => { assert.equal(await read(), false); assert.equal(await read(), value); } };
+      assert.ok(options.timeout > 89_000 && options.timeout <= 90_000); assert.deepEqual(Array.from(options.intervals), [250, 500, 1000]);
+      return { toBe: async (value: boolean) => { assert.equal(await read(), value); } };
     } },
-  }) as (page: Page, submitted: () => boolean, observe: () => Promise<void>) => Promise<void>;
+  }) as (page: Page, submitted: () => boolean, observe: () => Promise<Error | undefined>, progress: undefined, deadline: number) => Promise<void>;
   const page = {
     getByText: () => ({ isVisible: async () => false }),
     getByRole: (_role: string, options: { name: RegExp }) => {
@@ -100,7 +100,7 @@ test("UI confirmation exercises receipt-only recovery inside its existing deadli
         click: async () => { recoveries++; confirmed = true; } };
     },
   } as unknown as Page;
-  await approve(page, () => true, async () => { observations++; });
+  await approve(page, () => true, async () => { observations++; return undefined; }, undefined, performance.now() + 90_000);
   assert.equal(recoveries, 1); assert.equal(observations, 2);
 });
 
@@ -122,7 +122,7 @@ function submitObserver(page: Page, result: ScenarioResult, attemptId: string) {
     fetcher: (async () => { throw new Error("No receipt read may start after the original deadline."); }) as typeof fetch,
     confirmation: { elapsedMs: 0, clickAttempts: 0, clickCompleted: 0 }, confirmationStarted: performance.now(), performance };
   const observe = vm.runInNewContext(ts.transpile(`const observe = ${callback.getText(parsed)}; observe;`,
-    { target: ts.ScriptTarget.ES2022 }), scope) as () => Promise<void>;
+    { target: ts.ScriptTarget.ES2022 }), scope) as (phase?: "before-action" | "after-action") => Promise<Error | undefined>;
   return { observe, scope };
 }
 
@@ -135,20 +135,20 @@ test("current App-reported revert cannot become a deadline error or pass on a st
     const result = { status: "unavailable", transactionDisposition: "unknown", refs: { attemptId: "e9eb96b2-8ecf-429d-9e08-244f43257e8e" } } as ScenarioResult;
     const page = { evaluate: local.page.evaluate, getByText: () => ({ isVisible: async () => false }) } as unknown as Page;
     const { observe, scope } = submitObserver(page, result, current.id!);
-    const source = readFileSync(new URL("../../tests/metamask/fixed-api-roundtrips.spec.ts", import.meta.url), "utf8");
+    const source = readFileSync(new URL("../../tests/trading/uiCompletion.ts", import.meta.url), "utf8");
     const parsed = ts.createSourceFile("suite.ts", source, ts.ScriptTarget.Latest, true);
     const declaration = parsed.statements.find(value => ts.isFunctionDeclaration(value) && value.name?.text === "approveUntilMined");
     assert.ok(declaration);
     let polls = 0, staleSuccessReads = 0;
-    const approve = vm.runInNewContext(ts.transpile(declaration.getText(parsed), { target: ts.ScriptTarget.ES2022 }) + "; approveUntilMined", {
-      errors: { TimeoutError: class extends Error {} }, uiCompletionAssertion,
+    const approve = vm.runInNewContext(ts.transpile(declaration.getText(parsed).replace(/^export\s+/, ""), { target: ts.ScriptTarget.ES2022 }) + "; approveUntilMined", {
+      performance, errors: { TimeoutError: class extends Error {} }, uiCompletionAssertion,
       confirmedTransactionText: () => ({ isVisible: async () => { staleSuccessReads++; return true; } }),
       expect: { poll: (read: () => Promise<boolean>, options: { timeout: number }) => {
-        assert.equal(options.timeout, 90_000);
+        assert.ok(options.timeout > 89_000 && options.timeout <= 90_000);
         return { toBe: async () => { polls++; await read(); } };
       } },
-    }) as (page: Page, submitted: () => boolean, observer: () => Promise<void>) => Promise<void>;
-    await assert.rejects(approve(page, () => Boolean(scope.helpersHash), observe),
+    }) as (page: Page, submitted: () => boolean, observer: () => Promise<Error | undefined>, progress: undefined, deadline: number) => Promise<void>;
+    await assert.rejects(approve(page, () => Boolean(scope.helpersHash), observe, undefined, performance.now() + 90_000),
       (error: { code?: string }) => error.code === "product-reported-revert");
     assert.equal(polls, 1); assert.equal(staleSuccessReads, 0);
     assert.equal(scope.helpersHash, hash); assert.equal(result.refs?.attemptId, current.id);
@@ -223,5 +223,45 @@ test("the actual confirmation observer cancels its original bounded receipt read
     assert.equal(reads, 1); assert.equal(result.transactionHash, hash); assert.equal(result.receipt, undefined);
     assert.equal(result.transactionDisposition, "unknown"); assert.equal(result.status, "fail");
     assert.equal(result.code, "ui-completion-not-observed");
+  } finally { local.restore(); }
+});
+
+test("signature fulfillment remains wallet progress and cannot establish trade success or retarget another attempt", async () => {
+  const local = localPage();
+  try {
+    installUiSwapObservation(local.scope);
+    const old = createSwapDiagnostics({}, undefined, () => {});
+    const current = createSwapDiagnostics({}, undefined, () => {});
+    current.walletStep("signature");
+    const fulfilled = (attemptId: string) => local.scope.dispatchEvent(new CustomEvent(CLIENT_DIAGNOSTIC_EVENT, { detail: {
+      operation: "wallet", outcome: "succeeded", stage: "authorization", walletStep: "signature", attemptId, durationMs: 100,
+    } }));
+    fulfilled(current.id!);
+    const pending = await uiSwapObservation(local.page);
+    assert.equal(pending?.attemptId, current.id); assert.equal(pending?.outcome, "started");
+    assert.equal(pending?.transactionHash, undefined); assert.equal(pending?.walletStep, "signature");
+    current.failed({ name: "TimeoutError" });
+    fulfilled(current.id!); fulfilled(old.id!);
+    const failed = await uiSwapObservation(local.page);
+    assert.equal(failed?.attemptId, current.id); assert.equal(failed?.outcome, "failed");
+    assert.equal(failed?.transactionHash, undefined);
+  } finally { local.restore(); }
+});
+
+test("after-action observation captures the original hash without starting an optional stalled receipt request", async () => {
+  const local = localPage();
+  try {
+    installUiSwapObservation(local.scope);
+    const current = createSwapDiagnostics({}, undefined, () => {});
+    current.submitted(hash);
+    const result = { status: "unavailable", transactionDisposition: "unknown" } as ScenarioResult;
+    const { observe, scope } = submitObserver(local.page, result, current.id!);
+    scope.activeConfirmationDeadline = performance.now() + 60_000;
+    let requests = 0;
+    scope.fetcher = (async () => { requests++; return new Promise<Response>(() => {}); }) as typeof fetch;
+    assert.equal(await observe("after-action"), undefined);
+    assert.equal(requests, 0, "Visible completion does not wait for or start optional receipt HTTP after native action.");
+    assert.equal(scope.helpersHash, hash); assert.equal(result.refs?.attemptId, current.id);
+    assert.equal(result.receipt, undefined); assert.equal(result.transactionDisposition, "unknown");
   } finally { local.restore(); }
 });
