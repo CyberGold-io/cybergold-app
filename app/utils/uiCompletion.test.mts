@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { errors, type Page } from "@playwright/test";
+import { errors, expect, type Page } from "@playwright/test";
 import { approveUntilMined } from "../../tests/trading/uiCompletion.ts";
 import { isUiCompletionDeadlineError } from "../../tests/trading/uiDiagnostics.ts";
 
@@ -134,4 +134,34 @@ test("multiple ordinary native polls retain their schedule before the final read
   await approveUntilMined(f.page, () => false, f.observe, undefined, performance.now() + 3000);
   assert.equal(f.state.clicks, 4); assert.equal(f.state.opens, 4);
   assert.deepEqual(f.state.phases, ["before-action", "after-action", "before-action", "after-action", "before-action", "after-action", "before-action", "after-action"]);
+});
+
+
+test("helper settlement stops a losing callback while its original absolute deadline is still future", async () => {
+  const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const originalError = new Error("ordinary enclosing matcher error");
+  const f = fixture({ click: async () => {} });
+  const deadline = performance.now() + 10_000;
+  const originalPoll = expect.poll;
+  let callback: Promise<unknown> | undefined;
+  // This ownership control deliberately supplies only the toBe matcher it calls.
+  expect.poll = ((read: () => Promise<unknown>) => ({ toBe: async () => {
+    callback = read(); void callback.catch(() => {});
+    await entered.promise;
+    throw originalError;
+  } })) as unknown as typeof expect.poll;
+  let observations = 0;
+  try {
+    await assert.rejects(approveUntilMined(f.page, () => false, async () => {
+      observations++; entered.resolve(); await release.promise; return undefined;
+    }, undefined, deadline), error => error === originalError);
+    const beforeRelease = observations;
+    release.resolve(); await callback;
+    assert.ok(performance.now() < deadline);
+    assert.equal(observations, beforeRelease);
+    assert.equal(f.state.clicks, 0); assert.equal(f.state.opens, 0);
+  } finally {
+    expect.poll = originalPoll;
+    release.resolve(); await callback;
+  }
 });
