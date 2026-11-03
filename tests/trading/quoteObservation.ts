@@ -16,10 +16,13 @@ export function quoteObservationIncumbent(observations: readonly QuoteObservatio
   type Incumbent = { observation: QuoteObservation; value: unknown };
   let incumbent: Incumbent | undefined;
   const sameContext = (value: unknown, context: unknown) => {
-    const left = (value as {context?: {chainId?: number; blockHash?: string}} | undefined)?.context;
-    const right = context as {chainId?: number; blockHash?: string} | undefined;
-    return typeof left?.blockHash === 'string' && typeof right?.blockHash === 'string'
-      && left.chainId === right.chainId && left.blockHash.toLowerCase() === right.blockHash.toLowerCase();
+    const left = (value as {context?: {chainId?: number; blockHash?: string | null; observedAt?: string}} | undefined)?.context;
+    const right = context as {chainId?: number; blockHash?: string | null; observedAt?: string} | undefined;
+    if (!left || !right || left.chainId !== right.chainId) return false;
+    if (typeof left.blockHash === 'string' && typeof right.blockHash === 'string')
+      return left.blockHash.toLowerCase() === right.blockHash.toLowerCase();
+    return left.blockHash === null && right.blockHash === null && typeof left.observedAt === 'string'
+      && left.observedAt === right.observedAt;
   };
   for (const observation of observations) {
     if (!isEconomicQuoteObservation(observation)) continue;

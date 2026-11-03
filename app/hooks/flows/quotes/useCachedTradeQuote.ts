@@ -35,7 +35,7 @@ export function useCachedTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | 
     const entry = client.getQueryState<TradeQuoteResult>(["trade-quote", targetChainId, generation, scope, request, identity]);
     return Boolean(entry?.data && entry.status === "success" && !entry.isInvalidated
       && Date.now() - entry.dataUpdatedAt < 10_000 && Number(request.deadline) > Date.now() / 1000
-      && entry.data.value.context.blockHash.toLowerCase() === scope.split(":").at(-1)?.toLowerCase());
+      && entry.data.value.context.blockHash?.toLowerCase() === scope.split(":").at(-1)?.toLowerCase());
   }, [client, enabled, generation, inputKey, scope, identity, addresses.core]);
   return useSyncExternalStore(subscribe, read, () => false);
 }

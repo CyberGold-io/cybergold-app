@@ -16,6 +16,7 @@ export const quoteErrorKeys = {
   "quote-insufficient-liquidity": "quoteInsufficientLiquidity",
   "quote-contract-reverted": "quoteContractRejected",
   "quote-unavailable": "quoteUnexpectedError",
+  "unsupported-simulation-funding": "quoteUnexpectedError",
   "quote-service-unavailable": "quoteServiceUnavailable",
   "quote-stream-interrupted": "quoteStreamInterrupted",
   "quote-invalid-input": "quoteInvalidInput",

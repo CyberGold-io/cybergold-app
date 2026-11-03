@@ -4,7 +4,7 @@ doc_type: development-guide
 status: active
 owner: app-maintainer
 created: 2026-10-26
-last_reviewed: 2026-10-27
+last_reviewed: 2026-11-03
 canonical_for: App Quoter benchmark loop and measurement report semantics
 ---
 
@@ -18,11 +18,13 @@ worker, or alter the standard 24-journey operating matrix.
 ## Current local App workflow
 
 Active scalar and basket exact-input views request wallet-free Economic Quotes
-through `POST /api/economic-quotes`. Their display key contains economic inputs,
+through `POST /api/economic-quotes/stream`; JSON consumers retain
+`POST /api/economic-quotes`. Their display key contains economic inputs,
 chain, deployment/configuration and fork generation. It contains no head,
 recipient, execution deadline or tolerance. A successful browser observation is
-retained across ordinary remounts; time, head arrival, focus and reconnect do
-not trigger another quote search for that unchanged request.
+retained across ordinary remounts when it funds the requested budget. A smaller
+funded cached tuple starts one ordinary optimization on a budget revisit.
+Time, head arrival, focus and reconnect do not poll that unchanged request.
 
 The Backend's shared PostgreSQL record lets another browser/API process retrieve
 the same complete historical observation, including its original block/context.
@@ -34,8 +36,10 @@ response for another amount remains attached to that amount's query key.
 
 The Fast Estimator's canonical interface is `POST /api/economic-estimates`, using
 the existing scalar model request/packet. It is one Backend estimator; the App
-does not add a competing amount formula. A matching measured quote takes
-precedence over its advisory estimate. Current tolerance changes recompute only
+can also derive advisory arithmetic from cached measured quantities. These
+estimates never become an executable tuple. Every qualified quote takes
+precedence immediately, including one below an earlier upper estimate; no
+replay-completion threshold holds it private. Current tolerance changes recompute only
 displayed execution guards from that measured output, without searching again.
 
 On Swap, `POST /api/tx-preparations` replays the selected semantic plan at current
@@ -56,9 +60,12 @@ consumption and output in its own currencies; it is not a new lower-funded
 whole plan or a mined settlement receipt. Compare per-conversion and receipt
 measurements in their own raw units.
 
-The Backend retains its current first-result/detailed passes, eight scalar
-configurations, five-second comparison window and first-usable extension of up
-to ten seconds. The onchain Uniswap Quoter is retired from production pricing;
+The finite-completion candidate lets producer work finish without a default
+five-second comparison or fifteen-second whole-search cutoff. Ready tuples
+remain usable while refinement runs. The App stream/facade adds no search
+deadline; caller cancellation is independent of supplier/control RPC bounds.
+Older measurements below retain their original bounded-profile scope.
+The onchain Uniswap Quoter is retired from production pricing;
 the SDK Bridge performs arithmetic and Universal Router remains execution
 infrastructure. This document records local implementation, not deployment.
 
@@ -273,16 +280,20 @@ For Market estimates, route source contexts take priority over an older packet
 context. All route sources must agree to identify a comparison state because the
 estimator does not identify its winning route; mixed sources remain unknown.
 
-The reference uses the existing scheduler with a **30-second initial window and
-the ordinary 10-second extension**. A constant private header enables this only
-inside the mounted owned fixture; production APIs/settings are unchanged. Normal
-requests keep five plus ten seconds, including requests following a reference
-failure. Reports retain reference output/funding, configured search coverage,
+The reference now uses the producer's default completion lifecycle, recorded as
+`completion: producer-default`, rather than claiming a fixed 30+10-second
+window. The owned fixture retains an explicit `--reference-seconds` option for
+controlled bounded historical experiments; the private header alone no longer
+creates that cutoff. Whole-quote measurement requests use explicit caller
+cancellation without a separate 60-second quote timer. Setup, control RPC and
+cleanup keep their existing independent bounds. Reports retain reference output/funding, configured search coverage,
 actual candidates started/completed and qualified callback updates. The result
 is the best observed within that coverage, not a global optimum. Reference state
 and quote writes stay in the isolated secondary database, and reference RPC work
 cannot warm a later primary-latency request because the complete latency cohort
-runs first.
+runs first. Latest-simulation quote contexts with null block coordinates remain
+measurable, but same-state error/gap claims are recorded as unknown rather than
+inventing a block number or comparing absent hashes.
 
 Accuracy duration, availability, failures, whole-trade estimate error and
 reference gap are separate fields. A failed accuracy request does not invalidate

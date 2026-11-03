@@ -11,7 +11,7 @@ const waveNumbers = ["elapsedMs", "subphaseElapsedMs", "legacyCandidates", "lega
 const quoteCodes = ["rpc-rate-limit", "rpc-timeout", "rpc-unavailable", "rpc-access-denied", "quote-timeout",
   "quote-no-route", "quote-insufficient-liquidity", "quote-contract-reverted", "quote-unavailable", "insufficient-protocol-supply",
   "issuance-cap-exceeded", "redemption-supply-exceeded", "redemption-capacity-exceeded",
-  "insufficient-reserve-balance", "insufficient-recovery-shares"] as const;
+  "insufficient-reserve-balance", "insufficient-recovery-shares", "unsupported-simulation-funding"] as const;
 const providerStages = ["composition", "basket-preview", "initial-preview", "execution-search", "expected-input-search",
   "final-preview", "tolerance", "canonicality", "selection", "route-pricing", "fee-bounds", "qualification", "retained-validation"] as const;
 const providerOutcomes = ["running", "qualified", "rejected", "not-improved", "cancelled", "superseded"] as const;

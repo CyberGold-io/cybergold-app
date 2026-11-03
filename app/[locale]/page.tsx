@@ -851,7 +851,6 @@ function TradingScreen() {
     counterToken: rawTradeIntent.counterToken, native: rawTradeIntent.native, amount: rawTradeIntent.amount }, isActiveTokenFlow);
   const tradeInput = { ...rawTradeIntent, amount: String(sellAmountFromInputBigInt) };
   const tradeFlow = useTradeFlow({ input: tradeInput, frozen: frozenTrade, enabled: isActiveTokenFlow && !quoteInputPending,
-    upperEstimate: localTradeEstimate?.upperDisplay,
     onNetworkFeeEstimate: setNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange: setIsNetworkFeeEstimateLoading });
   const helperFeePercent = tradeFlow.selected?.value.strategy === "market"
     ? formatPpmAsPercent(BigInt(tradeFlow.selected.value.providerQuote.fee.ratePpm)) : coreHelperFeePercent;
@@ -920,7 +919,7 @@ function TradingScreen() {
     ...(isActiveTokenFlow ? { side: tradeInput.side, amount: tradeInput.amount, strategy: selectedQuote?.value.strategy,
       tokenIn: selectedQuote?.value.tokenIn, tokenOut: selectedQuote?.value.tokenOut,
       inputMaximum: selectedQuote?.inputMaximum.toString(), outputMinimum: selectedQuote?.outputMinimum.toString(),
-      blockNumber: selectedQuote?.value.context.blockNumber, blockHash: selectedQuote?.value.context.blockHash } : {}) } : undefined;
+      blockNumber: selectedQuote?.value.context.blockNumber ?? undefined, blockHash: selectedQuote?.value.context.blockHash ?? undefined } : {}) } : undefined;
   const activeQuoteReferences = selectedQuote?.diagnostics ?? diagnosticReferences(activeFlow && "quote" in activeFlow ? activeFlow.quote : undefined);
   const quoteDiagnostics = useQuoteDiagnostics(diagnosticContext, activeQuoteStatus, activeQuoteFailure, activeQuoteReferences);
 

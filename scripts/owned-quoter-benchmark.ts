@@ -60,24 +60,25 @@ function referenceCoverage(value: { searchCoverage?: Record<string, unknown>; me
   return result;
 }
 
-function estimateObservation(value: { estimate?: { amount?: unknown; strategy?: unknown };
+function estimateObservation(value: { estimate?: { amount?: unknown; strategy?: unknown; context?: { blockNumber: string | null; blockHash: string | null } };
   models?: { strategy: string; value: { context?: { blockNumber: string; blockHash: string };
     protocol?: { context?: { blockNumber: string; blockHash: string } };
     routes?: { sourceContext?: { blockNumber: string; blockHash: string } | null;
       sourceObservations?: { context?: { blockNumber: string; blockHash: string } }[] }[] } }[] }): QuoterBenchmarkAccuracy['estimate'] {
   const estimate = value.estimate;
   if (!estimate || typeof estimate.amount !== 'string' || !/^[0-9]{1,78}$/.test(estimate.amount)
-    || (estimate.strategy !== 'core' && estimate.strategy !== 'market')) return { status: 'unavailable' };
-  const result: QuoterBenchmarkAccuracy['estimate'] = { status: 'available', outputRaw: String(BigInt(estimate.amount)), strategy: estimate.strategy };
+    || !['core', 'market', 'universal'].includes(String(estimate.strategy))) return { status: 'unavailable' };
+  const result: QuoterBenchmarkAccuracy['estimate'] = { status: 'available', outputRaw: String(BigInt(estimate.amount)),
+    strategy: estimate.strategy as 'core' | 'market' | 'universal' };
   const model = value.models?.find(row => row.strategy === estimate.strategy)?.value;
-  const contexts = estimate.strategy === 'market' ? model?.routes?.flatMap(row =>
+  const contexts = estimate.strategy === 'universal' ? [estimate.context] : estimate.strategy === 'market' ? model?.routes?.flatMap(row =>
     Object.hasOwn(row, 'sourceContext') ? [row.sourceContext]
       : row.sourceObservations?.length ? row.sourceObservations.map(source => source.context)
         : [model.context]) : [model?.protocol?.context ?? model?.context];
   if (contexts?.length && contexts.every(context => context?.blockHash
-      && /^0x[0-9a-f]{64}$/i.test(context.blockHash) && /^[0-9]{1,78}$/.test(context.blockNumber))
-      && new Set(contexts.map(context => context!.blockHash.toLowerCase())).size === 1) {
-    result.blockHash = contexts[0]!.blockHash; result.blockNumber = String(BigInt(contexts[0]!.blockNumber));
+      && /^0x[0-9a-f]{64}$/i.test(context.blockHash) && context.blockNumber !== null && /^[0-9]{1,78}$/.test(context.blockNumber))
+      && new Set(contexts.map(context => context!.blockHash!.toLowerCase())).size === 1) {
+    result.blockHash = contexts[0]!.blockHash!; result.blockNumber = String(BigInt(contexts[0]!.blockNumber!));
   }
   return result;
 }
@@ -239,7 +240,7 @@ export class DockerQuoterResources implements OwnedQuoterResources {
       '--network', this.network, '--add-host', 'host.docker.internal:host-gateway', '--env-file', await this.environment(variant, databaseName),
       '--mount', `type=bind,src=${runtimePath},dst=${runtimeTarget},readonly`, '--entrypoint', 'python',
       '-p', '127.0.0.1::3000', variant === 'baseline' ? this.config.baselineImage : this.config.candidateImage,
-      runtimeTarget, '--reference-seconds', '30');
+      runtimeTarget);
     // Docker chooses and reserves the host port atomically; a free-port probe can race another process.
     const port = await this.docker('inspect', name, '--format', '{{(index (index .NetworkSettings.Ports "3000/tcp") 0).HostPort}}');
     api.origin = `http://127.0.0.1:${port}`;
@@ -262,7 +263,7 @@ export class DockerQuoterResources implements OwnedQuoterResources {
     const legacy = attempt.variant === 'baseline';
     const response = await this.request(origin + (legacy ? '/api/quotes/universal-exact-input' : '/api/economic-quotes'), {
       method: 'POST', headers: { 'Content-Type': 'application/json',
-        ...(reference ? { 'X-CyberGold-Owned-Quote-Mode': 'reference' } : {}) }, signal: this.signal(),
+        ...(reference ? { 'X-CyberGold-Owned-Quote-Mode': 'reference' } : {}) }, signal: this.cancellation.signal,
       body: JSON.stringify(legacy ? { ...body, recipient: '0x'+'0'.repeat(40), deadline: String(Math.floor(Date.now()/1000)+600), slippageBps: 100 }
         : { ...body, refresh }) });
     if (!response.ok) throw await ownedQuoteFailure(response);
@@ -270,7 +271,7 @@ export class DockerQuoterResources implements OwnedQuoterResources {
   }
   private measurement(value: Record<string, unknown>, variant: Variant): QuoterBenchmarkMeasurement {
     const raw = value as { inputs?: { amount: string }[]; plan: { inputs?: { amount: string }[]; intent: number; body: string };
-      economicQuote?: { plan: unknown }; quotedOutput: string; context: { blockNumber: string; blockHash: string };
+      economicQuote?: { plan: unknown }; quotedOutput: string; context: { blockNumber: string | null; blockHash: string | null };
       observation?: { source?: string } };
     const legacy = variant === 'baseline';
     const funding = raw.inputs ?? raw.plan.inputs!;
@@ -278,7 +279,7 @@ export class DockerQuoterResources implements OwnedQuoterResources {
     const stored = raw.observation?.source === 'stored';
     return { operation: stored ? 'lookup' : 'search',
       requiredFundingRaw: String(BigInt(funding[0].amount)), netOutputRaw: String(BigInt(raw.quotedOutput)),
-      blockNumber: String(BigInt(raw.context.blockNumber)), blockHash: raw.context.blockHash,
+      blockNumber: raw.context.blockNumber === null ? null : String(BigInt(raw.context.blockNumber)), blockHash: raw.context.blockHash,
       routeId: createHash('sha256').update(JSON.stringify(route)).digest('hex'),
       ...(quoterProducerTimings(value) ? { producerTimings: quoterProducerTimings(value),
         producerTimingScope: stored ? 'stored-observation' as const : 'current-search' as const } : {}) };
@@ -286,7 +287,7 @@ export class DockerQuoterResources implements OwnedQuoterResources {
   async accuracy(attempt: QuoterBenchmarkAttempt): Promise<QuoterBenchmarkAccuracy> {
     const key = attempt.variant + ':accuracy', databaseName = this.database(attempt.variant) + '_accuracy';
     const result: QuoterBenchmarkAccuracy = { cohort: 'fresh-secondary-whole-trade',
-      estimate: { status: 'unavailable' }, reference: { status: 'failed', initialSeconds: 30, extensionSeconds: 10 } };
+      estimate: { status: 'unavailable' }, reference: { status: 'failed', completion: 'producer-default' } };
     try {
       const head = await this.restoreFork();
       if (attempt.condition === 'warm-changed-state') await this.advanceFork(Number(BigInt(head.timestamp))+1);
@@ -305,7 +306,7 @@ export class DockerQuoterResources implements OwnedQuoterResources {
       } catch (error) { result.estimate = { status: 'failed', failure: quoterBenchmarkApiFailure(error) }; }
       try {
         const value = await this.quoteValue(origin, attempt, true, true);
-        result.reference = { status: 'available', initialSeconds: 30, extensionSeconds: 10,
+        result.reference = { status: 'available', completion: 'producer-default',
           quote: this.measurement(value, attempt.variant), coverage: referenceCoverage(value) };
       } catch (error) { result.reference.failure = quoterBenchmarkApiFailure(error); }
       return result;

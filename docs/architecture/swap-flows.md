@@ -34,8 +34,8 @@ Fully funding the old request does not prevent estimating a larger new budget.
 Funding that already covers the current budget, or the optional historical
 `reuseSample.inputLimitObserved: true`, suppresses extrapolation. Missing/false
 capacity metadata is unknown and never prevents ordinary optimization.
-The local quote view type accepts this forward-compatible optional advisory
-field; the vendored generated API snapshot retains its recorded source identity.
+The canonical generated API snapshot includes this optional advisory field and
+records its exact Backend source identity.
 A known limited complete tuple also remains available for an uncached budget
 that fits its actual funding, regardless of its original requested maximum.
 For example, a qualified 0.473 ETH / 8.355 CYGLD observation stays at 8.355 for
@@ -46,8 +46,8 @@ Below the known funding amount, the existing clipped downward estimate remains
 available. A cleared/disproved exact cache slot still excludes historical fallback.
 
 The estimate has a visible Estimate label, pending presentation and indicative
-spending/fees. It never enters the economic quote cache, execution bounds or
-upper-estimate publication policy. A fresh qualified quote immediately replaces
+spending/fees. It never enters the economic quote cache or execution bounds.
+A fresh qualified quote immediately replaces
 it, including a smaller funded/output result while refinement continues. A
 stored response cannot erase a better complete historical fallback. Completion,
 failure or cancellation restores the actual tuple when no fresh quote arrived.
@@ -58,6 +58,17 @@ Refused preparation does not restart that explicitly stopped search; a new
 budget or explicit Refresh can start work. Visibility cancellation retains its
 existing independent lifetime.
 Presentation snapshots record the estimate as pending rather than confirmed.
+
+The App and its fixed Next stream facade add no whole-search time window.
+Qualified tuples are displayed and available for capture as they arrive, even
+below an earlier arithmetic estimate. Legacy replay-completion markers do not
+delay readiness. The finite producer completes independently; input edits,
+hidden/unmounted views and an explicit Swap capture cancel their owned work.
+Refinement errors preserve an already qualified tuple and its request reference.
+Latest execution simulations may have null block coordinates. Those remain
+unknown in diagnostics and measurements, rather than becoming block zero or
+requiring another header read. Disproof associates an unanchored observation
+with its producer observation time, without imposing an age limit.
 
 The App treats generated Core/Helpers ABIs and the current Helpers interface as
 executable authority. Each flow previews first, displays gross/net results and

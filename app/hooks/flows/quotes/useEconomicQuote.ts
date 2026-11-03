@@ -6,12 +6,12 @@ import { targetChainId } from "@/app/config/chain";
 import { useProtocolConfiguration } from "@/app/context/protocolConfigurationContext";
 import { useSandboxForkGeneration } from "@/app/context/sandboxForkContext";
 import { economicQuoteKey, progressiveEconomicQuoteOptions, type EconomicQuote, type EconomicRequest } from "@/app/utils/economicQuotes";
-import { createEconomicQuoteSearch, type UpperEstimateDisplayPolicy } from "@/app/utils/economicQuoteSearch";
+import { createEconomicQuoteSearch } from "@/app/utils/economicQuoteSearch";
 import { diagnosticReferences, retainDiagnosticReferences } from "@/app/utils/diagnosticReferences";
 import { usePageVisible } from "@/app/hooks/usePageVisible";
 
 /** Wallet-free whole quotes; partial cached budgets optimize once on an ordinary revisit. */
-export function useEconomicQuote(request: EconomicRequest, enabled: boolean, upperEstimate?: UpperEstimateDisplayPolicy) {
+export function useEconomicQuote(request: EconomicRequest, enabled: boolean) {
   const { identity: configuration } = useProtocolConfiguration(), generation = useSandboxForkGeneration();
   const client = useQueryClient(), visible = usePageVisible();
   const scope = { chainId: targetChainId, configuration, generation };
@@ -21,14 +21,11 @@ export function useEconomicQuote(request: EconomicRequest, enabled: boolean, upp
   const accepted = useSyncExternalStore(search.subscribe, search.snapshot, search.snapshot);
   const options = progressiveEconomicQuoteOptions(request, scope, accepted.value, accepted.stopped);
   const query = useQuery<EconomicQuote | null>({ ...options, enabled: enabled && visible,
-    queryFn: ({ signal }) => search.run(request, signal, refreshing.current.has(key), undefined, upperEstimate) });
-  const upperRequestKey = upperEstimate?.requestKey, upperOutput = upperEstimate?.quotedOutput;
+    queryFn: ({ signal }) => search.run(request, signal, refreshing.current.has(key)) });
   useLayoutEffect(() => {
-    // Stop obsolete ownership before a disappearing model could release hidden work.
+    // Stop obsolete ownership before a late frame can replace another input.
     if (!enabled || !visible) search.stop();
-    else search.setUpperEstimate(upperRequestKey !== undefined && upperOutput !== undefined ?
-      { requestKey: upperRequestKey, quotedOutput: upperOutput } : undefined);
-  }, [enabled, visible, search, upperRequestKey, upperOutput]);
+  }, [enabled, visible, search]);
   useEffect(() => () => search.stop(), [search]);
   const { refetch } = query;
   const refresh = useCallback(async () => {

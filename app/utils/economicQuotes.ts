@@ -7,11 +7,7 @@ import { fetchQuoteStream } from "./quoteStream.ts";
 
 export type EconomicRequest = components["schemas"]["EconomicRequest"];
 export type EconomicPlan = components["schemas"]["EconomicPlan"];
-type WireEconomicQuote = components["schemas"]["EconomicQuote"];
-/** Forward-compatible advisory metadata; older Backend observations omit it. */
-export type EconomicQuote = Omit<WireEconomicQuote, "reuseSample"> & {
-  reuseSample?: NonNullable<WireEconomicQuote["reuseSample"]> & { inputLimitObserved?: boolean };
-};
+export type EconomicQuote = components["schemas"]["EconomicQuote"];
 export type EconomicQuoteEvent = components["schemas"]["EconomicQuoteEvent"];
 export type AcceptedExecutionBounds = NonNullable<components["schemas"]["TransactionPreparationRequest"]["acceptedBounds"]>;
 export type PreparedTransaction = components["schemas"]["PreparedTransaction"] & {
