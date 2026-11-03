@@ -113,6 +113,22 @@ test('warm completed quote hits and warm full searches have distinct distributio
   assert.equal(summary[1].search.samples, 0); assert.equal(summary[1].lookup.samples, 1);
 });
 
+test('latest simulation measurements remain successful while anchored accuracy comparisons stay unknown', async () => {
+  const report = await runQuoterBenchmark({ profile: 'mainnet-fork-execution', cases: focusedUsdtCases(configuration).slice(0, 1),
+    conditions: ['warm-search'], repetitions: 1, prepare: async () => cache,
+    measure: async () => ({ ...measurement, blockNumber: null, blockHash: null }),
+    accuracy: async () => ({ cohort: 'fresh-secondary-whole-trade',
+      estimate: { status: 'available', strategy: 'universal', outputRaw: '100', blockNumber: '100', blockHash: cache.blockHash },
+      reference: { status: 'available', completion: 'producer-default', quote: measurement } }),
+  });
+  for (const row of report.rows) {
+    assert.equal(row.status, 'pass'); assert.equal(row.result?.blockNumber, null);
+    assert.equal(row.accuracy?.estimateComparison, 'unknown-state');
+    assert.equal(row.accuracy?.referenceComparison, 'unknown-state');
+    assert.equal(row.accuracy?.wholeTradeEstimateError, undefined); assert.equal(row.accuracy?.referenceGap, undefined);
+  }
+});
+
 test('active exact-input JSON observation retains producer timing separately from client duration', async () => {
   const facts = { basket: { assets: { status: 'success', value: [] }, targetsPpm: { status: 'success', value: [] } } } as unknown as ProtocolFacts;
   const scenario = { ...activeMatrixTemplates().find(row => row.asset === 'USDC' && row.side === 'buy')!, amountRaw: '100000' };

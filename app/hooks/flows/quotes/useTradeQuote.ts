@@ -6,11 +6,10 @@ import { zeroAddress } from "viem";
 import { useProtocolConfiguration } from "@/app/context/protocolConfigurationContext";
 import { QuotePreviewError, quoteErrorMessage } from "@/app/utils/quoteErrors";
 import { economicTradeQuote, tradeAdapter, tradeQuoteResult, type TradeQuoteRequest } from "@/app/utils/tradeQuote";
-import type { UpperEstimateDisplayPolicy } from "@/app/utils/economicQuoteSearch";
 import { useEconomicQuote } from "./useEconomicQuote";
 import { useLegacyTradeQuote } from "./useLegacyTradeQuote";
 
-export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retainedPlan">, enabled: boolean, upperEstimate?: UpperEstimateDisplayPolicy) {
+export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retainedPlan">, enabled: boolean) {
   const { addresses } = useProtocolConfiguration(), t = useTranslations("Home");
   const inputKey = JSON.stringify(input);
   const legacy = useLegacyTradeQuote(input, enabled && input.mode !== "exact-in");
@@ -18,7 +17,7 @@ export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retai
   const economic = useEconomicQuote({ intent: input.side === "buy" ? 0 : 1,
     inputs: [{ currency: input.side === "buy" ? counter : addresses.core ?? zeroAddress, amount: input.amount }],
     outputCurrency: input.side === "buy" ? addresses.core ?? zeroAddress : counter },
-    enabled && input.mode === "exact-in" && Boolean(addresses.core && addresses.helpers), upperEstimate);
+    enabled && input.mode === "exact-in" && Boolean(addresses.core && addresses.helpers));
   const data = useMemo(() => {
     if (!enabled || !economic.data) return undefined;
     const captured: Omit<TradeQuoteRequest, "deadline" | "retainedPlan"> = JSON.parse(inputKey);
@@ -38,7 +37,7 @@ export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retai
   }, [enabled, captureEconomicReady, inputKey, addresses.core]);
   if (input.mode !== "exact-in") return { ...legacy, refresh: async () => undefined,
     refreshing: false, refreshError: undefined as string | undefined,
-    captureReady: () => legacy.data, stopSearch: () => {}, invalidated: false };
+    captureReady: () => legacy.data, stopSearch: () => {}, invalidated: false, historical: false };
   return { data, status: !enabled ? "idle" as const : data ? "success" as const
       : economic.isError ? "failed" as const : "loading" as const,
     error: economic.isError && !data ? quoteErrorMessage(economic.error ?? new Error("Quote unavailable"), t) : undefined,
@@ -47,5 +46,5 @@ export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retai
     estimate: undefined, optimizing: enabled && Boolean(data) && economic.optimizing,
     progress: undefined, refresh: economic.refresh, refreshing: economic.isFetching,
     refreshError: economic.refreshError ? quoteErrorMessage(economic.refreshError, t) : undefined,
-    captureReady, stopSearch: economic.stopSearch, invalidated: economic.invalidated };
+    captureReady, stopSearch: economic.stopSearch, invalidated: economic.invalidated, historical: economic.historical };
 }

@@ -47,7 +47,7 @@ export async function fetchQuoteStream<Value, Event extends { type: string }>(
         onEvent(event as Event);
         signal.throwIfAborted();
       }
-      if (done) throw new QuotePreviewError("quote-stream-interrupted", "Quote stream interrupted.");
+      if (done) throw new QuotePreviewError("quote-stream-interrupted", "Quote stream interrupted.", metadata);
     }
   } catch (error) {
     if (signal.aborted || error instanceof QuotePreviewError) throw error;

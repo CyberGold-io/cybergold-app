@@ -1,7 +1,8 @@
 """Read-only mounted instrumentation for disposable owned quote API containers.
 
 This entrypoint is not part of either Backend image or production API. The
-constant reference header changes the existing budget only in this fixture.
+reference header can select an explicitly requested bounded experiment. The
+default uses the producer's ordinary completion lifecycle.
 """
 import argparse
 import asyncio
@@ -36,7 +37,7 @@ def producer_metrics(budget, state):
     return metrics
 
 
-def install_producer_observation(service, reference_seconds=30):
+def install_producer_observation(service, reference_seconds=None):
     """Measure actual completed-plan callbacks on both old and new services."""
     for name in ('get', 'quote'):
         original = getattr(service, name, None)
@@ -48,7 +49,8 @@ def install_producer_observation(service, reference_seconds=30):
             async def observed(request, on_update=None, **kwargs):
                 if _active.get() is not None:
                     return await method(request, on_update, **kwargs)
-                budget = current_budget() or (QuoteBudget(initial=reference_seconds) if _reference.get() else QuoteBudget())
+                budget = current_budget() or (QuoteBudget(initial=reference_seconds)
+                    if _reference.get() and reference_seconds is not None else QuoteBudget())
                 state = {'first': None, 'updates': 0, 'started': 0, 'completed': 0}
                 token = _active.set(state)
                 async def publish(frame):
@@ -145,7 +147,7 @@ async def copy_canonical_facts(target_database):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--reference-seconds', type=float, default=30)
+    parser.add_argument('--reference-seconds', type=float, help='Explicit bounded reference experiment; default uses producer completion')
     parser.add_argument('--copy-canonical-facts')
     args = parser.parse_args()
     if args.copy_canonical_facts is not None:

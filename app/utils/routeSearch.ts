@@ -95,7 +95,7 @@ export async function fetchRouteQuotes(options: RouteOptions): Promise<Values> {
 /** One complete basket search; response order follows the requested targets. */
 async function loadRouteQuotes({
   targets, mode, adapter, signal, onProgress, onCandidates, fetchImpl = fetch,
-}: RouteOptions, onHash?: (hash: string) => void): Promise<Values> {
+}: RouteOptions, onHash?: (hash: string | undefined) => void): Promise<Values> {
   signal?.throwIfAborted();
   if (targets.length === 0) return [];
   const response = await fetchImpl(onCandidates ? "/api/quotes/routes/stream" : "/api/quotes/routes", {
@@ -108,7 +108,7 @@ async function loadRouteQuotes({
     ? await readRouteStream(response, signal, onCandidates, onProgress)
     : await response.json();
   signal?.throwIfAborted();
-  onHash?.(value.context?.blockHash);
+  onHash?.(value.context?.blockHash ?? undefined);
   return value.results.map((row, index) => {
     onProgress?.(index, { completed: row.attempted, total: row.attempted, percent: 100 });
     return row.best ? { ...row.best, path: row.best.path as `0x${string}`, quote: BigInt(row.best.quote) } : undefined;

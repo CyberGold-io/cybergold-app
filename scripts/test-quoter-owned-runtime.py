@@ -29,7 +29,7 @@ class LegacyProducer:
     @budget_entry
     async def get(self, request, on_update=None):
         budget = current_budget()
-        self.windows.append((budget.initial-budget.started, budget.deadline-budget.initial))
+        self.windows.append(None if budget.deadline is None else (budget.initial-budget.started, budget.deadline-budget.initial))
         async def produce():
             value = await self.candidate()
             budget.qualified()
@@ -58,7 +58,7 @@ class OwnedRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(times['ownedCandidatesStarted'], 1)
         self.assertEqual(times['ownedCandidatesCompleted'], 1)
         self.assertEqual(times['ownedQualifiedUpdates'], 1)
-        self.assertEqual(service.windows, [(5, 10)])
+        self.assertEqual(service.windows, [None])
 
     async def test_new_quote_alias_uses_same_instrumentation_once(self):
         class NewerProducer(LegacyProducer):
@@ -68,9 +68,9 @@ class OwnedRuntimeTests(unittest.IsolatedAsyncioTestCase):
         result = await service.quote({})
         self.assertEqual(result['metrics']['ownedQualifiedUpdates'], 1)
         self.assertEqual(result['metrics']['ownedCandidatesCompleted'], 1)
-        self.assertEqual(service.windows, [(5, 10)])
+        self.assertEqual(service.windows, [None])
 
-    async def test_reference_header_changes_only_owned_request_and_restores_normal_budget(self):
+    async def test_explicit_reference_window_changes_only_owned_request_and_restores_natural_completion(self):
         service = LegacyProducer()
         fixture.install_producer_observation(service, reference_seconds=30)
         async def app(scope, _receive, _send):
@@ -86,7 +86,7 @@ class OwnedRuntimeTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(RuntimeError):
             await middleware({**reference, 'fail': True}, ignored, ignored)
         await middleware({'type': 'http', 'headers': []}, ignored, ignored)
-        self.assertEqual(service.windows, [(30, 10), (5, 10), (30, 10), (5, 10)])
+        self.assertEqual(service.windows, [(30, 10), None, (30, 10), None])
         self.assertIsNone(current_budget())
         self.assertFalse(fixture._reference.get())
 
@@ -104,7 +104,7 @@ class OwnedRuntimeTests(unittest.IsolatedAsyncioTestCase):
         await asyncio.gather(
             middleware({'type': 'http', 'headers': [(fixture.REFERENCE_HEADER, b'reference')]}, ignored, ignored),
             middleware({'type': 'http', 'headers': []}, ignored, ignored))
-        self.assertEqual(sorted(service.windows), [(5, 10), (30, 10)])
+        self.assertEqual(service.windows, [None, None])
         self.assertIsNone(current_budget())
         self.assertFalse(fixture._reference.get())
 

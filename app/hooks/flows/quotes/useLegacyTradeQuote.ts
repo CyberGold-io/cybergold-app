@@ -43,7 +43,7 @@ export function useLegacyTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | 
   }, [identity, request.deadline, addresses]);
   const query = useQuery({
     queryKey: ["trade-quote", targetChainId, generation, scope, request, configurationIdentity], enabled: canFetch, retry: false,
-    staleTime: query => query.state.data?.value.context.blockHash.toLowerCase() === scope?.split(":").at(-1)?.toLowerCase() ? 10_000 : 0,
+    staleTime: query => query.state.data?.value.context.blockHash?.toLowerCase() === scope?.split(":").at(-1)?.toLowerCase() ? 10_000 : 0,
     queryFn: ({ signal }: { signal: AbortSignal }) => {
       const attempt = ++sequence.current, stages = new Map<string, { completed: number; total: number }>();
       // Ordinary head refresh competes again; explicit retained-plan revalidation is a separate operation.

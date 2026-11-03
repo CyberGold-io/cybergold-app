@@ -75,7 +75,7 @@ export type QuoterBenchmarkAttempt = {
 };
 export type QuoterBenchmarkMeasurement = {
   operation: 'search' | 'lookup'; requiredFundingRaw: string; netOutputRaw: string;
-  blockNumber: string; blockHash: string; routeId?: string; producerTimings?: QuoterProducerTimings;
+  blockNumber: string | null; blockHash: string | null; routeId?: string; producerTimings?: QuoterProducerTimings;
   producerTimingScope?: 'current-search' | 'stored-observation';
   estimateOutputRaw?: string; exactRouteOutputRaw?: string; referenceOutputRaw?: string;
   rpcIssued?: number; rpcReused?: number;
@@ -87,13 +87,13 @@ export type QuoterReferenceCoverage = {
 };
 export type QuoterBenchmarkAccuracy = {
   cohort: 'fresh-secondary-whole-trade';
-  estimate: { status: 'available' | 'unavailable' | 'failed'; outputRaw?: string; strategy?: 'core' | 'market';
+  estimate: { status: 'available' | 'unavailable' | 'failed'; outputRaw?: string; strategy?: 'core' | 'market' | 'universal';
     blockNumber?: string; blockHash?: string; failure?: QuoterBenchmarkApiFailure };
   reference: { status: 'available' | 'failed'; quote?: QuoterBenchmarkMeasurement;
     coverage?: QuoterReferenceCoverage; failure?: QuoterBenchmarkApiFailure;
-    initialSeconds: number; extensionSeconds: number };
+    completion?: 'producer-default'; initialSeconds?: number; extensionSeconds?: number };
   estimateComparison?: 'same-state-whole-trade' | 'different-state' | 'unknown-state';
-  referenceComparison?: 'same-state-whole-trade' | 'different-state';
+  referenceComparison?: 'same-state-whole-trade' | 'different-state' | 'unknown-state';
   wholeTradeEstimateError?: OutputError; referenceGap?: OutputError;
 };
 export type QuoterBenchmarkRow = QuoterBenchmarkAttempt & {
@@ -173,14 +173,15 @@ export async function runQuoterBenchmark(definition: QuoterBenchmarkDefinition,
       row.accuracy = structuredClone(await definition.accuracy(structuredClone(attempt), structuredClone(row.result)));
       const estimate = row.accuracy.estimate;
       if (estimate.status === 'available' && estimate.outputRaw !== undefined && row.result) {
-        row.accuracy.estimateComparison = !estimate.blockHash ? 'unknown-state'
+        row.accuracy.estimateComparison = !estimate.blockHash || !row.result.blockHash ? 'unknown-state'
           : estimate.blockHash.toLowerCase() === row.result.blockHash.toLowerCase() ? 'same-state-whole-trade' : 'different-state';
         if (row.accuracy.estimateComparison === 'same-state-whole-trade')
           row.accuracy.wholeTradeEstimateError = outputError(estimate.outputRaw, row.result.netOutputRaw);
       }
       const reference = row.accuracy.reference;
       if (reference.status === 'available' && reference.quote && row.result) {
-        row.accuracy.referenceComparison = reference.quote.blockHash.toLowerCase() === row.result.blockHash.toLowerCase()
+        row.accuracy.referenceComparison = !reference.quote.blockHash || !row.result.blockHash ? 'unknown-state'
+          : reference.quote.blockHash.toLowerCase() === row.result.blockHash.toLowerCase()
           ? 'same-state-whole-trade' : 'different-state';
         if (row.accuracy.referenceComparison === 'same-state-whole-trade')
           row.accuracy.referenceGap = outputError(row.result.netOutputRaw, reference.quote.netOutputRaw);

@@ -6,17 +6,16 @@ import { CORE_TOKEN_KIND } from "@/app/types";
 import { captureTradeQuote, tradeAdapter, type TradeQuoteRequest, type TradeQuoteResult } from "@/app/utils/tradeQuote";
 import { submitTradeQuote } from "@/app/utils/tradeExecution";
 import { quoteIntentResult } from "@/app/utils/quoteIntent";
-import type { UpperEstimateDisplayPolicy } from "@/app/utils/economicQuoteSearch";
 import { useTradeQuote } from "./quotes/useTradeQuote";
 import { useTokenPurchaseExecution } from "./shared/useTokenPurchaseExecution";
 import { useUniversalExactInputExecution } from "./shared/useUniversalExactInputExecution";
 import { useMarketSwapExecution } from "./shared/useMarketSwapExecution";
 import type { FlowNetworkFeeEstimateHandlers, SubmitBasketFlowParams } from "./shared/types";
 
-export function useTradeFlow({ input, enabled, frozen, upperEstimate, onNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange }:
-  { input: Omit<TradeQuoteRequest, "deadline" | "retainedPlan">; enabled: boolean; frozen?: TradeQuoteResult; upperEstimate?: UpperEstimateDisplayPolicy } & FlowNetworkFeeEstimateHandlers) {
+export function useTradeFlow({ input, enabled, frozen, onNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange }:
+  { input: Omit<TradeQuoteRequest, "deadline" | "retainedPlan">; enabled: boolean; frozen?: TradeQuoteResult } & FlowNetworkFeeEstimateHandlers) {
   const active = enabled && BigInt(input.amount) > 0n;
-  const quote = useTradeQuote(input, active && !frozen, upperEstimate), selected = frozen ?? quote.data;
+  const quote = useTradeQuote(input, active && !frozen), selected = frozen ?? quote.data;
   const { submitTokenPurchase } = useTokenPurchaseExecution({ onNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange });
   const universal = useUniversalExactInputExecution({ slippageBps: input.slippageBps, onNetworkFeeEstimate, onNetworkFeeEstimateLoadingChange });
   const market = useMarketSwapExecution();
@@ -42,7 +41,7 @@ export function useTradeFlow({ input, enabled, frozen, upperEstimate, onNetworkF
     ? { protocolFeeCygld: 0n, helperFeeCygld: BigInt(selected.value.providerQuote.fee.amount) } : core?.fees;
   const expected = selected ? input.mode === "exact-in" ? selected.quotedOutput : selected.quotedInput : quote.estimate;
   return {
-    selected, strategy: selected?.value.strategy, optimizing: !frozen && quote.optimizing,
+    selected, strategy: selected?.value.strategy, optimizing: !frozen && quote.optimizing, historical: !frozen && quote.historical,
     captureSubmission, stopSearch: quote.stopSearch, invalidated: quote.invalidated,
     refresh: quote.refresh, refreshing: !frozen && quote.refreshing, refreshError: frozen ? undefined : quote.refreshError,
     adapter: selected ? tradeAdapter(selected.value) : undefined,

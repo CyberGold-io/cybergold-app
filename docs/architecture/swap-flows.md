@@ -4,7 +4,7 @@ doc_type: architecture
 status: active
 owner: app-maintainer
 created: 2026-07-11
-last_reviewed: 2026-10-19
+last_reviewed: 2026-11-03
 canonical_for: App preview and execution orchestration
 ---
 
@@ -22,6 +22,53 @@ The Backend alone selects among supported Core and Market plans. The App
 submits exact-in user intent and executes the complete returned plan without
 locally ranking providers or resizing inputs to favor one. The direct-basket
 API currently supports Core only; this change adds no Market basket provider.
+
+An underfunded cached token/native quote starts one ordinary optimization when
+its budget is revisited. The complete best fitting historical tuple stays the
+execution fallback. While that attempt has only historical observations, the
+form can show a full-budget estimate from the cached route's measured reference
+input, net output and fees. Without a reuse sample it uses the actual funded
+input as an explicit approximation. This is linear display arithmetic, not a
+simulation of the route's price curve or a promise of available capacity.
+Fully funding the old request does not prevent estimating a larger new budget.
+Funding that already covers the current budget, or the optional historical
+`reuseSample.inputLimitObserved: true`, suppresses extrapolation. Missing/false
+capacity metadata is unknown and never prevents ordinary optimization.
+The canonical generated API snapshot includes this optional advisory field and
+records its exact Backend source identity.
+A known limited complete tuple also remains available for an uncached budget
+that fits its actual funding, regardless of its original requested maximum.
+For example, a qualified 0.473 ETH / 8.355 CYGLD observation stays at 8.355 for
+new 0.6 or 0.7 ETH budgets while ordinary optimization explores current state.
+An unknown lower route remains display-only when that new budget has no exact
+cached observation; it can still improve an existing exact historical hit.
+Below the known funding amount, the existing clipped downward estimate remains
+available. A cleared/disproved exact cache slot still excludes historical fallback.
+
+The estimate has a visible Estimate label, pending presentation and indicative
+spending/fees. It never enters the economic quote cache or execution bounds.
+A fresh qualified quote immediately replaces
+it, including a smaller funded/output result while refinement continues. A
+stored response cannot erase a better complete historical fallback. Completion,
+failure or cancellation restores the actual tuple when no fresh quote arrived.
+An early Swap click still captures that actual tuple, stops only the owned
+search and displays the frozen actual funding/output during preparation; the
+estimate never changes the plan or accepted minimum sent for preparation.
+Refused preparation does not restart that explicitly stopped search; a new
+budget or explicit Refresh can start work. Visibility cancellation retains its
+existing independent lifetime.
+Presentation snapshots record the estimate as pending rather than confirmed.
+
+The App and its fixed Next stream facade add no whole-search time window.
+Qualified tuples are displayed and available for capture as they arrive, even
+below an earlier arithmetic estimate. Legacy replay-completion markers do not
+delay readiness. The finite producer completes independently; input edits,
+hidden/unmounted views and an explicit Swap capture cancel their owned work.
+Refinement errors preserve an already qualified tuple and its request reference.
+Latest execution simulations may have null block coordinates. Those remain
+unknown in diagnostics and measurements, rather than becoming block zero or
+requiring another header read. Disproof associates an unanchored observation
+with its producer observation time, without imposing an age limit.
 
 The App treats generated Core/Helpers ABIs and the current Helpers interface as
 executable authority. Each flow previews first, displays gross/net results and

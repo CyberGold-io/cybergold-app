@@ -56,6 +56,15 @@ test("newer complete observations win without mixing block state", () => {
   assert.equal(issuanceModelFromFacts(facts, model), model);
 });
 
+test("a latest model with no block coordinate is ordered by its observation time without inventing block zero", () => {
+  const facts = coldFacts(), model = fullModel();
+  model.context.blockNumber = null; model.context.blockHash = null;
+  model.context.observedAt = "2026-10-09T12:01:00Z";
+  assert.equal(issuanceModelFromFacts(facts, model), model);
+  model.context.observedAt = "2026-10-09T11:59:00Z";
+  assert.equal(issuanceModelFromFacts(facts, model)?.context.blockNumber, "101");
+});
+
 test("unavailable required capacity facts retain the existing whole model or stay unknown", () => {
   const model = fullModel();
   assert.equal(issuanceModelFromFacts(undefined, model), model);

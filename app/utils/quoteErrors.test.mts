@@ -18,6 +18,27 @@ test("RPC error codes survive an HTTP error without exposing provider text", asy
   assert.equal((await quoteResponseError(new Response("private HTML", { status: 502 }))).code, "quote-service-unavailable");
 });
 
+for (const transport of ['http', 'stream'] as const) test(`unsupported simulation funding retains its canonical cause through ${transport} without new UI text`, async () => {
+  const payload = { type: 'error', code: 'unsupported-simulation-funding', error: 'private-provider-material',
+    quoteDiagnostics: { providerQualifications: { provider: 'market', attempts: 1,
+      rows: [{ attempt: 1, stage: 'qualification', outcome: 'rejected', code: 'unsupported-simulation-funding' }] } } };
+  let error: unknown;
+  if (transport === 'http') error = await quoteResponseError(Response.json(payload, { status: 503 }));
+  else {
+    try { await fetchQuoteStream('/api/economic-quotes/stream', {}, new AbortController().signal, () => {},
+      (async () => new Response(JSON.stringify(payload) + '\n')) as typeof fetch); }
+    catch (cause) { error = cause; }
+  }
+  assert.ok(error instanceof QuotePreviewError); assert.equal(error.code, 'unsupported-simulation-funding');
+  assert.equal(quoteErrorMessage(error, key => key), 'quoteUnexpectedError');
+  assert.equal(quoteDiagnostics(error)?.providerQualifications?.rows[0].outcome, 'rejected');
+  assert.equal(quoteDiagnostics(error)?.providerQualifications?.rows[0].code, 'unsupported-simulation-funding');
+  const events: ClientDiagnostic[] = [];
+  createQuoteDiagnostics(event => events.push(event)).observe({ strategy: 'market' }, 'failed', error);
+  assert.equal(events[0].errorClassification, 'unsupported-simulation-funding');
+  assert.doesNotMatch(JSON.stringify(error), /private-provider-material/);
+});
+
 for (const transport of ['http', 'stream'] as const) test(`Market liquidity failures retain their cause and bounded diagnostics through ${transport}`, async () => {
   const snapshot = { providerQualifications: { provider: 'market', attempts: 1,
     rows: [{ attempt: 1, stage: 'route-pricing', outcome: 'rejected', code: 'quote-insufficient-liquidity' }] },

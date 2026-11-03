@@ -84,9 +84,14 @@ export function economicQuoteOptions(request: EconomicRequest, scope: EconomicQu
     queryFn: ({ signal }: { signal: AbortSignal }) => fetchEconomicQuote(request, signal, false, fetchImpl) };
 }
 
-/** A cleared/disproved cache slot is not a reusable observation on a revisit. */
-export function progressiveEconomicQuoteOptions(request: EconomicRequest, scope: EconomicQuoteScope) {
-  const cleared = (query: { state: { data: unknown } }) => query.state.data === null;
-  return { ...economicQuoteOptions(request, scope), staleTime: (query: { state: { data: unknown } }) => cleared(query) ? 0 : Infinity,
-    refetchOnMount: cleared };
+/** A revisit keeps its observation while smaller-funded plans try the requested budget. */
+export function progressiveEconomicQuoteOptions(request: EconomicRequest, scope: EconomicQuoteScope, selected?: EconomicQuote, stopped = false) {
+  const revisit = (query: { state: { data: unknown } }) => {
+    if (query.state.data === null) return true;
+    if (stopped) return false;
+    const value = selected ?? query.state.data as EconomicQuote | undefined;
+    return Boolean(value && request.intent < 2 && BigInt(value.inputs[0].amount) < BigInt(request.inputs[0].amount));
+  };
+  return { ...economicQuoteOptions(request, scope), staleTime: (query: { state: { data: unknown } }) => revisit(query) ? 0 : Infinity,
+    refetchOnMount: revisit };
 }
