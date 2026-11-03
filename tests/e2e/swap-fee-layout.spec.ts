@@ -61,7 +61,7 @@ for (const width of [1280, 390]) {
     await expect(protocol).toHaveText("0.002 CYGLD (~ $0.40)");
     await expect(protocol).not.toHaveText(previousProtocol);
     await expect(total).not.toHaveText(previousTotal, { useInnerText: true });
-    await expect(page.getByTestId("quote-estimate-description")).toBeVisible();
+    await expect(page.getByTestId("quote-estimate-description")).toHaveClass("sr-only");
     await expect(gas).toHaveText(previousGas);
     await expect(fees.getByText("Updating…", { exact: true })).toHaveCount(0);
     expect(await protocol.evaluate(element => getComputedStyle(element).color)).not.toBe(completeColor);

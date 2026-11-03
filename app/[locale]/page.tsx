@@ -2587,8 +2587,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
                   </div>
                   <div data-trade-single="buy" hidden={showBuyBasket}>
                   {hasProgressiveBuyEstimate && (
-                    <span id="quote-buy-estimate" data-testid="quote-estimate-description"
-                      className={hasFullBudgetEstimate ? "block text-xs text-text-input-disabled" : "sr-only"}>{t('quoteEstimate')}</span>
+                    <span id="quote-buy-estimate" data-testid="quote-estimate-description" className="sr-only">{t('quoteEstimate')}</span>
                   )}
                   <output
                     id="buy-amount"

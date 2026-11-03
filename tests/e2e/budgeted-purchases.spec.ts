@@ -464,7 +464,7 @@ test("a Backend capped range is not reused outside its budgets or for another in
       await input.fill(budget);
       await expect(spending).toHaveText(budget === "2" ? "2 PAXG" : "…");
       await expect(output).not.toHaveText("0.936");
-      if (budget === "2") await expect(page.getByTestId("quote-estimate-description")).toBeVisible();
+      if (budget === "2") await expect(page.getByTestId("quote-estimate-description")).toHaveClass("sr-only");
       await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "pending");
       await expectThemeColor(page, spending, "--text-input-disabled");
       await expect(page.locator("[data-trade-action]")).toBeDisabled();
@@ -531,7 +531,7 @@ test("a larger ETH budget estimates an unsaturated cached route, then preserves 
     await expect(output).toHaveText("8.838");
     await expect(spending).toHaveText("0.5 ETH");
     await expect(spending).toHaveAttribute("data-limited", "false");
-    await expect(page.getByTestId("quote-estimate-description")).toBeVisible();
+    await expect(page.getByTestId("quote-estimate-description")).toHaveClass("sr-only");
     await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "pending");
     await expect.poll(() => requests.length).toBe(4);
     expect(requests.at(-1)).toEqual({ amount: String(unit / 2n), refresh: false });

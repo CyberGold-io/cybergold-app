@@ -136,7 +136,8 @@ for (const outcome of ['fresh', 'early-swap'] as const) test(outcome === 'fresh'
     await page.locator('#sell-amount').fill('0.5'); await expect.poll(() => wire.connections.length).toBe(3);
     const revisit = wire.connections[2];
     await expect(page.locator('#buy-amount')).toHaveText('8.838');
-    await expect(page.getByTestId('quote-estimate-description')).toBeVisible();
+    await expect(page.getByTestId('quote-estimate-description')).toHaveClass('sr-only');
+    await expect(page.getByTestId('quote-estimate-description')).toHaveCSS('clip-path', 'inset(50%)');
     await expect(page.locator('[data-trade-spending-value]')).toHaveText('0.5 ETH');
     await expect(page.locator('[data-trade-action]')).toBeEnabled();
     revisit.frame({ type: 'qualified', value: { ...old, observation: { source: 'stored', refresh: false } } });

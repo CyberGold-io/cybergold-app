@@ -45,8 +45,8 @@ cached observation; it can still improve an existing exact historical hit.
 Below the known funding amount, the existing clipped downward estimate remains
 available. A cleared/disproved exact cache slot still excludes historical fallback.
 
-The estimate has a visible Estimate label, pending presentation and indicative
-spending/fees. It never enters the economic quote cache or execution bounds.
+The estimate retains the existing screen-reader description, pending
+presentation and indicative spending/fees. It never enters the economic quote cache or execution bounds.
 A fresh qualified quote immediately replaces
 it, including a smaller funded/output result while refinement continues. A
 stored response cannot erase a better complete historical fallback. Completion,
