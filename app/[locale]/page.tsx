@@ -1455,7 +1455,12 @@ const computedReceiveQuote = useMemo((): Prefill => {
     !hasEnteredSwapAmount ? "empty" : quoteInputPending ? "loading" : activeQuoteStatus,
     isSubmittingSwap
   );
-  const feeDisplay = hasArithmeticFeeEstimate ? currentFeeDisplay : retainedFees.value;
+  const feeDisplay = hasArithmeticFeeEstimate ? { ...currentFeeDisplay,
+    networkFeeEstimate: retainedFees.value.networkFeeEstimate, networkFeeUsd: retainedFees.value.networkFeeUsd,
+    totalFeeUsd: computeTotalFeeUsd({ activeFees, cygldDecimals, cygldPriceUsd, cygldTokenId,
+      networkFeeUsd: retainedFees.value.networkFeeUsd, networkFeeWei: retainedFees.value.networkFeeEstimate?.wei,
+      prices, tokenAddressMap }),
+  } : retainedFees.value;
   const isFeeDisplayUpdating = hasEnteredSwapAmount &&
     ((areFeesUpdating && !isToleranceOnlyRefresh) || isDisplayRefreshing);
 

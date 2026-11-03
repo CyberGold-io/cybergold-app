@@ -106,6 +106,7 @@ test("ETH MAX uses refreshed fees while the previous gas presentation is retaine
     });
     await expect(gas).toContainText("~ 0.000415 ETH");
     const previousPresentation = await gasValue.innerText();
+    const total = page.locator('[data-trade-display="feeTotal"]'), previousTotal = await total.innerText();
     const initialFeeReads = observed.feeReads();
     const initialIntents = observed.intents.length;
     completion = new Promise<void>(resolve => { finish = resolve; });
@@ -118,6 +119,7 @@ test("ETH MAX uses refreshed fees while the previous gas presentation is retaine
     await expect.poll(async () => { await page.clock.runFor(1000); return observed.feeReads(); }).toBe(initialFeeReads + 1);
     await expect(gasValue).toHaveText(previousPresentation);
     await expect(gasValue).toHaveCSS("color", pendingColor);
+    await expect(total).toHaveText(previousTotal, { useInnerText: true });
 
     await maximum(page).click();
     await expect(sell(page)).toHaveValue("123.455");
