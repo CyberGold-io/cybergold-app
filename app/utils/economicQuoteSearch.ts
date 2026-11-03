@@ -19,9 +19,12 @@ export function createEconomicQuoteSearch(client: QueryClient, key: Key) {
   const cached = client.getQueryData<EconomicQuote | null>(key);
   let accepted = cached ?? undefined;
   if (cached) {
-    const request = key[4] as EconomicRequest;
-    const lower = lowerEconomicQuote(client, request, { chainId: key[1] as number,
-      generation: key[2] as string | null | undefined, configuration: key[3] as string });
+    // The hook serializes its stable key: undefined generation becomes null.
+    // Exact QueryClient hashes match both, while prefix filters use the original key.
+    const storedKey = client.getQueryCache().find({ queryKey: key, exact: true })!.queryKey;
+    const request = storedKey[4] as EconomicRequest;
+    const lower = lowerEconomicQuote(client, request, { chainId: storedKey[1] as number,
+      generation: storedKey[2] as string | null | undefined, configuration: storedKey[3] as string });
     if (lower && BigInt(lower.quotedOutput) > BigInt(cached.quotedOutput)) {
       accepted = { ...structuredClone(lower), request: economicRequest(request) };
       retainDiagnosticReferences(accepted, diagnosticReferences(lower));

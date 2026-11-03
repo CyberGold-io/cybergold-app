@@ -330,3 +330,25 @@ test("a known exact-context disproof still starts fresh pricing instead of reviv
     assert.equal(search.snapshot().invalidated, true);
   } finally { client.clear(); }
 });
+
+
+for (const generation of [undefined, null]) test(`serialized hook keys retain the stored ${generation} generation for lower-quote scope`, () => {
+  const client = new QueryClient(), capturedScope = { ...scope, generation };
+  const lower = { ...quote("20", "b", "50"), request: { ...request, inputs: [{ currency: token, amount: "50" }] } };
+  const refs = { requestId: "88888888-8888-4888-8888-888888888888" };
+  retainDiagnosticReferences(lower, refs);
+  try {
+    const key = economicQuoteKey(request, capturedScope);
+    client.setQueryData(key, quote("10"));
+    client.setQueryData(economicQuoteKey(lower.request, capturedScope), lower);
+    const foreign = { ...lower, quotedOutput: "999" };
+    client.setQueryData(economicQuoteKey(foreign.request, { ...capturedScope, generation: "other-generation" }), foreign);
+    client.setQueryData(economicQuoteKey(foreign.request, { ...capturedScope, configuration: "other-configuration" }), foreign);
+    const search = createEconomicQuoteSearch(client, JSON.parse(JSON.stringify(key)));
+    assert.equal(search.current()?.quotedOutput, "20");
+    assert.equal(search.current()?.inputs[0].amount, "50");
+    assert.deepEqual(search.current()?.request, economicRequest(request));
+    assert.deepEqual(diagnosticReferences(search.current()), refs);
+    assert.equal((client.getQueryData(key) as EconomicQuote).quotedOutput, "10");
+  } finally { client.clear(); }
+});
