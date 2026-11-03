@@ -15,7 +15,7 @@ export function useEconomicQuote(request: EconomicRequest, enabled: boolean) {
   const { identity: configuration } = useProtocolConfiguration(), generation = useSandboxForkGeneration();
   const client = useQueryClient(), visible = usePageVisible();
   const scope = { chainId: targetChainId, configuration, generation };
-  const key = JSON.stringify(economicQuoteKey(request, scope)), refreshing = useRef(new Set<string>());
+  const key = JSON.stringify(economicQuoteKey(request, scope)), refreshing = useRef(new Map<string, symbol>());
   const search = useMemo(() => createEconomicQuoteSearch(client, JSON.parse(key),
     { chainId: targetChainId, configuration, generation }), [client, key, configuration, generation]);
   const accepted = useSyncExternalStore(search.subscribe, search.snapshot, search.snapshot);
@@ -29,10 +29,12 @@ export function useEconomicQuote(request: EconomicRequest, enabled: boolean) {
   useEffect(() => () => search.stop(), [search]);
   const { refetch } = query;
   const refresh = useCallback(async () => {
-    refreshing.current.add(key);
-    try { return await refetch({ cancelRefetch: false }); }
-    finally { refreshing.current.delete(key); }
-  }, [key, refetch]);
+    const token = Symbol();
+    refreshing.current.set(key, token);
+    search.stop();
+    try { return await refetch({ cancelRefetch: true }); }
+    finally { if (refreshing.current.get(key) === token) refreshing.current.delete(key); }
+  }, [key, refetch, search]);
   const data = accepted.value ?? (!accepted.invalidated ? query.data ?? undefined : undefined);
   const captureReady = useCallback(() => {
     const value = search.current();

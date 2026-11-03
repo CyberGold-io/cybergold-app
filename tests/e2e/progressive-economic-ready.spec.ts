@@ -58,6 +58,52 @@ function value(input:EconomicRequest,output="10",funding=input.inputs[0].amount)
   if(input.intent<2)quote.reuseSample={referenceInput:funding,netOutput:quote.quotedOutput,fees:quote.fees,basis:"observed-nonretained"};return quote;
 }
 
+for (const ready of [false, true]) test(`manual Refresh replaces a held ${ready ? 'ready optimization tail and preserves capture' : 'initial search before its first quote'}`, async ({ page }) => {
+  await install(page); await wallet(page);
+  const wire = await streams(page), posted: { quote: EconomicQuote }[] = [];
+  let releasePreparation!: () => void;
+  const preparation = new Promise<void>(resolve => { releasePreparation = resolve; });
+  await page.route('**/api/tx-preparations', async route => {
+    posted.push(route.request().postDataJSON()); await preparation;
+    await route.fulfill({ status: 503, json: { code: 'quote-unavailable', error: 'Read-only preparation capture.' } });
+  });
+  try {
+    await page.goto('/en'); await expect(page.getByRole('button', { name: 'Open wallet menu', exact: true })).toBeVisible();
+    await page.locator('#sell-amount').fill('1'); await expect.poll(() => wire.connections.length).toBe(1);
+    const original = wire.connections[0], incumbent = value(original.input, '10');
+    if (ready) {
+      original.frame({ type: 'qualified', value: incumbent });
+      await expect(page.locator('#buy-amount')).toHaveText('10');
+      await expect(page.locator('[data-trade-action]')).toBeEnabled();
+    }
+    expect(original.closed).toBe(false);
+    await expect(page.locator('[data-trade-refresh]')).toBeEnabled();
+    await page.locator('[data-trade-refresh]').click();
+    await expect.poll(() => wire.connections.length).toBe(2); await expect.poll(() => original.closed).toBe(true);
+    const replacement = wire.connections[1];
+    expect((replacement.input as EconomicRequest & { refresh?: boolean }).refresh).toBe(true);
+    original.frame({ type: 'qualified', value: value(original.input, '99') });
+    original.frame({ type: 'complete', value: value(original.input, '99') });
+    if (ready) {
+      await expect(page.locator('#buy-amount')).toHaveText('10');
+      await expect(page.locator('[data-trade-action]')).toBeEnabled();
+    } else await expect(page.locator('[data-trade-action]')).toBeDisabled();
+    const fresh = value(replacement.input, '12'); replacement.frame({ type: 'qualified', value: fresh });
+    await expect(page.locator('#buy-amount')).toHaveText('12');
+    await expect(page.locator('[data-trade-action]')).toBeEnabled();
+    expect(replacement.closed).toBe(false);
+    if (ready) {
+      await page.locator('[data-trade-action]').click();
+      await expect.poll(() => posted.length).toBe(1); await expect.poll(() => replacement.closed).toBe(true);
+      expect(posted[0].quote.inputs).toEqual(fresh.inputs); expect(posted[0].quote.plan).toEqual(fresh.plan);
+      expect(posted[0].quote.quotedOutput).toBe(fresh.quotedOutput);
+      replacement.frame({ type: 'qualified', value: value(replacement.input, '99') });
+      await expect(page.locator('#buy-amount')).toHaveText('12');
+    } else { replacement.frame({ type: 'complete', value: fresh }); replacement.end(); }
+    expect(wire.connections).toHaveLength(2);
+  } finally { releasePreparation(); await wire.close(); }
+});
+
 for (const outcome of ['fresh', 'early-swap'] as const) test(outcome === 'fresh'
   ? 'an estimated budget revisit accepts fresh lower output before refinement ends and preserves observed limits'
   : 'an estimated budget revisit keeps the actual cached tuple for an early Swap and preparation', async ({ page }) => {

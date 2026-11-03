@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 import ts from "typescript";
 import { getAddress, toHex } from "viem";
-import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import { QueryClient, QueryObserver, onlineManager, type UseQueryOptions } from "@tanstack/react-query";
 import { createEconomicQuoteSearch } from "./economicQuoteSearch.ts";
 import { economicRequest, economicQuoteKey, economicQuoteOptions, progressiveEconomicQuoteOptions, type EconomicQuote, type EconomicRequest } from "./economicQuotes.ts";
 import { diagnosticReferences, retainDiagnosticReferences } from "./diagnosticReferences.ts";
@@ -139,6 +139,77 @@ test("stop advances ownership before abort, retains ready cache on cancellation 
     const unsubscribe=observer.subscribe(()=>{});await tick();
     assert.deepEqual(observer.getCurrentResult().data,captured);assert.equal(f.wire.calls(),1);unsubscribe();
   }finally{f.close();}
+});
+
+for (const ready of [false, true]) test(`explicit Refresh restarts a held ${ready ? "ready tail" : "initial search"} without publishing queued obsolete work`, async () => {
+  const client = new QueryClient(), key = economicQuoteKey(request, scope), wires = [transport(), transport()];
+  const search = createEconomicQuoteSearch(client, key);
+  let refresh = false, calls = 0;
+  const observer = new QueryObserver<EconomicQuote | null>(client, { ...economicQuoteOptions(request, scope),
+    queryFn: ({ signal }) => search.run(request, signal, refresh, wires[calls++].fetcher) });
+  const unsubscribe = observer.subscribe(() => {});
+  try {
+    await tick(); const incumbent = quote("10", "a", "90");
+    if (ready) { wires[0].frame({ type: "qualified", value: incumbent }); await tick(); }
+    assert.equal(observer.getCurrentResult().fetchStatus, "fetching");
+    wires[0].frame({ type: "qualified", value: quote("99") });
+    refresh = true; search.stop();
+    const pending = observer.refetch({ cancelRefetch: true }); await tick();
+    assert.equal(calls, 2); assert.equal(wires[0].aborted(), true); assert.equal(wires[0].cancelled(), true);
+    assert.equal(wires[1].bodies[0].refresh, true);
+    assert.deepEqual(search.current(), ready ? incumbent : undefined);
+    assert.deepEqual(client.getQueryData(key), ready ? incumbent : undefined);
+    assert.equal(observer.getCurrentResult().fetchStatus, "fetching");
+    const fresh = quote("12", "b", "95"); wires[1].frame({ type: "qualified", value: fresh }); await tick();
+    assert.deepEqual(search.current(), fresh);
+    wires[1].frame({ type: "complete", value: fresh }); await pending;
+    assert.deepEqual(client.getQueryData(key), fresh); assert.equal(calls, 2);
+  } finally { unsubscribe(); client.clear(); }
+});
+
+test("an earlier canceled Refresh cannot clear a newer paused Refresh's intent in the real hook", async () => {
+  const client = new QueryClient(), key = economicQuoteKey(request, scope), wires = [transport(), transport(), transport()];
+  client.setQueryData(key, quote()); client.mount();
+  let calls = 0, observer!: QueryObserver<EconomicQuote | null>, unsubscribe = () => {};
+  const dependencies: Record<string, unknown> = {
+    react: { useCallback: (fn: unknown) => fn, useEffect: () => {}, useLayoutEffect: () => {},
+      useMemo: (fn: () => unknown) => fn(), useRef: (current: unknown) => ({ current }),
+      useSyncExternalStore: (_subscribe: unknown, snapshot: () => unknown) => snapshot() },
+    "@tanstack/react-query": { useQueryClient: () => client, useQuery: (options: UseQueryOptions<EconomicQuote | null>) => {
+      observer = new QueryObserver(client, options); unsubscribe = observer.subscribe(() => {});
+      return observer.getCurrentResult();
+    } },
+    "@/app/config/chain": { targetChainId: scope.chainId },
+    "@/app/context/protocolConfigurationContext": { useProtocolConfiguration: () => ({ identity: scope.configuration }) },
+    "@/app/context/sandboxForkContext": { useSandboxForkGeneration: () => scope.generation },
+    "@/app/utils/economicQuotes": { economicQuoteKey, progressiveEconomicQuoteOptions },
+    "@/app/utils/economicQuoteSearch": { createEconomicQuoteSearch: (...args: Parameters<typeof createEconomicQuoteSearch>) => {
+      const search = createEconomicQuoteSearch(...args);
+      return { ...search, run: (input: EconomicRequest, signal: AbortSignal, refresh: boolean) =>
+        search.run(input, signal, refresh, wires[calls++].fetcher) };
+    } },
+    "@/app/utils/diagnosticReferences": { diagnosticReferences, retainDiagnosticReferences },
+    "@/app/hooks/usePageVisible": { usePageVisible: () => true },
+  };
+  const source = ts.transpileModule(readFileSync(new URL('../hooks/flows/quotes/useEconomicQuote.ts', import.meta.url), 'utf8'),
+    { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
+  const exported: { useEconomicQuote?: (input: EconomicRequest, enabled: boolean) => { refresh: () => Promise<unknown> } } = {};
+  runInNewContext(source, { exports: exported, require: (name: string) => { assert.ok(name in dependencies, name); return dependencies[name]; }, JSON, structuredClone });
+  const wasOnline = onlineManager.isOnline();
+  try {
+    onlineManager.setOnline(true);
+    const hook = exported.useEconomicQuote!(request, true), earlier = hook.refresh(); await tick();
+    assert.equal(wires[0].bodies[0].refresh, true);
+    onlineManager.setOnline(false); const latest = hook.refresh(); await earlier; await tick();
+    assert.equal(wires[0].aborted(), true); assert.equal(observer.getCurrentResult().fetchStatus, "paused");
+    assert.equal(calls, 1, "offline retryer has not read the newer refresh intent yet");
+    onlineManager.setOnline(true); await tick();
+    assert.equal(calls, 2); assert.equal(wires[1].bodies[0].refresh, true);
+    wires[1].frame({ type: "complete", value: quote("12") }); await latest;
+    const ordinary = observer.refetch(); await tick();
+    assert.equal(wires[2].bodies[0].refresh, undefined, "the latest completed owner clears its own intent");
+    wires[2].frame({ type: "complete", value: quote("13") }); await ordinary;
+  } finally { unsubscribe(); client.clear(); client.unmount(); onlineManager.setOnline(wasOnline); }
 });
 
 for(const failure of ["identified","eof","malformed"] as const)for(const ready of [false,true]){

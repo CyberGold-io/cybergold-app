@@ -2762,7 +2762,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
 
         <div className="order-3 mt-3 flex flex-col items-end gap-2">
           <button type="button" data-trade-refresh onClick={() => void activeFlow?.refresh()}
-            disabled={!activeFlow || !hasEnteredSwapAmount || isSubmittingSwap || activeFlow.refreshing || quoteInputPending}
+            disabled={!activeFlow || !hasEnteredSwapAmount || isSubmittingSwap || quoteInputPending}
             aria-busy={activeFlow?.refreshing || undefined}
             className={cn("text-sm text-text-muted underline underline-offset-4 disabled:opacity-50",
               (!activeFlow || !hasEnteredSwapAmount) && "invisible")}>
