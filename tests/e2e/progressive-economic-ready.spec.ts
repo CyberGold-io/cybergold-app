@@ -107,7 +107,8 @@ for (const ready of [false, true]) test(`manual Refresh replaces a held ${ready 
 for (const outcome of ['fresh', 'early-swap'] as const) test(outcome === 'fresh'
   ? 'an estimated budget revisit accepts fresh lower output before refinement ends and preserves observed limits'
   : 'an estimated budget revisit keeps the actual cached tuple for an early Swap and preparation', async ({ page }) => {
-  await install(page); await wallet(page); await page.addInitScript(installQuoteObservation as () => void);
+  await install(page); await wallet(page); await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.addInitScript(installQuoteObservation as () => void);
   const wire = await streams(page), posted: { quote: EconomicQuote; acceptedBounds: { minimumOutput: string; inputs: { amount: string }[] } }[] = [];
   let releasePreparation!: () => void;
   const preparation = new Promise<void>(resolve => { releasePreparation = resolve; });
@@ -138,6 +139,19 @@ for (const outcome of ['fresh', 'early-swap'] as const) test(outcome === 'fresh'
     await expect(page.locator('#buy-amount')).toHaveText('8.838');
     await expect(page.getByTestId('quote-estimate-description')).toHaveClass('sr-only');
     await expect(page.getByTestId('quote-estimate-description')).toHaveCSS('clip-path', 'inset(50%)');
+    const output = page.locator('#buy-amount');
+    await expect(output).toHaveCSS('animation-name', 'quote-estimate-opacity');
+    await expect(output).toHaveCSS('animation-duration', '3s');
+    await expect(output).toHaveCSS('animation-timing-function', 'ease-in-out');
+    expect(await output.evaluate(element => (element.getAnimations()[0].effect as KeyframeEffect).getKeyframes().map(frame => Number(frame.opacity))))
+      .toEqual([1, 0.72, 1]);
+    await expect(page.getByTestId('quote-estimate-description')).toHaveCSS('animation-name', 'none');
+    await expect(page.locator('[data-trade-spending-value]')).toHaveCSS('animation-name', 'none');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect(output).toHaveCSS('animation-name', 'none');
+    await expect(output).toHaveCSS('opacity', '1');
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await expect(output).toHaveCSS('animation-name', 'quote-estimate-opacity');
     await expect(page.locator('[data-trade-spending-value]')).toHaveText('0.5 ETH');
     await expect(page.locator('[data-trade-action]')).toBeEnabled();
     revisit.frame({ type: 'qualified', value: { ...old, observation: { source: 'stored', refresh: false } } });
@@ -148,6 +162,8 @@ for (const outcome of ['fresh', 'early-swap'] as const) test(outcome === 'fresh'
       const fresh = observed(revisit.input, 8355n * unit / 1000n, 473n * unit / 1000n);
       revisit.frame({ type: 'qualified', value: fresh });
       await expect(page.locator('#buy-amount')).toHaveText('8.355');
+      await expect(output).toHaveCSS('animation-name', 'none');
+      await expect(page.locator('[data-trade-refresh]')).toHaveAttribute('aria-busy', 'true');
       await expect(page.locator('[data-trade-spending-value]')).toHaveText('0.473 ETH');
       await expect(page.getByTestId('quote-estimate-description')).toHaveCount(0);
       expect(revisit.closed).toBe(false);
@@ -158,6 +174,8 @@ for (const outcome of ['fresh', 'early-swap'] as const) test(outcome === 'fresh'
       for (const [index, budget] of ['0.6', '0.7'].entries()) {
         await page.locator('#sell-amount').fill(budget); await expect.poll(() => wire.connections.length).toBe(4 + index);
         await expect(page.locator('#buy-amount')).toHaveText('8.355');
+        await expect(output).toHaveCSS('animation-name', 'none');
+        await expect(page.locator('[data-trade-refresh]')).toHaveAttribute('aria-busy', 'true');
         await expect(page.locator('[data-trade-spending-value]')).toHaveText('0.473 ETH');
         await expect(page.getByTestId('quote-estimate-description')).toHaveCount(0);
       }
@@ -170,6 +188,7 @@ for (const outcome of ['fresh', 'early-swap'] as const) test(outcome === 'fresh'
     expect(posted[0].acceptedBounds).toMatchObject({ inputs: [{ amount: String(2n * unit / 5n) }],
       minimumOutput: String(707n * unit / 100n * 99n / 100n) });
     await expect(page.locator('#buy-amount')).toHaveText('7.07');
+    await expect(output).toHaveCSS('animation-name', 'none');
     await expect(page.locator('[data-trade-spending-value]')).toHaveText('0.4 ETH');
     await expect(page.getByTestId('quote-estimate-description')).toHaveCount(0);
     expect(wire.connections).toHaveLength(3);

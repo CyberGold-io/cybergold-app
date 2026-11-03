@@ -2596,6 +2596,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
                     aria-labelledby="buy-amount-label buy-token-label"
                     className={cn(
                       swapStyles.amountOutput,
+                      hasProgressiveBuyEstimate && "quote-estimate-pulse",
                       isPurchaseOverCap ? "text-red-500" : shouldMuteQuotedBuyAmounts ? "text-text-input-disabled" : "text-text-input"
                     )}
                     aria-busy={shouldBlockQuotedBuyInput || hasFullBudgetEstimate || undefined}

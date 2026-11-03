@@ -46,7 +46,11 @@ Below the known funding amount, the existing clipped downward estimate remains
 available. A cleared/disproved exact cache slot still excludes historical fallback.
 
 The estimate retains the existing screen-reader description, pending
-presentation and indicative spending/fees. It never enters the economic quote cache or execution bounds.
+presentation and indicative spending/fees. Only the estimated scalar receive
+number has a subtle three-second opacity pulse; labels, fees and spending stay
+steady. The pulse stops on an actual quote, including an already known limited
+cached quote while optimization continues. Reduced-motion preferences disable
+it. The estimate never enters the economic quote cache or execution bounds.
 A fresh qualified quote immediately replaces
 it, including a smaller funded/output result while refinement continues. A
 stored response cannot erase a better complete historical fallback. Completion,
