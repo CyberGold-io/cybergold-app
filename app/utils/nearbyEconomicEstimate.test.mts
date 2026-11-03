@@ -3,7 +3,7 @@ import test from "node:test";
 import { readFileSync } from "node:fs";
 import { QueryClient } from "@tanstack/react-query";
 import { economicQuoteKey, type EconomicQuote, type EconomicRequest } from "./economicQuotes.ts";
-import { arithmeticEconomicEstimate, upperEconomicQuote, type EconomicReuseSample } from "./nearbyEconomicEstimate.ts";
+import { arithmeticEconomicEstimate, lowerEconomicQuote, upperEconomicQuote, type EconomicReuseSample } from "./nearbyEconomicEstimate.ts";
 
 const token = "0x0000000000000000000000000000000000000002";
 const core = "0x0000000000000000000000000000000000000003";
@@ -100,5 +100,35 @@ test("a failed Refresh keeps the previous exact observation usable without ancho
     assert.equal(arithmeticEconomicEstimate(source.reuseSample!, 300n)?.quotedOutput, 500n);
     assert.equal(client.getQueryData(economicQuoteKey(request("900"), scope)), undefined);
     assert.equal(client.getQueryCache().getAll().length, 1);
+  } finally { client.clear(); }
+});
+
+
+test("whole-quote lower reuse chooses output rather than the nearest requested budget or an arithmetic sample", () => {
+  const client = new QueryClient();
+  const complete = (amount: string, output: string, funding = amount) => ({
+    ...quote(amount), inputs: [{ currency: token, amount: funding }], quotedOutput: output,
+  });
+  try {
+    const better = complete("300", "1100"), nearer = complete("800", "900");
+    for (const value of [better, nearer, complete("950", "2000"), complete("100", "9999", "1000")])
+      client.setQueryData(economicQuoteKey(value.request, scope), value);
+    assert.equal(lowerEconomicQuote(client, request("900"), scope), better);
+    assert.equal(lowerEconomicQuote(client, request("300"), scope), undefined);
+    assert.equal(client.getQueryData(economicQuoteKey(request("900"), scope)), undefined);
+  } finally { client.clear(); }
+});
+
+test("whole-quote lower reuse follows existing request family, configuration and generation without a head or age rule", () => {
+  const client = new QueryClient(), saved = { ...quote("300"), inputs: [{ currency: token, amount: "300" }] };
+  try {
+    client.setQueryData(economicQuoteKey(saved.request, scope), saved, { updatedAt: 1 });
+    assert.equal(lowerEconomicQuote(client, request("900"), scope), saved);
+    assert.equal(lowerEconomicQuote(client, request("900"), { ...scope, generation: "other" }), undefined);
+    assert.equal(lowerEconomicQuote(client, request("900"), { ...scope, configuration: "other" }), undefined);
+    assert.equal(lowerEconomicQuote(client, { ...request("900"), intent: 1 }, scope), undefined);
+    assert.equal(lowerEconomicQuote(client, { ...request("900"), outputCurrency: token }, scope), undefined);
+    assert.equal(lowerEconomicQuote(client, { ...request("900"), inputs: [{ currency: `0x${"0".repeat(40)}`, amount: "900" }] }, scope), undefined);
+    assert.equal(lowerEconomicQuote(client, { ...request("900"), intent: 2 }, scope), undefined);
   } finally { client.clear(); }
 });

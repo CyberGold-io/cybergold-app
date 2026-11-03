@@ -6,7 +6,7 @@ import ts from "typescript";
 import { getAddress, toHex } from "viem";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { createEconomicQuoteSearch, type UpperEstimateDisplayPolicy } from "./economicQuoteSearch.ts";
-import { economicQuoteKey, economicQuoteOptions, progressiveEconomicQuoteOptions, type EconomicQuote, type EconomicRequest } from "./economicQuotes.ts";
+import { economicRequest, economicQuoteKey, economicQuoteOptions, progressiveEconomicQuoteOptions, type EconomicQuote, type EconomicRequest } from "./economicQuotes.ts";
 import { diagnosticReferences, retainDiagnosticReferences } from "./diagnosticReferences.ts";
 import { QuotePreviewError } from "./quoteErrors.ts";
 import { captureTradeQuote, economicTradeQuote, tradeAdapter, tradeQuoteResult } from "./tradeQuote.ts";
@@ -265,4 +265,68 @@ test("stopping one QueryClient subscription leaves another caller's producer ali
     left.search.stop();await a.catch(()=>{});assert.equal(right.wire.aborted(),false);
     right.wire.frame({type:"complete",value:quote("12")});assert.equal((await b).quotedOutput,"12");
   }finally{left.close();right.close();}
+});
+
+test("a larger-budget revisit offers the best complete cached lower quote without searching, then idle Refresh reprices", async () => {
+  const client = new QueryClient(), wire = transport();
+  const budget = (amount: string): EconomicRequest => ({ ...request,
+    inputs: [{ currency: token, amount }] });
+  const amounts = { small: "300000000000000000", middle: "400000000000000000", large: "500000000000000000" };
+  const observed = (amount: string, funding: string, output: string) => ({
+    ...quote(output, "b", funding), request: budget(amount),
+    routeOrigins: { discoveryProviders: ["cybergold-custom"], marker: output },
+  }) as EconomicQuote;
+  const small = observed(amounts.small, amounts.small, "5304000000000000000");
+  const oldLarge = { ...structuredClone(small), request: budget(amounts.large) };
+  const middle = observed(amounts.middle, amounts.middle, "7070000000000000000");
+  const refs = { requestId: "77777777-7777-4777-8777-777777777777" };
+  retainDiagnosticReferences(middle, refs);
+  for (const value of [small, oldLarge, middle]) client.setQueryData(economicQuoteKey(value.request, scope), value);
+  const largeRequest = budget(amounts.large), key = economicQuoteKey(largeRequest, scope);
+  const search = createEconomicQuoteSearch(client, key);
+  const expected = { ...structuredClone(middle), request: largeRequest };
+  let refreshing = false;
+  const observer = new QueryObserver<EconomicQuote | null>(client, {
+    ...progressiveEconomicQuoteOptions(largeRequest, scope),
+    queryFn: ({ signal }) => search.run(largeRequest, signal, refreshing, wire.fetcher),
+  });
+  const unsubscribe = observer.subscribe(() => {});
+  try {
+    await tick();
+    assert.equal(wire.calls(), 0, "a cache revisit does not start another RPC-backed search");
+    assert.deepEqual(search.current(), expected, "only the requested budget is rebound; the complete .4 tuple survives");
+    assert.deepEqual(diagnosticReferences(search.current()), refs);
+    assert.notEqual(search.current(), middle, "selection owns a deep clone of the historical observation");
+    assert.notEqual(search.current()?.plan, middle.plan);
+    assert.equal(search.current()?.inputs[0].amount, amounts.middle);
+    assert.deepEqual(client.getQueryData(key), oldLarge, "search initialization has no render-time cache mutation");
+    assert.deepEqual(middle.request, budget(amounts.middle));
+
+    refreshing = true;
+    const pending = observer.refetch({ cancelRefetch: false });
+    await tick();
+    assert.equal(wire.calls(), 1);
+    assert.deepEqual(wire.bodies[0], { ...economicRequest(largeRequest), refresh: true });
+    assert.deepEqual(search.current(), expected, "the historical observation stays visible until a replacement arrives");
+    const fullBudget = observed(amounts.large, amounts.large, "8830000000000000000");
+    wire.frame({ type: "qualified", value: fullBudget });
+    await tick();
+    assert.deepEqual(search.current(), fullBudget, "fresh qualified economics replace the cached floor normally");
+    wire.frame({ type: "complete", value: fullBudget });
+    assert.equal((await pending).data?.quotedOutput, fullBudget.quotedOutput);
+    assert.equal(search.current()?.inputs[0].amount, amounts.large);
+    assert.deepEqual(client.getQueryData(key), fullBudget);
+  } finally { unsubscribe(); client.clear(); }
+});
+
+test("a known exact-context disproof still starts fresh pricing instead of reviving a neighboring observation", async () => {
+  const client = new QueryClient(), key = economicQuoteKey(request, scope);
+  const lower = { ...quote("20", "b", "50"), request: { ...request, inputs: [{ currency: token, amount: "50" }] } };
+  try {
+    client.setQueryData(economicQuoteKey(lower.request, scope), lower);
+    client.setQueryData(key, null);
+    const search = createEconomicQuoteSearch(client, key);
+    assert.equal(search.current(), undefined);
+    assert.equal(search.snapshot().invalidated, true);
+  } finally { client.clear(); }
 });

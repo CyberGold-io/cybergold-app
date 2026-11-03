@@ -43,3 +43,25 @@ export function upperEconomicQuote(client: QueryClient, input: EconomicRequest, 
   }
   return upper;
 }
+
+/** Complete historical observations can improve an existing larger-budget hit. */
+export function lowerEconomicQuote(client: QueryClient, input: EconomicRequest, scope: EconomicQuoteScope) {
+  if (input.intent > 1 || input.inputs.length !== 1) return undefined;
+  const requested = economicRequest(input), budget = BigInt(requested.inputs[0].amount);
+  let lower: EconomicQuote | undefined, lowerOutput: bigint | undefined;
+  for (const [key, quote] of client.getQueriesData<EconomicQuote>({
+    queryKey: ["economic-quote", scope.chainId, scope.generation, scope.configuration],
+  })) {
+    if (!quote || key.length !== 5) continue;
+    try {
+      const source = quote.request;
+      if (source.intent !== requested.intent || source.inputs.length !== 1 ||
+        source.inputs[0].currency.toLowerCase() !== requested.inputs[0].currency ||
+        source.outputCurrency.toLowerCase() !== requested.outputCurrency) continue;
+      if (BigInt(source.inputs[0].amount) >= budget || BigInt(quote.inputs[0].amount) > budget) continue;
+      const output = BigInt(quote.quotedOutput);
+      if (lowerOutput === undefined || output > lowerOutput) { lower = quote; lowerOutput = output; }
+    } catch { /* Optional unreadable observations leave the exact quote available. */ }
+  }
+  return lower;
+}

@@ -1,7 +1,8 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { fetchEconomicQuoteStream, type EconomicQuote, type EconomicQuoteEvent, type EconomicRequest } from "./economicQuotes.ts";
+import { economicRequest, fetchEconomicQuoteStream, type EconomicQuote, type EconomicQuoteEvent, type EconomicRequest } from "./economicQuotes.ts";
 import { diagnosticReferences, retainDiagnosticReferences } from "./diagnosticReferences.ts";
 import { QuotePreviewError } from "./quoteErrors.ts";
+import { lowerEconomicQuote } from "./nearbyEconomicEstimate.ts";
 
 type Key = readonly unknown[];
 type Context = EconomicQuote["context"];
@@ -17,6 +18,15 @@ export function createEconomicQuoteSearch(client: QueryClient, key: Key) {
   let owner = 0;
   const cached = client.getQueryData<EconomicQuote | null>(key);
   let accepted = cached ?? undefined;
+  if (cached) {
+    const request = key[4] as EconomicRequest;
+    const lower = lowerEconomicQuote(client, request, { chainId: key[1] as number,
+      generation: key[2] as string | null | undefined, configuration: key[3] as string });
+    if (lower && BigInt(lower.quotedOutput) > BigInt(cached.quotedOutput)) {
+      accepted = { ...structuredClone(lower), request: economicRequest(request) };
+      retainDiagnosticReferences(accepted, diagnosticReferences(lower));
+    }
+  }
   let snapshot: Snapshot = { value: accepted, optimizing: false, invalidated: cached === null };
   let active: { owner: number; prior?: EconomicQuote; best?: EconomicQuote; disproved?: Context;
     upper?: bigint; upperSettled: boolean; reconsider?: () => void; signal: AbortSignal } | undefined;
