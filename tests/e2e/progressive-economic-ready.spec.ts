@@ -201,6 +201,50 @@ for (const outcome of ['fresh', 'early-swap'] as const) test(outcome === 'fresh'
   } finally { releasePreparation(); await wire.close(); }
 });
 
+test('a stored lower without an exact hit preserves the upper budget estimate and actual preparation tuple', async ({ page }) => {
+  await install(page); await wallet(page);
+  const wire = await streams(page), posted: { quote: EconomicQuote; acceptedBounds: { minimumOutput: string; inputs: { amount: string }[] } }[] = [];
+  let releasePreparation!: () => void;
+  const preparation = new Promise<void>(resolve => { releasePreparation = resolve; });
+  await page.route('**/api/tx-preparations', async route => {
+    posted.push(route.request().postDataJSON()); await preparation;
+    await route.fulfill({ status: 503, json: { code: 'quote-unavailable', error: 'Read-only preparation capture.' } });
+  });
+  try {
+    await page.goto('/en'); await expect(page.getByRole('button', { name: 'Open wallet menu', exact: true })).toBeVisible();
+    await showAllSellTokens(page); await selectToken(page, 'sell', 'ETH');
+    await page.locator('#sell-amount').fill('0.4'); await expect.poll(() => wire.connections.length).toBe(1);
+    const lower = value(wire.connections[0].input, '7');
+    lower.quotedOutput = lower.reuseSample!.netOutput = String(707n * unit / 100n);
+    wire.connections[0].frame({ type: 'qualified', value: lower });
+    wire.connections[0].frame({ type: 'complete', value: lower }); wire.connections[0].end();
+    await expect(page.locator('#buy-amount')).toHaveText('7.07');
+    await page.locator('#sell-amount').fill('0.6'); await expect.poll(() => wire.connections.length).toBe(2);
+    const upper = value(wire.connections[1].input, '10.8');
+    wire.connections[1].frame({ type: 'qualified', value: upper });
+    wire.connections[1].frame({ type: 'complete', value: upper }); wire.connections[1].end();
+    await expect(page.locator('#buy-amount')).toHaveText('10.8');
+    await page.locator('#sell-amount').fill('0.5'); await expect.poll(() => wire.connections.length).toBe(3);
+    const current = wire.connections[2];
+    await expect(page.locator('#buy-amount')).toHaveText('9');
+    current.frame({ type: 'qualified', value: { ...lower, request: current.input, observation: { source: 'stored', refresh: false } } });
+    await expect(page.locator('[data-trade-action]')).toBeEnabled();
+    await expect(page.locator('#buy-amount')).toHaveText('9');
+    await expect(page.locator('[data-trade-spending-value]')).toHaveText('0.5 ETH');
+    expect(current.closed).toBe(false);
+    await page.locator('[data-trade-action]').click();
+    await expect.poll(() => posted.length).toBe(1); await expect.poll(() => current.closed).toBe(true);
+    expect(posted[0].quote.request).toEqual(current.input);
+    expect(posted[0].quote.inputs).toEqual(lower.inputs); expect(posted[0].quote.plan).toEqual(lower.plan);
+    expect(posted[0].quote.quotedOutput).toBe(lower.quotedOutput);
+    expect(posted[0].acceptedBounds).toMatchObject({ inputs: [{ amount: String(2n * unit / 5n) }],
+      minimumOutput: String(707n * unit / 100n * 99n / 100n) });
+    await expect(page.locator('#buy-amount')).toHaveText('7.07');
+    await expect(page.locator('[data-trade-spending-value]')).toHaveText('0.4 ETH');
+    expect(wire.connections).toHaveLength(3);
+  } finally { releasePreparation(); await wire.close(); }
+});
+
 test('validated receive replacements pulse once without restarting for metadata or unchanged Refresh', async ({ page }) => {
   await install(page); await wallet(page); await page.emulateMedia({ reducedMotion: 'no-preference' });
   const wire = await streams(page);

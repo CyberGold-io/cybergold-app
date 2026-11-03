@@ -67,6 +67,7 @@ export function createEconomicQuoteSearch(client: QueryClient, key: Key, scope?:
       const owns = () => active === attempt && owner === attempt.owner && !signal.aborted;
       const publish = (value: EconomicQuote) => {
         if (!owns() || attempt.disproved) return;
+        if (accepted === value) return;
         const historical = value.observation?.source === "stored";
         if (historical && accepted && request.intent < 2) {
           const output = BigInt(value.quotedOutput), priorOutput = BigInt(accepted.quotedOutput);
