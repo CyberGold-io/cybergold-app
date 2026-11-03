@@ -267,7 +267,7 @@ test("stopping one QueryClient subscription leaves another caller's producer ali
   }finally{left.close();right.close();}
 });
 
-test("a larger-budget revisit offers the best complete cached lower quote without searching, then idle Refresh reprices", async () => {
+test("a larger-budget revisit offers its complete cached floor while ordinary optimization and explicit Refresh reprice", async () => {
   const client = new QueryClient(), wire = transport();
   const budget = (amount: string): EconomicRequest => ({ ...request,
     inputs: [{ currency: token, amount }] });
@@ -287,13 +287,14 @@ test("a larger-budget revisit offers the best complete cached lower quote withou
   const expected = { ...structuredClone(middle), request: largeRequest };
   let refreshing = false;
   const observer = new QueryObserver<EconomicQuote | null>(client, {
-    ...progressiveEconomicQuoteOptions(largeRequest, scope),
+    ...progressiveEconomicQuoteOptions(largeRequest, scope, search.current()),
     queryFn: ({ signal }) => search.run(largeRequest, signal, refreshing, wire.fetcher),
   });
   const unsubscribe = observer.subscribe(() => {});
   try {
     await tick();
-    assert.equal(wire.calls(), 0, "a cache revisit does not start another RPC-backed search");
+    assert.equal(wire.calls(), 1, "a partial cached budget starts one ordinary optimization");
+    assert.deepEqual(wire.bodies[0], economicRequest(largeRequest));
     assert.deepEqual(search.current(), expected, "only the requested budget is rebound; the complete .4 tuple survives");
     assert.deepEqual(diagnosticReferences(search.current()), refs);
     assert.notEqual(search.current(), middle, "selection owns a deep clone of the historical observation");
@@ -302,12 +303,18 @@ test("a larger-budget revisit offers the best complete cached lower quote withou
     assert.deepEqual(client.getQueryData(key), oldLarge, "search initialization has no render-time cache mutation");
     assert.deepEqual(middle.request, budget(amounts.middle));
 
+    const partial = observed(amounts.large, "473000000000000000", "8355000000000000000");
+    wire.frame({ type: "qualified", value: partial });
+    wire.frame({ type: "complete", value: partial });
+    await tick();
+    assert.deepEqual(search.current(), partial);
+    assert.equal(observer.getCurrentResult().fetchStatus, "idle");
     refreshing = true;
     const pending = observer.refetch({ cancelRefetch: false });
     await tick();
-    assert.equal(wire.calls(), 1);
-    assert.deepEqual(wire.bodies[0], { ...economicRequest(largeRequest), refresh: true });
-    assert.deepEqual(search.current(), expected, "the historical observation stays visible until a replacement arrives");
+    assert.equal(wire.calls(), 2);
+    assert.deepEqual(wire.bodies[1], { ...economicRequest(largeRequest), refresh: true });
+    assert.deepEqual(search.current(), partial, "the last qualified observation stays visible until Refresh replaces it");
     const fullBudget = observed(amounts.large, amounts.large, "8830000000000000000");
     wire.frame({ type: "qualified", value: fullBudget });
     await tick();
@@ -351,4 +358,55 @@ for (const generation of [undefined, null]) test(`serialized hook keys retain th
     assert.deepEqual(diagnosticReferences(search.current()), refs);
     assert.equal((client.getQueryData(key) as EconomicQuote).quotedOutput, "10");
   } finally { client.clear(); }
+});
+
+
+test("a reused QueryObserver optimizes the selected partial floor once per visit without looping on fresh partial results", async () => {
+  const client = new QueryClient(), wire = transport();
+  const budget = (amount: string): EconomicRequest => ({ ...request, inputs: [{ currency: token, amount }] });
+  const observed = (amount: string, funding: string, output: string) => ({
+    ...quote(output, "b", funding), request: budget(amount),
+  });
+  const smallRequest = budget("300"), largeRequest = budget("500");
+  const small = observed("300", "300", "5304"), rawFull = observed("500", "500", "5304");
+  const floor = observed("400", "400", "7070"), partial = observed("500", "473", "8355");
+  for (const value of [small, rawFull, floor]) client.setQueryData(economicQuoteKey(value.request, scope), value);
+  let search = createEconomicQuoteSearch(client, economicQuoteKey(smallRequest, scope));
+  let currentRequest = smallRequest;
+  const options = () => ({ ...progressiveEconomicQuoteOptions(currentRequest, scope, search.current()),
+    queryFn: ({ signal }: { signal: AbortSignal }) => search.run(currentRequest, signal, false, wire.fetcher) });
+  const observer = new QueryObserver<EconomicQuote | null>(client, options());
+  const unsubscribe = observer.subscribe(() => {});
+  try {
+    await tick(); assert.equal(wire.calls(), 0, "a fully funded cache hit stays immediate");
+    currentRequest = largeRequest;
+    search = createEconomicQuoteSearch(client, economicQuoteKey(currentRequest, scope));
+    assert.equal(search.current()?.quotedOutput, "7070");
+    observer.setOptions(options());
+    await tick();
+    assert.equal(wire.calls(), 1, "same observer/new key notices the selected partial floor despite raw full funding");
+    assert.deepEqual(wire.bodies[0], economicRequest(largeRequest));
+    assert.equal(search.current()?.quotedOutput, "7070", "show the whole floor while ordinary work is pending");
+    wire.frame({ type: "qualified", value: partial }); wire.frame({ type: "complete", value: partial });
+    await tick(); assert.equal(observer.getCurrentResult().fetchStatus, "idle");
+    for (let render = 0; render < 5; render++) { observer.setOptions(options()); await tick(); }
+    assert.equal(wire.calls(), 1, "fresh partial data and same-key rerenders do not start more work");
+    assert.equal(search.current()?.quotedOutput, "8355");
+    currentRequest = smallRequest;
+    search = createEconomicQuoteSearch(client, economicQuoteKey(currentRequest, scope));
+    observer.setOptions(options()); await tick(); assert.equal(wire.calls(), 1);
+    currentRequest = largeRequest;
+    search = createEconomicQuoteSearch(client, economicQuoteKey(currentRequest, scope));
+    observer.setOptions(options()); await tick(); assert.equal(wire.calls(), 2, "another budget visit owns one new ordinary attempt");
+    const full = observed("500", "500", "8830");
+    wire.frame({ type: "qualified", value: full }); wire.frame({ type: "complete", value: full });
+    await tick();
+    for (let render = 0; render < 3; render++) { observer.setOptions(options()); await tick(); }
+    assert.equal(wire.calls(), 2);
+    unsubscribe();
+    const remount = new QueryObserver<EconomicQuote | null>(client, options());
+    const stopRemount = remount.subscribe(() => {});
+    await tick(); assert.equal(wire.calls(), 2, "a full-funded remount starts no optimization");
+    stopRemount();
+  } finally { unsubscribe(); client.clear(); }
 });

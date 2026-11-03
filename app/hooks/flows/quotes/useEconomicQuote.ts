@@ -5,19 +5,20 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { targetChainId } from "@/app/config/chain";
 import { useProtocolConfiguration } from "@/app/context/protocolConfigurationContext";
 import { useSandboxForkGeneration } from "@/app/context/sandboxForkContext";
-import { progressiveEconomicQuoteOptions, type EconomicQuote, type EconomicRequest } from "@/app/utils/economicQuotes";
+import { economicQuoteKey, progressiveEconomicQuoteOptions, type EconomicQuote, type EconomicRequest } from "@/app/utils/economicQuotes";
 import { createEconomicQuoteSearch, type UpperEstimateDisplayPolicy } from "@/app/utils/economicQuoteSearch";
 import { diagnosticReferences, retainDiagnosticReferences } from "@/app/utils/diagnosticReferences";
 import { usePageVisible } from "@/app/hooks/usePageVisible";
 
-/** Wallet-free whole quotes; only changed input and explicit Refresh start searches. */
+/** Wallet-free whole quotes; partial cached budgets optimize once on an ordinary revisit. */
 export function useEconomicQuote(request: EconomicRequest, enabled: boolean, upperEstimate?: UpperEstimateDisplayPolicy) {
   const { identity: configuration } = useProtocolConfiguration(), generation = useSandboxForkGeneration();
   const client = useQueryClient(), visible = usePageVisible();
-  const options = progressiveEconomicQuoteOptions(request, { chainId: targetChainId, configuration, generation });
-  const key = JSON.stringify(options.queryKey), refreshing = useRef(new Set<string>());
+  const scope = { chainId: targetChainId, configuration, generation };
+  const key = JSON.stringify(economicQuoteKey(request, scope)), refreshing = useRef(new Set<string>());
   const search = useMemo(() => createEconomicQuoteSearch(client, JSON.parse(key)), [client, key]);
   const accepted = useSyncExternalStore(search.subscribe, search.snapshot, search.snapshot);
+  const options = progressiveEconomicQuoteOptions(request, scope, accepted.value);
   const query = useQuery<EconomicQuote | null>({ ...options, enabled: enabled && visible,
     queryFn: ({ signal }) => search.run(request, signal, refreshing.current.has(key), undefined, upperEstimate) });
   const upperRequestKey = upperEstimate?.requestKey, upperOutput = upperEstimate?.quotedOutput;

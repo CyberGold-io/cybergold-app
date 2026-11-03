@@ -477,57 +477,75 @@ test("a Backend capped range is not reused outside its budgets or for another in
   } finally { observed.release(); }
 });
 
-test("a larger ETH budget revisits the better complete cached quote and explicit Refresh can accept a valid full-budget candidate", async ({ page }) => {
+test("a larger ETH budget keeps its cached floor while an ordinary revisit optimizes, without repeating a fresh partial result", async ({ page }) => {
   await fixture(page, "core");
   const requests: { amount: string; refresh: boolean }[] = [];
+  let releaseOptimization!: () => void;
+  const optimization = new Promise<void>(resolve => { releaseOptimization = resolve; });
   await page.route("**/api/economic-quotes", async route => {
     const request = route.request().postDataJSON() as UniversalExactInputRequest & { refresh?: boolean };
     if (request.intent !== 0 || request.inputs[0].currency.toLowerCase() !== `0x${"0".repeat(40)}`) return route.fallback();
     requests.push({ amount: request.inputs[0].amount, refresh: request.refresh === true });
-    const fullRefresh = request.refresh === true && request.inputs[0].amount === String(unit / 2n);
+    const large = request.inputs[0].amount === String(unit / 2n);
+    const ordinaryOptimization = large && !request.refresh && requests.filter(row => row.amount === String(unit / 2n)).length > 1;
+    if (ordinaryOptimization) await optimization;
+    const fullRefresh = request.refresh === true && large;
     const middle = request.inputs[0].amount === String(2n * unit / 5n);
-    const funding = fullRefresh ? unit / 2n : middle ? 2n * unit / 5n : 3n * unit / 10n;
-    const output = fullRefresh ? 883n * unit / 100n : middle ? 707n * unit / 100n : 5304n * unit / 1000n;
-    // This is a valid synthetic producer reply, not a claim that the live
-    // Sandbox route can settle the full .5 ETH without an intermediate surplus.
+    const funding = fullRefresh ? unit / 2n : ordinaryOptimization ? 473n * unit / 1000n : middle ? 2n * unit / 5n : 3n * unit / 10n;
+    const output = fullRefresh ? 883n * unit / 100n : ordinaryOptimization ? 8355n * unit / 1000n : middle ? 707n * unit / 100n : 5304n * unit / 1000n;
+    // These are valid synthetic producer replies, not a guarantee that the
+    // live Sandbox route can settle the full .5 ETH without intermediate surplus.
     await route.fulfill({ json: universalFixture({ ...request,
       inputs: [{ ...request.inputs[0], amount: String(funding) }] },
     { routeFamily: "core", quotedOutput: String(output) }) });
   });
-  await page.goto("/en");
-  await selectToken(page, "ETH");
-  const amount = page.locator("#sell-amount"), output = page.locator("#buy-amount");
-  const spending = page.getByTestId("purchase-spending").locator("[data-trade-spending-value]");
-  const refresh = page.locator("[data-trade-refresh]");
-  await amount.fill("0.3");
-  await expect(output).toHaveText("5.304");
-  await expect(spending).toHaveText("0.3 ETH");
-  await expect(spending).toHaveAttribute("data-limited", "false");
-  await expect(refresh).toBeEnabled();
-  await amount.fill("0.5");
-  await expect(output).toHaveText("5.304");
-  await expect(spending).toHaveText("0.3 ETH");
-  await expect(spending).toHaveAttribute("data-limited", "true");
-  await expect(refresh).toBeEnabled();
-  await amount.fill("0.4");
-  await expect(output).toHaveText("7.07");
-  await expect(spending).toHaveText("0.4 ETH");
-  await expect(refresh).toBeEnabled();
-  expect(requests).toHaveLength(3);
-  await amount.fill("0.5");
-  await expect(output).toHaveText("7.07");
-  await expect(spending).toHaveText("0.4 ETH");
-  await expect(spending).toHaveAttribute("data-limited", "true");
-  await expect(refresh).toBeEnabled();
-  expect(requests).toHaveLength(3);
-  await refresh.click();
-  await expect(output).toHaveText("8.83");
-  await expect(spending).toHaveText("0.5 ETH");
-  await expect(spending).toHaveAttribute("data-limited", "false");
-  expect(requests).toEqual([
-    { amount: String(3n * unit / 10n), refresh: false },
-    { amount: String(unit / 2n), refresh: false },
-    { amount: String(2n * unit / 5n), refresh: false },
-    { amount: String(unit / 2n), refresh: true },
-  ]);
+  try {
+    await page.goto("/en");
+    await selectToken(page, "ETH");
+    const amount = page.locator("#sell-amount"), output = page.locator("#buy-amount");
+    const spending = page.getByTestId("purchase-spending").locator("[data-trade-spending-value]");
+    const refresh = page.locator("[data-trade-refresh]");
+    await amount.fill("0.3");
+    await expect(output).toHaveText("5.304");
+    await expect(spending).toHaveText("0.3 ETH");
+    await expect(spending).toHaveAttribute("data-limited", "false");
+    await expect(refresh).toBeEnabled();
+    await amount.fill("0.5");
+    await expect(output).toHaveText("5.304");
+    await expect(spending).toHaveText("0.3 ETH");
+    await expect(spending).toHaveAttribute("data-limited", "true");
+    await expect(refresh).toBeEnabled();
+    await amount.fill("0.4");
+    await expect(output).toHaveText("7.07");
+    await expect(spending).toHaveText("0.4 ETH");
+    await expect(refresh).toBeEnabled();
+    expect(requests).toHaveLength(3);
+    await amount.fill("0.5");
+    await expect(output).toHaveText("7.07");
+    await expect(spending).toHaveText("0.4 ETH");
+    await expect(spending).toHaveAttribute("data-limited", "true");
+    await expect.poll(() => requests.length).toBe(4);
+    expect(requests.at(-1)).toEqual({ amount: String(unit / 2n), refresh: false });
+    releaseOptimization();
+    await expect(output).toHaveText("8.355");
+    await expect(spending).toHaveText("0.473 ETH");
+    await expect(spending).toHaveAttribute("data-limited", "true");
+    await expect(refresh).toBeEnabled();
+    expect(requests).toHaveLength(4);
+    await refresh.click();
+    await expect(output).toHaveText("8.83");
+    await expect(spending).toHaveText("0.5 ETH");
+    await expect(spending).toHaveAttribute("data-limited", "false");
+    await expect(refresh).toBeEnabled();
+    await amount.fill("0.4"); await expect(output).toHaveText("7.07");
+    await amount.fill("0.5"); await expect(output).toHaveText("8.83");
+    await expect(refresh).toBeEnabled();
+    expect(requests).toEqual([
+      { amount: String(3n * unit / 10n), refresh: false },
+      { amount: String(unit / 2n), refresh: false },
+      { amount: String(2n * unit / 5n), refresh: false },
+      { amount: String(unit / 2n), refresh: false },
+      { amount: String(unit / 2n), refresh: true },
+    ]);
+  } finally { releaseOptimization(); }
 });
