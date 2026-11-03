@@ -163,6 +163,10 @@ for (const outcome of ['fresh', 'early-swap'] as const) test(outcome === 'fresh'
       revisit.frame({ type: 'qualified', value: fresh });
       await expect(page.locator('#buy-amount')).toHaveText('8.355');
       await expect(output).toHaveCSS('animation-name', 'none');
+      await expect(output.locator('span')).toHaveCSS('animation-name', 'quote-estimate-opacity');
+      await expect(output.locator('span')).toHaveCSS('animation-iteration-count', '1');
+      await output.locator('span').evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)));
+      await expect(output.locator('span')).toHaveCSS('animation-name', 'none');
       await expect(page.locator('[data-trade-refresh]')).toHaveAttribute('aria-busy', 'true');
       await expect(page.locator('[data-trade-spending-value]')).toHaveText('0.473 ETH');
       await expect(page.getByTestId('quote-estimate-description')).toHaveCount(0);
@@ -175,6 +179,7 @@ for (const outcome of ['fresh', 'early-swap'] as const) test(outcome === 'fresh'
         await page.locator('#sell-amount').fill(budget); await expect.poll(() => wire.connections.length).toBe(4 + index);
         await expect(page.locator('#buy-amount')).toHaveText('8.355');
         await expect(output).toHaveCSS('animation-name', 'none');
+        await expect(output.locator('span')).toHaveCSS('animation-name', 'none');
         await expect(page.locator('[data-trade-refresh]')).toHaveAttribute('aria-busy', 'true');
         await expect(page.locator('[data-trade-spending-value]')).toHaveText('0.473 ETH');
         await expect(page.getByTestId('quote-estimate-description')).toHaveCount(0);
@@ -189,10 +194,71 @@ for (const outcome of ['fresh', 'early-swap'] as const) test(outcome === 'fresh'
       minimumOutput: String(707n * unit / 100n * 99n / 100n) });
     await expect(page.locator('#buy-amount')).toHaveText('7.07');
     await expect(output).toHaveCSS('animation-name', 'none');
+    await expect(output.locator('span')).toHaveCSS('animation-iteration-count', '1');
     await expect(page.locator('[data-trade-spending-value]')).toHaveText('0.4 ETH');
     await expect(page.getByTestId('quote-estimate-description')).toHaveCount(0);
     expect(wire.connections).toHaveLength(3);
   } finally { releasePreparation(); await wire.close(); }
+});
+
+test('validated receive replacements pulse once without restarting for metadata or unchanged Refresh', async ({ page }) => {
+  await install(page); await wallet(page); await page.emulateMedia({ reducedMotion: 'no-preference' });
+  const wire = await streams(page);
+  const output = page.locator('#buy-amount'), text = output.locator('span');
+  const finishPulse = async () => {
+    await text.evaluate(element => Promise.all(element.getAnimations().map(animation => animation.finished)));
+    await expect(text).toHaveCSS('animation-name', 'none');
+  };
+  try {
+    await page.goto('/en'); await expect(page.getByRole('button', { name: 'Open wallet menu', exact: true })).toBeVisible();
+    await page.locator('#sell-amount').fill('1'); await expect.poll(() => wire.connections.length).toBe(1);
+    const current = wire.connections[0];
+    current.frame({ type: 'qualified', value: value(current.input, '10') });
+    await expect(output).toHaveText('10'); await finishPulse();
+    const control = await output.elementHandle();
+    current.frame({ type: 'qualified', value: value(current.input, '12') });
+    await expect(output).toHaveText('12');
+    await expect(text).toHaveCSS('animation-name', 'quote-estimate-opacity');
+    await expect(text).toHaveCSS('animation-duration', '3s');
+    await expect(text).toHaveCSS('animation-iteration-count', '1');
+    const first = await text.evaluateHandle(element => element.getAnimations()[0]);
+    const latest = value(current.input, '13');
+    current.frame({ type: 'qualified', value: latest }); await expect(output).toHaveText('13');
+    await expect(text).toHaveCSS('animation-name', 'quote-estimate-opacity');
+    expect(await text.evaluate((element, previous) => element.getAnimations()[0] !== previous, first)).toBe(true);
+    const second = await text.evaluateHandle(element => element.getAnimations()[0]);
+    current.frame({ type: 'qualified', value: { ...latest, quotedOutput: String(BigInt(latest.quotedOutput) + 1n),
+      fees: { ...latest.fees, coreProtocolFeeCygld: '1' },
+      routeOrigins: { economicEvaluator: 'cybergold-quoter', pricing: 'helpers-execution-with-policy-fees',
+        discoveryProviders: ['uniroute-local'], conversions: {} } } });
+    await expect(output).toHaveText('13');
+    expect(await text.evaluate((element, previous) => element.getAnimations()[0] === previous, second)).toBe(true);
+    expect(await output.evaluate((element, previous) => element === previous, control)).toBe(true);
+    await finishPulse();
+    await page.locator('[data-trade-refresh]').click(); await expect.poll(() => wire.connections.length).toBe(2);
+    await expect.poll(() => current.closed).toBe(true);
+    const replacement = wire.connections[1];
+    replacement.frame({ type: 'qualified', value: latest });
+    await expect(output).toHaveText('13'); await expect(text).toHaveCSS('animation-name', 'none');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    replacement.frame({ type: 'qualified', value: value(replacement.input, '14') });
+    await expect(output).toHaveText('14'); await expect(text).toHaveCSS('animation-name', 'none');
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await expect(text).toHaveCSS('animation-name', 'none');
+    replacement.frame({ type: 'qualified', value: value(replacement.input, '15') });
+    await expect(output).toHaveText('15'); await expect(text).toHaveCSS('animation-name', 'quote-estimate-opacity');
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect(text).toHaveCSS('animation-name', 'none');
+    await page.emulateMedia({ reducedMotion: 'no-preference' });
+    await expect(text).toHaveCSS('animation-name', 'none');
+    replacement.frame({ type: 'complete', value: value(replacement.input, '15') }); replacement.end();
+    await expect(page.locator('[data-trade-refresh]')).not.toHaveAttribute('aria-busy', 'true');
+    await page.reload(); await expect.poll(() => wire.connections.length).toBe(3);
+    await expect(output).toHaveText('15'); await expect(text).toHaveCSS('animation-name', 'none');
+    wire.connections[2].frame({ type: 'qualified', value: value(wire.connections[2].input, '15') });
+    await expect(text).toHaveCSS('animation-name', 'none');
+    expect(wire.connections).toHaveLength(3);
+  } finally { await wire.close(); }
 });
 
 async function upperModel(page:Page,output:()=>string=()=>"12",modelContext:()=>typeof context=()=>context){
