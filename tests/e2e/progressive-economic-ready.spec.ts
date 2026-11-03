@@ -425,31 +425,45 @@ test('disproof of a ready candidate cannot be undone by a legacy replay marker',
   }finally{await wire.close();}
 });
 
-test('a later upper model cannot retract an already ready quote',async({page})=>{
-  let head={...context};await install(page,'',undefined,false,undefined,()=>head);await wallet(page);
-  await upperModel(page,()=>"12",()=>head);await page.addInitScript(installQuoteObservation as()=>void);const wire=await streams(page);
-  let release!:()=>void;const held=new Promise<void>(resolve=>{release=resolve;});
-  try{
-    await page.goto('/en');await expect(page.getByRole('button',{name:'Open wallet menu',exact:true})).toBeVisible();
-    await page.locator('#sell-amount').fill('1');await expect.poll(()=>wire.connections.length).toBe(1);await expect(page.locator('#buy-amount')).toHaveText('12');
-    const connection=wire.connections[0];connection.frame({type:'qualified',value:value(connection.input,'9')});await received(page,'9');
-    await expect(page.locator('#buy-amount')).toHaveText('9');await expect(page.locator('[data-trade-action]')).toBeEnabled();
-    await page.clock.install();const now=await page.evaluate(()=>Date.now());await page.clock.pauseAt(new Date(now+1000));
-    head={...context,blockNumber:'101',blockHash:'0x'+'b'.repeat(64)};
-    await page.route('**/api/economic-estimates',async route=>{
-      const input=route.request().postDataJSON();await held;
-      await route.fulfill({json:{namespace:'trade',intent:input,models:[],estimate:{strategy:'universal',source:'cached-upper',amount:String(14n*unit),
-        referenceInput:input.amount,basis:'observed-nonretained',context:head,fees:{coreProtocolFeeCygld:'0',coreHelpersFeeCygld:'0',marketFeeCygld:'0'}}}});
-    });
-    const modelRequest=page.waitForRequest(request=>new URL(request.url()).pathname==='/api/economic-estimates');
-    await page.clock.runFor(1200);await modelRequest;
-    await expect.poll(async()=>{await page.clock.runFor(0);return page.locator('#buy-amount').textContent();}).toBe('9');
-    await expect(page.locator('[data-trade-action]')).toBeEnabled();
-    const replacement=page.waitForResponse(async response=>new URL(response.url()).pathname==='/api/economic-estimates'&&(await response.json()).estimate?.amount===String(14n*unit));
-    release();await replacement;await page.clock.runFor(16);
-    await expect(page.locator('#buy-amount')).toHaveText('9');await expect(page.locator('[data-trade-action]')).toBeEnabled();expect(wire.connections).toHaveLength(1);
-    connection.frame({type:'complete',value:value(connection.input,'9')});connection.end();
-  }finally{release();await wire.close();}
+test('a later upper model cannot retract an already ready quote', async ({ page }) => {
+  await install(page); await wallet(page); await page.addInitScript(installQuoteObservation as () => void);
+  const wire = await streams(page), modelInputs: string[] = [];
+  const posted: { quote: EconomicQuote; acceptedBounds: { minimumOutput: string; inputs: { amount: string }[] } }[] = [];
+  let releaseModel!: () => void, releasePreparation!: () => void;
+  const heldModel = new Promise<void>(resolve => { releaseModel = resolve; });
+  const heldPreparation = new Promise<void>(resolve => { releasePreparation = resolve; });
+  await page.route('**/api/economic-estimates', async route => {
+    const input = route.request().postDataJSON();
+    if (input.amount === '0') { await route.fulfill({ json: { namespace: 'trade', intent: input, models: [] } }); return; }
+    modelInputs.push(input.amount); await heldModel;
+    await route.fulfill({ json: { namespace: 'trade', intent: input, models: [],
+      estimate: { strategy: 'universal', source: 'cached-upper', amount: String(14n * unit), referenceInput: input.amount,
+        basis: 'observed-nonretained', context, fees: { coreProtocolFeeCygld: '0', coreHelpersFeeCygld: '0', marketFeeCygld: '0' } } } });
+  });
+  await page.route('**/api/tx-preparations', async route => {
+    posted.push(route.request().postDataJSON()); await heldPreparation;
+    await route.fulfill({ status: 503, json: { code: 'quote-unavailable', error: 'Read-only preparation capture.' } });
+  });
+  try {
+    await page.goto('/en'); await expect(page.getByRole('button', { name: 'Open wallet menu', exact: true })).toBeVisible();
+    await page.locator('#sell-amount').fill('1'); await expect.poll(() => wire.connections.length).toBe(1);
+    await expect.poll(() => modelInputs).toEqual([String(unit)]);
+    const connection = wire.connections[0], ready = value(connection.input, '9');
+    connection.frame({ type: 'qualified', value: ready }); await received(page, '9');
+    await expect(page.locator('#buy-amount')).toHaveText('9'); await expect(page.locator('[data-trade-action]')).toBeEnabled();
+    const replacement = page.waitForResponse(async response => new URL(response.url()).pathname === '/api/economic-estimates'
+      && (await response.json()).estimate?.amount === String(14n * unit));
+    releaseModel(); await replacement; await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())));
+    await expect(page.locator('#buy-amount')).toHaveText('9'); await expect(page.locator('[data-trade-action]')).toBeEnabled();
+    await expect(page.locator('[data-trade-refresh]')).toHaveAttribute('aria-busy', 'true');
+    expect(connection.closed).toBe(false); expect(wire.connections).toHaveLength(1); expect(modelInputs).toEqual([String(unit)]);
+    await page.locator('[data-trade-action]').click();
+    await expect.poll(() => posted.length).toBe(1); await expect.poll(() => connection.closed).toBe(true);
+    expect(posted[0].quote.inputs).toEqual(ready.inputs); expect(posted[0].quote.plan).toEqual(ready.plan);
+    expect(posted[0].quote.quotedOutput).toBe(ready.quotedOutput); expect(posted[0].quote.context).toEqual(ready.context);
+    expect(posted[0].acceptedBounds).toMatchObject({ inputs: [{ amount: connection.input.inputs[0].amount }], minimumOutput: String(9n * unit * 99n / 100n) });
+    await expect(page.locator('#buy-amount')).toHaveText('9'); expect(wire.connections).toHaveLength(1);
+  } finally { releaseModel(); releasePreparation(); await wire.close(); }
 });
 
 for(const symbol of ["USDT","ETH"])test(`${symbol}: first canonical frame enables Swap before complete, later tuple improves and edited hint stays immediate`,async({page})=>{
