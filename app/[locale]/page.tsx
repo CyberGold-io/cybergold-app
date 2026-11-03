@@ -871,6 +871,10 @@ function TradingScreen() {
   const activeUniversalQuote = isActiveTokenFlow ? (tradeFlow.selected?.value.strategy === "universal" ? tradeFlow.selected.value : undefined)
     : isIssueFromBasketExactIn ? issueFromBasketExactInFlow.universalQuote : isRedeemToBasketExactIn ? redeemToBasketExactInFlow.universalQuote : undefined;
   const activeQuoteStatus = activeFlow?.quoteStatus;
+  // A cached partial route can suggest the entered budget without changing
+  // the selected funding/plan. This run's first fresh quote ends that estimate.
+  const hasFullBudgetEstimate = !isSubmittingSwap && !frozenTrade && Boolean(localTradeEstimate?.fullBudget) &&
+    (quoteInputPending || activeQuoteStatus === "loading" || (tradeFlow.historical && tradeFlow.refreshing));
   const activeQuoteInvalidated = activeFlow?.invalidated ?? false;
   const activeQuoteError = activeFlow?.quoteError;
   const qualifiedBasketQuote = !isActiveTokenFlow && activeQuoteStatus === "success" && !quoteInputPending
@@ -1008,7 +1012,7 @@ function TradingScreen() {
   const keepConfirmedEvaluation = !activeQuoteInvalidated && cachedEvaluationConfirmed && (reloadEvaluation === undefined ||
     (reloadEvaluation.unchanged && reloadEvaluation.draft === evaluationDraftKey)) &&
     activeQuoteStatus !== "failed" && !isPurchaseOverCap;
-  const evaluationStatus = executionBoundsReady || keepConfirmedEvaluation ? "confirmed"
+  const evaluationStatus = hasFullBudgetEstimate ? "pending" : executionBoundsReady || keepConfirmedEvaluation ? "confirmed"
     : (displayedSpendAmount ?? 0) > 0 ? "pending" : "empty";
   const networkFeeEstimate = canEstimateNetworkFee && hasEnteredSwapAmount
     ? executionNetworkFeeEstimate && maxFeePerGas > 0n && !networkGasFees.isError
@@ -1065,7 +1069,7 @@ useQuoteFailureToast({
 
 // Fee display.
 const hasArithmeticFeeEstimate = !isSubmittingSwap && isActiveTokenFlow && Boolean(localTradeEstimate?.fees) &&
-  (quoteInputPending || activeQuoteStatus === "loading");
+  (quoteInputPending || activeQuoteStatus === "loading" || hasFullBudgetEstimate);
 const activeFees = hasArithmeticFeeEstimate ? localTradeEstimate?.fees : activeFlow?.fees;
 const feeStrategy = hasArithmeticFeeEstimate ? "universal" : tradeFlow.strategy;
 
@@ -1215,7 +1219,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
   const retainedReceiveQuote = useRetainedQuoteDisplay(displayQuoteIdentity,
     quoteInputPending ? EMPTY_PREFILL : computedReceiveQuote, activeQuoteInvalidated ? "invalidated" : quoteInputPending ? "idle" : activeQuoteStatus, isSubmittingSwap);
   const localPrefill: Prefill | undefined = localQuoteAmount !== undefined && localQuoteAmount > 0n &&
-    (quoteInputPending || activeQuoteStatus === "loading" || isPurchaseOverCap) && !retainedReceiveQuote.retained ? {
+    (hasFullBudgetEstimate || ((quoteInputPending || activeQuoteStatus === "loading" || isPurchaseOverCap) && !retainedReceiveQuote.retained)) ? {
       main: formatAmount(localQuoteAmount, buyTokenDecimals ?? 18),
       mainRaw: localQuoteAmount, components: [], componentRaws: [],
     } : undefined;
@@ -1237,6 +1241,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
   }, [flowState, activeQuoteStatus, isPurchaseOverCap, retainedReceiveQuote.retained,
     basketMaxAmounts, requestedBasketPurchase?.net, localBasketModel, issuanceModel, basketComponents, rawQuoteAmount, derivedBasketAmountsAsBigIntLst, cygldDecimals]);
   const receiveQuote = localBasketPrefill ? localBasketPrefill
+    : hasFullBudgetEstimate && localPrefill ? localPrefill
     : localPrefill && retainedReceiveQuote.value.mainRaw <= 0n ? localPrefill : retainedReceiveQuote.value;
   const buyAmountBigInt = receiveQuote.mainRaw;
 
@@ -1664,18 +1669,19 @@ const computedReceiveQuote = useMemo((): Prefill => {
   const shouldHideQuotedBasketBuyAmounts = shouldBlockQuotedBuyInput && !localBasketPrefill;
 
   const hasProgressiveBuyEstimate = (isIssueFromTokenExactIn || isRedeemToTokenExactIn || isIssueFromBasketExactIn) &&
-    (activeQuoteStatus === "loading" || quoteInputPending) && !retainedReceiveQuote.retained && receiveQuote.mainRaw > 0n;
+    (hasFullBudgetEstimate || ((activeQuoteStatus === "loading" || quoteInputPending) && !retainedReceiveQuote.retained)) && receiveQuote.mainRaw > 0n;
   const liveDisplayedQuotedBuyAmount = formatMeaningfulDecimalString(receiveQuote.main, locale);
-  const keepCompletedQuotePresentation = !activeQuoteInvalidated && !isSpendAmountZero && cachedTradeDisplay?.quoteComplete === "true" &&
+  const keepCompletedQuotePresentation = !hasFullBudgetEstimate && !activeQuoteInvalidated && !isSpendAmountZero && cachedTradeDisplay?.quoteComplete === "true" &&
     (quoteInputPending || activeQuoteStatus !== "success");
   const showPurchaseSpending = !showSellBasket || isIssueFromBasketExactIn;
-  const readySpendingQuote = activeQuoteStatus === "success" && !quoteInputPending
+  const readySpendingQuote = activeQuoteStatus === "success" && !quoteInputPending && !hasFullBudgetEstimate
     ? selectedQuote ?? (isRedeemToBasketExactIn && qualifiedBasketQuote ? {
       quotedInput: BigInt(qualifiedBasketQuote.inputs[0].amount), inputMaximum: BigInt(qualifiedBasketQuote.inputs[0].amount) } : undefined)
     : undefined;
-  const indicativeSpending = !readySpendingQuote && activeQuoteStatus !== "failed" && localTradeEstimate?.quotedInput !== undefined
+  const indicativeSpending = !readySpendingQuote && activeQuoteStatus !== "failed" && (hasFullBudgetEstimate || localTradeEstimate?.quotedInput !== undefined)
     // The range models output capacity. Universal execution still acquires the full declared input.
-    ? { quotedInput: editedSellAmount, inputMaximum: editedSellAmount } : undefined;
+    ? localTradeEstimate?.limited ? { quotedInput: localTradeEstimate.quotedInput!, inputMaximum: localTradeEstimate.inputMaximum! }
+      : { quotedInput: editedSellAmount, inputMaximum: editedSellAmount } : undefined;
   const currentPurchaseSpending = !showSellBasket ? purchaseBudgetAmounts(editedSellAmount,
     readySpendingQuote ?? indicativeSpending) : undefined;
   const basketSpendingInputs = isIssueFromBasketExactIn ? qualifiedBasketQuote?.inputs : undefined;
@@ -1829,7 +1835,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
         walletFilter: String(showOnlyWalletTokens), sellBalance: sellBalancePresentation.text,
         sellBalanceLabel: sellBalancePresentation.label,
         mainAction: isSubmittingSwap ? cachedTradeDisplay?.mainAction ?? t("swapCurrencies") : mainActionPresentation,
-        quoteComplete: String((activeQuoteStatus === "success" && !quoteInputPending) || keepCompletedQuotePresentation),
+        quoteComplete: String(!hasFullBudgetEstimate && ((activeQuoteStatus === "success" && !quoteInputPending) || keepCompletedQuotePresentation)),
         retentionDisclosure: document.querySelector('[data-trade-live] [data-trade-display="retentionDisclosure"]')?.textContent ?? "",
         evaluationStatus,
         sellTokenId, buyTokenId, sellSymbol: sellTokenDisplaySymbol, buySymbol: buyTokenDisplaySymbol,
@@ -2577,7 +2583,8 @@ const computedReceiveQuote = useMemo((): Prefill => {
                   </div>
                   <div data-trade-single="buy" hidden={showBuyBasket}>
                   {hasProgressiveBuyEstimate && (
-                    <span id="quote-buy-estimate" data-testid="quote-estimate-description" className="sr-only">{t('quoteEstimate')}</span>
+                    <span id="quote-buy-estimate" data-testid="quote-estimate-description"
+                      className={hasFullBudgetEstimate ? "block text-xs text-text-input-disabled" : "sr-only"}>{t('quoteEstimate')}</span>
                   )}
                   <output
                     id="buy-amount"
@@ -2588,7 +2595,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
                       swapStyles.amountOutput,
                       isPurchaseOverCap ? "text-red-500" : shouldMuteQuotedBuyAmounts ? "text-text-input-disabled" : "text-text-input"
                     )}
-                    aria-busy={shouldBlockQuotedBuyInput || undefined}
+                    aria-busy={shouldBlockQuotedBuyInput || hasFullBudgetEstimate || undefined}
                     aria-describedby={["receive-amount-description", isPurchaseOverCap && "purchase-cap-warning",
                       hasProgressiveBuyEstimate && "quote-buy-estimate"].filter(Boolean).join(" ")}
                   >

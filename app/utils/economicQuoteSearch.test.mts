@@ -222,6 +222,66 @@ test("a Refresh failure before any replacement retains the accepted historical q
   }finally{f.close();}
 });
 
+test("display provenance keeps the better historical floor through stored frames and publishes fresh lower quotes immediately", async () => {
+  const previous = quote("10", "b", "80"), f = fixture(previous), pending = f.run();
+  try {
+    assert.equal(f.search.snapshot().historical, true);
+    await tick();
+    const weaker = { ...quote("8", "b", "70"), observation: { source: "stored" as const, refresh: false } };
+    f.wire.frame({ type: "qualified", value: weaker }); await tick();
+    assert.deepEqual(f.search.current(), previous, "a weaker remote stored tuple cannot erase the complete local floor");
+    assert.equal(f.search.snapshot().historical, true);
+    const fresh = { ...quote("9", "a", "85"), observation: { source: "search" as const, refresh: false } };
+    f.wire.frame({ type: "qualified", value: fresh }); await tick();
+    assert.deepEqual(f.search.current(), fresh, "a fresh qualified tuple is authoritative even below the historical output or estimate");
+    assert.equal(f.search.snapshot().historical, false);
+    assert.equal(f.search.snapshot().optimizing, true, "fresh display does not wait for refinement to complete");
+    f.wire.frame({ type: "complete", value: fresh }); await pending;
+  } finally { f.close(); }
+});
+
+test("stored economic ties retain the whole known limited tuple; strictly better stored and fresh tuples keep their own metadata", async () => {
+  const previous = quote("10", "b", "80");
+  previous.reuseSample!.inputLimitObserved = true;
+  const refs = { requestId: "11111111-1111-4111-8111-111111111111" };
+  retainDiagnosticReferences(previous, refs);
+  const f = fixture(previous), pending = f.run();
+  try {
+    await tick();
+    for (const funding of ["80", "90"]) {
+      f.wire.frame({ type: "qualified", value: { ...quote("10", "a", funding), observation: { source: "stored", refresh: false } } });
+      await tick();
+      assert.deepEqual(f.search.current(), previous);
+      assert.deepEqual(diagnosticReferences(f.search.current()), refs);
+      assert.equal(f.search.current()?.reuseSample?.inputLimitObserved, true);
+    }
+    const better = { ...quote("10", "a", "70"), observation: { source: "stored" as const, refresh: false } };
+    f.wire.frame({ type: "qualified", value: better }); await tick();
+    assert.deepEqual(f.search.current(), better);
+    assert.equal(f.search.current()?.reuseSample?.inputLimitObserved, undefined, "capacity evidence is not grafted across chosen tuples");
+    const fresh = { ...quote("10", "a", "90"), observation: { source: "search" as const, refresh: false } };
+    f.wire.frame({ type: "qualified", value: fresh }); await tick();
+    assert.deepEqual(f.search.current(), fresh, "fresh qualified authority does not use historical tie ranking");
+    f.wire.frame({ type: "complete", value: fresh }); await pending;
+  } finally { f.close(); }
+});
+
+for (const ending of ["complete", "error", "stop"] as const) test(`historical pending-estimate display ends on ${ending} and retains only the actual tuple`, async () => {
+  const previous = quote("10", "b", "80"), f = fixture(previous), pending = f.run();
+  const checked = ending === "error" ? assert.rejects(pending) : pending.catch(() => undefined);
+  try {
+    await tick();
+    assert.equal(f.search.snapshot().historical && f.search.snapshot().optimizing, true);
+    if (ending === "complete") f.wire.frame({ type: "complete", value: { ...previous, observation: { source: "stored", refresh: false } } });
+    else if (ending === "error") f.wire.frame({ type: "error", code: "rpc-timeout" });
+    else f.search.stop();
+    await checked;
+    assert.equal(f.search.snapshot().optimizing, false);
+    assert.equal(f.search.current()?.inputs[0].amount, "80");
+    assert.equal(f.search.current()?.quotedOutput, "10");
+  } finally { f.close(); }
+});
+
 test("a disproved empty cache slot starts an ordinary new search when the user revisits it",async()=>{
   const f=fixture();f.client.setQueryData(f.key,null);
   const search=createEconomicQuoteSearch(f.client,f.key);
@@ -360,6 +420,38 @@ for (const generation of [undefined, null]) test(`serialized hook keys retain th
   } finally { client.clear(); }
 });
 
+for (const generation of [undefined, null]) test(`cold limited-budget visits preserve actual ${generation} scope without writing exact observations`, () => {
+  for (const amount of ["480", "600", "700"]) {
+    const client = new QueryClient(), actualScope = { ...scope, generation };
+    const limited = { ...quote("8355", "b", "473"), request: { ...request, inputs: [{ currency: token, amount: "500" }] } };
+    limited.reuseSample!.inputLimitObserved = true;
+    const refs = { requestId: "11111111-1111-4111-8111-111111111111" }; retainDiagnosticReferences(limited, refs);
+    const target = { ...request, inputs: [{ currency: token, amount }] }, key = economicQuoteKey(target, actualScope);
+    try {
+      client.setQueryData(economicQuoteKey(limited.request, actualScope), limited);
+      const search = createEconomicQuoteSearch(client, JSON.parse(JSON.stringify(key)), actualScope);
+      assert.equal(search.current()?.quotedOutput, "8355"); assert.equal(search.current()?.inputs[0].amount, "473");
+      assert.equal(search.current()?.request.inputs[0].amount, amount);
+      assert.deepEqual(search.current()?.plan, limited.plan); assert.deepEqual(diagnosticReferences(search.current()), refs);
+      assert.equal(client.getQueryData(key), undefined, "initialization only offers the whole historical tuple");
+      client.setQueryData(key, null);
+      assert.equal(createEconomicQuoteSearch(client, key, actualScope).current(), undefined, "known disproof still excludes the historical floor");
+    } finally { client.clear(); }
+  }
+});
+
+test("an unknown lower route remains display-only for a cold owner but can improve an existing exact hit", () => {
+  const client = new QueryClient(), target = { ...request, inputs: [{ currency: token, amount: "100" }] };
+  const lower = { ...quote("10", "b", "80"), request: { ...request, inputs: [{ currency: token, amount: "80" }] } };
+  const key = economicQuoteKey(target, scope);
+  try {
+    client.setQueryData(economicQuoteKey(lower.request, scope), lower);
+    assert.equal(createEconomicQuoteSearch(client, key).current(), undefined);
+    client.setQueryData(key, quote("5", "b", "50"));
+    assert.equal(createEconomicQuoteSearch(client, key).current()?.quotedOutput, "10");
+  } finally { client.clear(); }
+});
+
 
 test("a reused QueryObserver optimizes the selected partial floor once per visit without looping on fresh partial results", async () => {
   const client = new QueryClient(), wire = transport();
@@ -409,4 +501,33 @@ test("a reused QueryObserver optimizes the selected partial floor once per visit
     await tick(); assert.equal(wire.calls(), 2, "a full-funded remount starts no optimization");
     stopRemount();
   } finally { unsubscribe(); client.clear(); }
+});
+
+test("a capture stop survives preparation unfreeze on the same owner while explicit Refresh can restart it", async () => {
+  const previous = quote("10", "b", "80"), f = fixture(previous);
+  let refresh = false;
+  const options = (enabled = true) => ({
+    ...progressiveEconomicQuoteOptions(request, scope, f.search.current(), f.search.snapshot().stopped), enabled,
+    queryFn: ({ signal }: { signal: AbortSignal }) => f.search.run(request, signal, refresh, f.wire.fetcher),
+  });
+  const observer = new QueryObserver<EconomicQuote | null>(f.client, options()), unsubscribe = observer.subscribe(() => {});
+  try {
+    await tick(); assert.equal(f.wire.calls(), 1);
+    f.search.stop(true); observer.setOptions(options(false)); await tick();
+    observer.setOptions(options()); await tick();
+    assert.equal(f.wire.calls(), 1, "refused preparation cannot restart the search that this submission stopped");
+    assert.deepEqual(f.search.current(), previous);
+    refresh = true; const refreshing = observer.refetch({ cancelRefetch: false }); await tick();
+    assert.equal(f.wire.calls(), 2); assert.equal(f.search.snapshot().stopped, false);
+    assert.equal(f.wire.bodies[1].refresh, true);
+    f.wire.frame({ type: "qualified", value: quote("12") }); f.wire.frame({ type: "complete", value: quote("12") });
+    await refreshing; observer.setOptions(options()); await tick();
+    assert.equal(f.wire.calls(), 2);
+    const nextRequest = { ...request, inputs: [{ currency: token, amount: "101" }] };
+    const next = createEconomicQuoteSearch(f.client, economicQuoteKey(nextRequest, scope));
+    const nextObserver = new QueryObserver(f.client, { ...progressiveEconomicQuoteOptions(nextRequest, scope, next.current(), next.snapshot().stopped),
+      queryFn: ({ signal }) => next.run(nextRequest, signal, false, f.wire.fetcher) });
+    const stopNext = nextObserver.subscribe(() => {}); await tick();
+    assert.equal(f.wire.calls(), 3, "a new budget owns an independent ordinary attempt"); stopNext();
+  } finally { unsubscribe(); f.close(); }
 });

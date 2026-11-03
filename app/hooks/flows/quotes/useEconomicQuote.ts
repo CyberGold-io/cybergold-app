@@ -16,9 +16,10 @@ export function useEconomicQuote(request: EconomicRequest, enabled: boolean, upp
   const client = useQueryClient(), visible = usePageVisible();
   const scope = { chainId: targetChainId, configuration, generation };
   const key = JSON.stringify(economicQuoteKey(request, scope)), refreshing = useRef(new Set<string>());
-  const search = useMemo(() => createEconomicQuoteSearch(client, JSON.parse(key)), [client, key]);
+  const search = useMemo(() => createEconomicQuoteSearch(client, JSON.parse(key),
+    { chainId: targetChainId, configuration, generation }), [client, key, configuration, generation]);
   const accepted = useSyncExternalStore(search.subscribe, search.snapshot, search.snapshot);
-  const options = progressiveEconomicQuoteOptions(request, scope, accepted.value);
+  const options = progressiveEconomicQuoteOptions(request, scope, accepted.value, accepted.stopped);
   const query = useQuery<EconomicQuote | null>({ ...options, enabled: enabled && visible,
     queryFn: ({ signal }) => search.run(request, signal, refreshing.current.has(key), undefined, upperEstimate) });
   const upperRequestKey = upperEstimate?.requestKey, upperOutput = upperEstimate?.quotedOutput;
@@ -41,8 +42,11 @@ export function useEconomicQuote(request: EconomicRequest, enabled: boolean, upp
     if (!value) return undefined;
     const captured = structuredClone(value); retainDiagnosticReferences(captured, diagnosticReferences(value)); return captured;
   }, [search]);
-  return { ...query, data, refresh, captureReady, stopSearch: search.stop,
+  // Submission owns its stop even when preparation later unfreezes this key.
+  const stopSearch = useCallback(() => search.stop(true), [search]);
+  return { ...query, data, refresh, captureReady, stopSearch,
     isError: !accepted.optimizing && (query.isError || Boolean(accepted.error)),
     invalidated: accepted.invalidated && !data,
-    optimizing: accepted.optimizing, refreshError: data ? accepted.error ?? (query.isError ? query.error : undefined) : undefined };
+    optimizing: accepted.optimizing, historical: accepted.historical,
+    refreshError: data ? accepted.error ?? (query.isError ? query.error : undefined) : undefined };
 }

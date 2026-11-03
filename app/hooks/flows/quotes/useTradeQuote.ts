@@ -38,7 +38,7 @@ export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retai
   }, [enabled, captureEconomicReady, inputKey, addresses.core]);
   if (input.mode !== "exact-in") return { ...legacy, refresh: async () => undefined,
     refreshing: false, refreshError: undefined as string | undefined,
-    captureReady: () => legacy.data, stopSearch: () => {}, invalidated: false };
+    captureReady: () => legacy.data, stopSearch: () => {}, invalidated: false, historical: false };
   return { data, status: !enabled ? "idle" as const : data ? "success" as const
       : economic.isError ? "failed" as const : "loading" as const,
     error: economic.isError && !data ? quoteErrorMessage(economic.error ?? new Error("Quote unavailable"), t) : undefined,
@@ -47,5 +47,5 @@ export function useTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | "retai
     estimate: undefined, optimizing: enabled && Boolean(data) && economic.optimizing,
     progress: undefined, refresh: economic.refresh, refreshing: economic.isFetching,
     refreshError: economic.refreshError ? quoteErrorMessage(economic.refreshError, t) : undefined,
-    captureReady, stopSearch: economic.stopSearch, invalidated: economic.invalidated };
+    captureReady, stopSearch: economic.stopSearch, invalidated: economic.invalidated, historical: economic.historical };
 }

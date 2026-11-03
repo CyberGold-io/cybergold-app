@@ -50,7 +50,8 @@ test('economic quote lifecycle: returning to an amount restores its measured out
   await page.goto('/en'); await page.locator('#sell-amount').fill('1');
   await expect(page.locator('#buy-amount')).toHaveText('0.25');
   await page.locator('#sell-amount').fill('2'); await expect(page.locator('#buy-amount')).toHaveText('0.5');
-  expect(requests).toHaveLength(2);
+  await expect.poll(() => requests.length).toBe(2);
+  await expect(page.locator('[data-trade-refresh]')).toBeEnabled();
   await page.locator('#sell-amount').fill('1'); await expect(page.locator('#buy-amount')).toHaveText('0.25');
   expect(requests).toHaveLength(2);
   await page.locator('[data-trade-refresh]').click();

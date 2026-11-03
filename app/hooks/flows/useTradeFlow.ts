@@ -42,7 +42,7 @@ export function useTradeFlow({ input, enabled, frozen, upperEstimate, onNetworkF
     ? { protocolFeeCygld: 0n, helperFeeCygld: BigInt(selected.value.providerQuote.fee.amount) } : core?.fees;
   const expected = selected ? input.mode === "exact-in" ? selected.quotedOutput : selected.quotedInput : quote.estimate;
   return {
-    selected, strategy: selected?.value.strategy, optimizing: !frozen && quote.optimizing,
+    selected, strategy: selected?.value.strategy, optimizing: !frozen && quote.optimizing, historical: !frozen && quote.historical,
     captureSubmission, stopSearch: quote.stopSearch, invalidated: quote.invalidated,
     refresh: quote.refresh, refreshing: !frozen && quote.refreshing, refreshError: frozen ? undefined : quote.refreshError,
     adapter: selected ? tradeAdapter(selected.value) : undefined,

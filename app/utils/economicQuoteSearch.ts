@@ -1,36 +1,37 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { economicRequest, fetchEconomicQuoteStream, type EconomicQuote, type EconomicQuoteEvent, type EconomicRequest } from "./economicQuotes.ts";
+import { economicRequest, fetchEconomicQuoteStream, type EconomicQuote, type EconomicQuoteEvent, type EconomicQuoteScope, type EconomicRequest } from "./economicQuotes.ts";
 import { diagnosticReferences, retainDiagnosticReferences } from "./diagnosticReferences.ts";
 import { QuotePreviewError } from "./quoteErrors.ts";
 import { lowerEconomicQuote } from "./nearbyEconomicEstimate.ts";
 
 type Key = readonly unknown[];
 type Context = EconomicQuote["context"];
-type Snapshot = { value?: EconomicQuote; error?: Error; optimizing: boolean; invalidated: boolean };
+type Snapshot = { value?: EconomicQuote; error?: Error; optimizing: boolean; invalidated: boolean; historical: boolean; stopped: boolean };
 /** Internal display policy, bound to the existing request/configuration/generation key. */
 export type UpperEstimateDisplayPolicy = { requestKey: string; quotedOutput: bigint };
 const sameContext = (left: Context, right: Context) => left.chainId === right.chainId &&
   left.blockHash.toLowerCase() === right.blockHash.toLowerCase();
 
 /** One hook/request owner. Ready values also live in the ordinary economic cache. */
-export function createEconomicQuoteSearch(client: QueryClient, key: Key) {
+export function createEconomicQuoteSearch(client: QueryClient, key: Key, scope?: EconomicQuoteScope) {
   const listeners = new Set<() => void>();
   let owner = 0;
   const cached = client.getQueryData<EconomicQuote | null>(key);
   let accepted = cached ?? undefined;
-  if (cached) {
+  if (cached !== null) {
     // The hook serializes its stable key: undefined generation becomes null.
     // Exact QueryClient hashes match both, while prefix filters use the original key.
-    const storedKey = client.getQueryCache().find({ queryKey: key, exact: true })!.queryKey;
-    const request = storedKey[4] as EconomicRequest;
-    const lower = lowerEconomicQuote(client, request, { chainId: storedKey[1] as number,
-      generation: storedKey[2] as string | null | undefined, configuration: storedKey[3] as string });
-    if (lower && BigInt(lower.quotedOutput) > BigInt(cached.quotedOutput)) {
+    const storedKey = client.getQueryCache().find({ queryKey: key, exact: true })?.queryKey;
+    const lookupKey = storedKey ?? key, request = lookupKey[4] as EconomicRequest;
+    const keyScope = { chainId: lookupKey[1] as number,
+      generation: lookupKey[2] as string | null | undefined, configuration: lookupKey[3] as string };
+    const lower = lowerEconomicQuote(client, request, storedKey ? keyScope : scope ?? keyScope);
+    if (lower && (cached ? BigInt(lower.quotedOutput) > BigInt(cached.quotedOutput) : lower.reuseSample?.inputLimitObserved)) {
       accepted = { ...structuredClone(lower), request: economicRequest(request) };
       retainDiagnosticReferences(accepted, diagnosticReferences(lower));
     }
   }
-  let snapshot: Snapshot = { value: accepted, optimizing: false, invalidated: cached === null };
+  let snapshot: Snapshot = { value: accepted, optimizing: false, invalidated: cached === null, historical: Boolean(accepted), stopped: false };
   let active: { owner: number; prior?: EconomicQuote; best?: EconomicQuote; disproved?: Context;
     upper?: bigint; upperSettled: boolean; reconsider?: () => void; signal: AbortSignal } | undefined;
   const requestKey = JSON.stringify(key);
@@ -52,9 +53,9 @@ export function createEconomicQuoteSearch(client: QueryClient, key: Key) {
     // no-op in QueryClient, and resetQueries would start another search.
     if (accepted || snapshot.invalidated) client.setQueryData<EconomicQuote | null>(key, accepted ?? null);
   };
-  const stop = () => {
+  const stop = (keepStopped = false) => {
     ++owner; active = undefined;
-    notify({ optimizing: false });
+    notify({ optimizing: false, ...(keepStopped ? { stopped: true } : {}) });
     // Advance ownership before abort: a queued frame cannot replace a click's
     // captured selection. Explicit restoration also owns cancellation rollback.
     void client.cancelQueries({ queryKey: key, exact: true });
@@ -75,13 +76,19 @@ export function createEconomicQuoteSearch(client: QueryClient, key: Key) {
       const attempt = { owner: ++owner, prior: accepted, signal, upperSettled: false,
         upper: accepted ? undefined : upper?.quotedOutput } as NonNullable<typeof active>;
       active = attempt;
-      notify({ error: undefined, optimizing: true });
+      notify({ error: undefined, optimizing: true, stopped: false });
       const owns = () => active === attempt && owner === attempt.owner && !signal.aborted;
       const publish = (value: EconomicQuote) => {
         if (!owns() || attempt.disproved) return;
+        const historical = value.observation?.source === "stored";
+        if (historical && accepted && request.intent < 2) {
+          const output = BigInt(value.quotedOutput), priorOutput = BigInt(accepted.quotedOutput);
+          if (output < priorOutput) return;
+          if (output === priorOutput && BigInt(value.inputs[0].amount) >= BigInt(accepted.inputs[0].amount)) return;
+        }
         accepted = value;
         client.setQueryData<EconomicQuote | null>(key, accepted);
-        notify({ invalidated: false });
+        notify({ invalidated: false, historical });
       };
       const release = () => { if (attempt.best) publish(attempt.best); };
       const reconsider = () => {

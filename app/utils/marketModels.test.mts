@@ -10,7 +10,7 @@ import { marketFixtureQuote, marketFixtureRequest } from "../../tests/fixtures/m
 import { marketModelFamily, type MarketQuoteModelPacket } from "./marketQuote.ts";
 import { fetchTradeModel, receiveTradeModel, type TradeModelRequest, type TradeQuoteModelPacket } from "./tradeQuote.ts";
 import { clearQuoteModels, getMarketQuoteModel, getTradeBudgetRange, subscribeQuoteModels, tradeDisplayModelScope } from "./quoteModelStore.ts";
-import { arithmeticEconomicEstimate, upperEconomicQuote } from "./nearbyEconomicEstimate.ts";
+import { arithmeticEconomicEstimate, fittingEconomicQuote, fullBudgetEconomicEstimate, upperEconomicQuote } from "./nearbyEconomicEstimate.ts";
 import { economicQuoteKey, type EconomicQuote } from "./economicQuotes.ts";
 
 const model: MarketQuoteModelPacket = { namespace: "market", family: marketModelFamily(marketFixtureRequest),
@@ -51,7 +51,7 @@ test("the unified hook retains Backend families and prefers optional cached arit
     "@/app/context/chainHeadContext": { useQuoteCacheScope: () => "1:head" },
     "@/app/hooks/usePageVisible": { usePageVisible: () => true },
     "@/app/utils/quoteModelStore": { getTradeBudgetRange, subscribeQuoteModels, tradeDisplayModelScope },
-    "@/app/utils/nearbyEconomicEstimate": { arithmeticEconomicEstimate, upperEconomicQuote },
+    "@/app/utils/nearbyEconomicEstimate": { arithmeticEconomicEstimate, fittingEconomicQuote, fullBudgetEconomicEstimate, upperEconomicQuote },
     "@/app/utils/economicQuotes": { economicQuoteKey },
     "@/app/utils/tradeQuote": { receiveTradeModel, fetchTradeModel: (input: TradeModelRequest, signal: AbortSignal) =>
       fetchTradeModel(input, signal, (async (url, options) => {
@@ -63,7 +63,7 @@ test("the unified hook retains Backend families and prefers optional cached arit
   const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
   const exports: { useTradeModel?: (input: TradeModelRequest, enabled: boolean) => {
     quotedOutput: bigint; quotedInput?: bigint; inputMaximum?: bigint;
-    upperDisplay?: { requestKey: string; quotedOutput: bigint };
+    upperDisplay?: { requestKey: string; quotedOutput: bigint }; fullBudget?: true;
     fees?: { protocolFeeCygld: bigint; helperFeeCygld: bigint; marketFeeCygld: bigint };
   } | undefined } = {};
   runInNewContext(output, { exports, require: (key: string) => { assert.ok(key in dependencies, key); return dependencies[key]; } });
@@ -97,6 +97,26 @@ test("the unified hook retains Backend families and prefers optional cached arit
     assert.equal(client.getQueryCache().getAll().length, 1, "arithmetic hints never become cached exact observations");
     assert.equal(exports.useTradeModel!({ ...request, native: true }, true)?.quotedOutput, 42n,
       "native output cannot reuse an ERC20-output family");
+    const lower = { ...source, request: { ...source.request, inputs: [{ currency: model.cygld, amount: "800" }] },
+      inputs: [{ currency: model.cygld, amount: "800" }], quotedOutput: "99", fees: source.reuseSample!.fees };
+    client.setQueryData(economicQuoteKey(lower.request, scope), lower);
+    assert.equal(exports.useTradeModel!(request, true)?.quotedOutput, 99n, "the existing upper arithmetic retains its precedence");
+    client.removeQueries({ queryKey: economicQuoteKey(source.request, scope), exact: true });
+    const fullBudget = exports.useTradeModel!(request, true)!;
+    assert.equal(fullBudget.quotedOutput, 165n); assert.equal(fullBudget.fullBudget, true);
+    assert.equal(fullBudget.upperDisplay, undefined, "extrapolation cannot impose a quote publication threshold");
+    assert.equal(fullBudget.quotedInput, undefined); assert.equal(fullBudget.inputMaximum, undefined);
+    client.setQueryData(economicQuoteKey(lower.request, scope), { ...lower, reuseSample: { ...lower.reuseSample, inputLimitObserved: true } });
+    assert.equal(exports.useTradeModel!(request, true)?.fullBudget, undefined, "observed saturation is not extrapolated on a revisit");
+    const limited = { ...lower, inputs: [{ currency: model.cygld, amount: "473" }], quotedOutput: "8355",
+      reuseSample: { ...lower.reuseSample, referenceInput: "473", netOutput: "8355", inputLimitObserved: true } };
+    client.setQueryData(economicQuoteKey(limited.request, scope), limited);
+    for (const amount of ["600", "700", "1002"]) {
+      const known = exports.useTradeModel!({ ...request, amount }, true)!;
+      assert.equal(known.quotedOutput, 8355n, "a known limited tuple wins over another unbounded display model");
+      assert.equal(known.quotedInput, 473n); assert.equal(known.inputMaximum, 473n);
+      assert.equal(known.fullBudget, undefined); assert.equal(known.upperDisplay, undefined);
+    }
     client.clear();
     packet.estimate={strategy:"universal",source:"cached-upper",amount:"77",referenceInput:"600",basis:"observed-nonretained",
       fees:{coreProtocolFeeCygld:"7",coreHelpersFeeCygld:"3",marketFeeCygld:"1"},context:marketFixtureQuote.context};

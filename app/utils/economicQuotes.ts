@@ -7,7 +7,11 @@ import { fetchQuoteStream } from "./quoteStream.ts";
 
 export type EconomicRequest = components["schemas"]["EconomicRequest"];
 export type EconomicPlan = components["schemas"]["EconomicPlan"];
-export type EconomicQuote = components["schemas"]["EconomicQuote"];
+type WireEconomicQuote = components["schemas"]["EconomicQuote"];
+/** Forward-compatible advisory metadata; older Backend observations omit it. */
+export type EconomicQuote = Omit<WireEconomicQuote, "reuseSample"> & {
+  reuseSample?: NonNullable<WireEconomicQuote["reuseSample"]> & { inputLimitObserved?: boolean };
+};
 export type EconomicQuoteEvent = components["schemas"]["EconomicQuoteEvent"];
 export type AcceptedExecutionBounds = NonNullable<components["schemas"]["TransactionPreparationRequest"]["acceptedBounds"]>;
 export type PreparedTransaction = components["schemas"]["PreparedTransaction"] & {
@@ -85,9 +89,10 @@ export function economicQuoteOptions(request: EconomicRequest, scope: EconomicQu
 }
 
 /** A revisit keeps its observation while smaller-funded plans try the requested budget. */
-export function progressiveEconomicQuoteOptions(request: EconomicRequest, scope: EconomicQuoteScope, selected?: EconomicQuote) {
+export function progressiveEconomicQuoteOptions(request: EconomicRequest, scope: EconomicQuoteScope, selected?: EconomicQuote, stopped = false) {
   const revisit = (query: { state: { data: unknown } }) => {
     if (query.state.data === null) return true;
+    if (stopped) return false;
     const value = selected ?? query.state.data as EconomicQuote | undefined;
     return Boolean(value && request.intent < 2 && BigInt(value.inputs[0].amount) < BigInt(request.inputs[0].amount));
   };
