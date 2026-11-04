@@ -105,14 +105,8 @@ jobs:
                 -H "X-GitHub-Api-Version: 2022-11-28" \
                 "/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}" \
                 > "$BRANCH_POLICY_COMMIT_FILE" \
-              && gh api \
-                -H "Accept: application/vnd.github+json" \
-                -H "X-GitHub-Api-Version: 2022-11-28" \
-                "/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls?per_page=100" \
+              && node scripts/fetch-branch-policy-pull-requests.mjs \
                 > "$BRANCH_POLICY_PULL_REQUESTS_FILE" \
-              && jq -e --arg sha "$GITHUB_SHA" \
-                'any(.[]; .merge_commit_sha == $sha)' \
-                "$BRANCH_POLICY_PULL_REQUESTS_FILE" >/dev/null \
               && node scripts/check-branch-policy.mjs push; then
               exit 0
             fi
