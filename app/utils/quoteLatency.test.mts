@@ -72,3 +72,24 @@ test("a broken diagnostic clock or local listener cannot interrupt the original 
     assert.deepEqual(value, { output: "7" });
   } finally { observer.restore(); }
 });
+
+test("Refresh waits for its replacement after an automatic visible-owner change", t => {
+  const observer = local(); let now = 0;
+  const refreshedId = "eb3e691b-346d-4782-b93e-3cc674250009";
+  t.mock.method(performance, "now", () => now);
+  try {
+    const timing = createQuoteDisplayTiming();
+    now = 100; timing.input();
+    now = 200; timing.display(true, { requestId }, "search");
+    now = 300; timing.display(true, { requestId: nextId }, "search"); // Visibility resumed the unfinished stream.
+    assert.equal(observer.events.filter(event => event.phase === "display").length, 1);
+    now = 400; timing.input(true);
+    now = 401; timing.display(true, { requestId: nextId }, "search"); // Retained while the replacement is pending.
+    assert.equal(observer.events.filter(event => event.phase === "display").length, 1);
+    now = 700; timing.display(true, { requestId: refreshedId }, "stored");
+    const displayed = observer.events.filter(event => event.phase === "display");
+    assert.equal(displayed.length, 2);
+    assert.equal(displayed[1].requestId, refreshedId);
+    assert.equal(displayed[1].origin, "refresh"); assert.equal(displayed[1].elapsedMs, 300);
+  } finally { observer.restore(); }
+});

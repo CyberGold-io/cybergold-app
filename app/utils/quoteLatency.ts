@@ -59,9 +59,12 @@ export function createQuoteDisplayTiming() {
         if (!visible) return;
         const metadata = safeDiagnosticReferences(references);
         if (awaitingRefresh && metadata.requestId === priorRequest) return;
+        // A visibility resume can replace the visible request without another
+        // edit. Refresh must compare against that current visible owner.
+        priorRequest = metadata.requestId;
         const identity = JSON.stringify([metadata, source]);
         if (displayed) return; // First visible validated selection for this edit.
-        displayed = identity; priorRequest = metadata.requestId; awaitingRefresh = false;
+        displayed = identity; awaitingRefresh = false;
         const now = performance.now();
         emitQuoteLatency({ ...metadata, source, phase: "display", atMs: now, elapsedMs: now - started, origin });
       } catch { /* Optional timing cannot change presentation. */ }

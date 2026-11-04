@@ -234,15 +234,26 @@ test('latency evidence includes typing settlement and records validated display 
     expect(displayed.requestId).toBe('00000000-0000-4000-8000-000000000001');
     expect(displayed.source).toBe('search'); expect(displayed.origin).toBe('input');
     expect(Number(displayed.elapsedMs)).toBeGreaterThanOrEqual(Number(dispatch.elapsedMs));
-    await page.locator('[data-trade-refresh]').click();
-    await expect.poll(() => wire.connections.length).toBe(2);
-    await expect.poll(() => current.closed).toBe(true);
+    const visibility = (visible: boolean) => page.evaluate(visible => {
+      Object.defineProperty(document, 'hidden', {configurable:true,get:()=>!visible});
+      Object.defineProperty(document, 'visibilityState', {configurable:true,get:()=>visible?'visible':'hidden'});
+      document.dispatchEvent(new Event('visibilitychange'));
+    }, visible);
+    await visibility(false); await expect.poll(() => current.closed).toBe(true);
+    await visibility(true); await expect.poll(() => wire.connections.length).toBe(2);
+    const resumed = wire.connections[1];
+    resumed.frame({type:'qualified',value:{...value(resumed.input,'10'),observation:{source:'search',refresh:false}}});
+    await expect(page.locator('#buy-amount')).toHaveText('10');
     expect((await evidence()).filter(event => event.phase === 'display')).toHaveLength(1);
-    wire.connections[1].frame({type:'qualified',value:{...value(wire.connections[1].input,'11'),observation:{source:'search',refresh:true}}});
+    await page.locator('[data-trade-refresh]').click();
+    await expect.poll(() => wire.connections.length).toBe(3);
+    await expect.poll(() => resumed.closed).toBe(true);
+    expect((await evidence()).filter(event => event.phase === 'display')).toHaveLength(1);
+    wire.connections[2].frame({type:'qualified',value:{...value(wire.connections[2].input,'11'),observation:{source:'search',refresh:true}}});
     await expect(page.locator('#buy-amount')).toHaveText('11');
     await expect.poll(async () => (await evidence()).filter(event => event.phase === 'display').length).toBe(2);
     const refreshed = (await evidence()).filter(event => event.phase === 'display').at(-1)!;
-    expect(refreshed.origin).toBe('refresh'); expect(refreshed.requestId).toBe('00000000-0000-4000-8000-000000000002');
+    expect(refreshed.origin).toBe('refresh'); expect(refreshed.requestId).toBe('00000000-0000-4000-8000-000000000003');
   } finally {await wire.close();}
 });
 
