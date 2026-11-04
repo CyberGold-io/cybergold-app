@@ -4,7 +4,7 @@ doc_type: architecture
 status: active
 owner: app-maintainer
 created: 2026-07-11
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-04
 canonical_for: App preview and execution orchestration
 ---
 
@@ -23,65 +23,55 @@ submits exact-in user intent and executes the complete returned plan without
 locally ranking providers or resizing inputs to favor one. The direct-basket
 API currently supports Core only; this change adds no Market basket provider.
 
-An underfunded cached token/native quote starts one ordinary optimization when
-its budget is revisited. The complete best fitting historical tuple stays the
-execution fallback. While that attempt has only historical observations, the
-form can show a full-budget estimate from the cached route's measured reference
-input, net output and fees. Without a reuse sample it uses the actual funded
-input as an explicit approximation. This is linear display arithmetic, not a
-simulation of the route's price curve or a promise of available capacity.
-Fully funding the old request does not prevent estimating a larger new budget.
-Funding that already covers the current budget, or the optional historical
-`reuseSample.inputLimitObserved: true`, suppresses extrapolation. Missing/false
-capacity metadata is unknown and never prevents ordinary optimization.
-The canonical generated API snapshot includes this optional advisory field and
-records its exact Backend source identity.
-A known limited complete tuple also remains available for an uncached budget
-that fits its actual funding, regardless of its original requested maximum.
-For example, a qualified 0.473 ETH / 8.355 CYGLD observation stays at 8.355 for
-new 0.6 or 0.7 ETH budgets while ordinary optimization explores current state.
-Fitting historical offers can arrive from either exact lookup or neighbors,
-including when there is no exact-budget observation. An unknown partial lower
-remains the actual execution fallback while a full-budget arithmetic estimate
-is displayed. A cached upper can supply that estimate without ending its pending
-presentation when the lower arrives. A known limited tuple retains its measured
-funding and output instead.
-Below the known funding amount, the existing clipped downward estimate remains
-available. A cleared/disproved exact cache slot still excludes historical fallback.
+Reusable whole-quote history belongs to the Backend and is shared across
+browsers and users. Each new App request owner asks for the Backend-selected
+stream. TanStack Query supplies request/promise status only; inactive quote
+slots have zero retention. The App neither initializes a new owner from an
+old quote nor scans, retargets, ranks or extrapolates neighboring whole quotes.
+This also applies to the deferred exact-out adapter's request slots.
 
-The estimate retains the existing screen-reader description, pending
-presentation and indicative spending/fees. Only the estimated scalar receive
-number has a subtle three-second opacity pulse; labels, fees and spending stay
-steady. When a validated receive amount replaces a different displayed amount,
-that number gets one cycle of the same pulse. Metadata-only or same-amount
-updates and initial static cache restoration do not restart it. Unchanged
-validated amounts, including known limited cached quotes, stay steady while
-optimization continues.
-Reduced-motion preferences disable both forms. The estimate never enters the economic quote cache or execution bounds.
-A fresh qualified quote immediately replaces
-it, including a smaller funded/output result while refinement continues. A
-stored response cannot erase a better complete historical fallback. Completion,
-failure or cancellation restores the actual tuple when no fresh quote arrived.
-An early Swap click still captures that actual tuple, stops only the owned
-search and displays the frozen actual funding/output during preparation; the
-estimate never changes the plan or accepted minimum sent for preparation.
-Refused preparation does not restart that explicitly stopped search; a new
-budget or explicit Refresh can start work. Visibility cancellation retains its
-existing independent lifetime.
-Presentation snapshots record the estimate as pending rather than confirmed.
+Fast scalar hints come from Backend-produced `/api/economic-estimates` packets
+and their optional budget ranges. The Backend supplies the output and fees,
+including `cached-upper` and `cached-lower` arithmetic. An explicit Backend
+`fullBudget` instruction keeps that estimate visible over its stored, partially
+funded fallback while optimization runs. A fully funded quote, an explicit
+observed input limit, any fresh selected quote, or attempt settlement ends that
+overlay. This only compares returned funding with the entered budget; the App
+does not rank or extrapolate output. Hints cannot enable execution or become
+accepted bounds. An early Swap still captures the actual stored tuple.
+Every qualified and terminal selection replaces the complete tuple together,
+including funding, fees, context, limitation evidence and route origins.
+Identical terminal snapshots do not need a second display publication.
 
-The App and its fixed Next stream facade add no whole-search time window.
-Qualified tuples are displayed and available for capture as they arrive, even
-below an earlier arithmetic estimate. Legacy replay-completion markers do not
-delay readiness. The finite producer completes independently; input edits,
-hidden/unmounted views and an explicit Swap capture cancel their owned work.
-Refinement errors preserve an already qualified tuple and its request reference.
-Settling an attempt does not manually publish the identical owned tuple again;
-new qualified metadata, origins and limitation observations still publish.
+Only the current owner's accepted tuple remains available during its Refresh,
+transport failure or preparation. Input changes create an empty owner; matching
+canonical invalidation clears the displayed quote without restoring a prior
+observation. An early Swap captures the latest complete tuple synchronously,
+stops that owner's refinement and keeps the captured funding/output/bounds
+through unsigned preparation. Refused preparation does not restart that stopped
+search; a new input or explicit Refresh can start work. The App and fixed Next
+stream facade add no whole-search time window.
+
+The existing estimate description and pending presentation remain. Only the
+estimated scalar receive number has a subtle three-second opacity pulse.
+A different validated receive amount gets one cycle of the same pulse;
+metadata-only or same-formatted-amount updates do not restart it. Validated
+amounts stay steady while optimization continues. Reduced-motion preferences
+disable both forms. Labels, spending and fees keep their existing presentation.
+
+Reload snapshots retain input drafts, selected assets, preferences and static
+presentation. They do not restore quote outputs, quote fees, minimum outputs,
+consumption, retention disclosures or readiness. Basket snapshots retain the
+editable driver amount, while derived amounts wait for Backend facts/models or
+quotes. Numeric display retention is limited to its current owner and clears
+on a changed key or invalidation.
+
 Exact-in advisory model keys include configuration, generation and input, but
-no block head. A head change alone does not restart that cached arithmetic
-request or the executable quote stream. Legacy exact-out model keys retain
-their existing head scope.
+no block head. A head change alone does not restart that model request or the
+executable quote stream. Legacy exact-out model keys retain their existing
+head scope. Hidden/unmounted views cancel their owned work independently. A completed owner
+keeps its current observation on hide/show; interrupted work resumes once. A
+new owner still acquires the Backend selection.
 Latest execution simulations may have null block coordinates. Those remain
 unknown in diagnostics and measurements, rather than becoming block zero or
 requiring another header read. Disproof associates an unanchored observation

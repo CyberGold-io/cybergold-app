@@ -30,23 +30,22 @@ test("quote requests carry economic inputs only; explicit Refresh is the search 
     { path: "/api/economic-quotes", body: { ...request, refresh: true } }]);
 });
 
-test("old measured quotes remain immediate across remount, focus and reconnect without another request", async () => {
+test("each new owner fetches and inactive whole-quote request slots are removed", async () => {
   const client = new QueryClient(); client.mount();
   let calls = 0;
   const options = economicQuoteOptions(request, scope, (async () => { calls++; return Response.json(quote()); }) as typeof fetch);
+  const tick = () => new Promise(resolve => setTimeout(resolve, 5));
   try {
-    await client.fetchQuery(options);
-    client.setQueryData(options.queryKey, quote(), { updatedAt: Date.now() - 600_000 });
     const first = new QueryObserver(client, options), stopFirst = first.subscribe(() => {});
-    assert.equal(first.getCurrentResult().data?.quotedOutput, "249");
-    stopFirst();
-    const second = new QueryObserver(client, options), stopSecond = second.subscribe(() => {});
+    await tick(); assert.equal(calls, 1); assert.equal(first.getCurrentResult().data?.quotedOutput, "249");
     focusManager.setFocused(false); focusManager.setFocused(true);
     onlineManager.setOnline(false); onlineManager.setOnline(true);
-    await new Promise(resolve => setImmediate(resolve));
-    assert.equal(second.getCurrentResult().data?.quotedOutput, "249");
-    assert.equal((await client.fetchQuery(options)).context.blockHash, "original-block");
-    assert.equal(calls, 1);
+    await tick(); assert.equal(calls, 1, "head/focus/reconnect does not restart an active quote");
+    stopFirst(); await tick();
+    assert.equal(client.getQueryData(options.queryKey), undefined, "inactive whole quotes are not reusable history");
+    const second = new QueryObserver(client, options), stopSecond = second.subscribe(() => {});
+    assert.equal(second.getCurrentResult().data, undefined);
+    await tick(); assert.equal(calls, 2, "new owners acquire the Backend's shared selection again");
     stopSecond();
   } finally { focusManager.setFocused(undefined); client.unmount(); client.clear(); }
 });

@@ -6,7 +6,7 @@ import type { TradeModelRequest } from "../../app/utils/tradeQuote";
 
 for (const symbol of ["WETH", "USDC"] as const) {
   for (const mode of ["issue-in", "redeem-in"] as const) {
-    test(`${symbol} ${mode}: an exact fresh revisit bypasses typing debounce without another request`, async ({ page }) => {
+    test(`${symbol} ${mode}: an exact revisit uses the ordinary debounce and one Backend request`, async ({ page }) => {
       const observed = await install(page);
       await page.goto("/en"); await choose(page, symbol);
       if (mode.startsWith("redeem")) await page.getByRole("button", { name: "Reverse swap direction" }).click();
@@ -31,14 +31,20 @@ for (const symbol of ["WETH", "USDC"] as const) {
           requestAnimationFrame(check);
         }, { once: true });
       }, expected);
-      await edited.fill("1"); await expect(quoted).toHaveText(expected); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
+      await page.clock.install(); const now = await page.evaluate(() => Date.now()); await page.clock.pauseAt(new Date(now + 1000));
+      await edited.fill("1");
       expect(observed.intents.length).toBe(before);
+      await expect(quoted).toHaveText("...");
+      await page.clock.runFor(150);
+      await expect.poll(async () => { await page.clock.runFor(0); return quoted.textContent(); }).toBe(expected); await expect(quoted).not.toHaveAttribute("aria-busy", "true");
+      expect(observed.intents.length).toBe(before + 1);
+      await page.clock.runFor(16);
       await expect.poll(() => page.evaluate(() => typeof (window as unknown as { __revisitMs?: number }).__revisitMs)).toBe("number");
       const elapsed = await page.evaluate(() => (window as unknown as { __revisitMs: number }).__revisitMs);
       await test.info().attach("exact-revisit", { contentType: "application/json", body: JSON.stringify({ symbol, mode,
         elapsedMs: elapsed, newRequests: observed.intents.length - before, requests: observed.intents,
-        scope: "Fresh exact browser cache fixture at one head." }) });
-      expect(observed.intents.length).toBe(before);
+        scope: "Fresh Backend observation after the ordinary input debounce at one head." }) });
+      expect(observed.intents.length).toBe(before + 1);
     });
   }
 }

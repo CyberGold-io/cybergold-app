@@ -113,23 +113,15 @@ function bootstrapTradeDisplay(
       return;
     }
 
-    // Older displays included the removed explanatory paragraph before the amounts.
-    snapshot.values.retentionDisclosure = snapshot.values.retentionDisclosure
-      ?.replace(snapshot.values.retentionDisclosurePlain ?? "", "").trim() ?? "";
-    delete snapshot.values.retentionDisclosurePlain;
-
     // The template is this page's trusted SSR markup, never serialized HTML.
     const presentation = live.cloneNode(true) as HTMLElement;
     presentation.removeAttribute("data-trade-live");
     const evaluationPanel = presentation.querySelector<HTMLElement>("[data-trade-evaluation]");
     if (evaluationPanel) evaluationPanel.dataset.tradeEvaluation = snapshot.values.evaluationStatus ??
       (snapshot.values.quoteComplete === "true" ? "confirmed" : "pending");
-    // Retain the prior version's one useful spending value during a local
-    // upgrade; the old maximum/refund rows no longer exist in the template.
-    if (!snapshot.values.purchaseSpendingValue && snapshot.values.purchaseEstimatedSpend) {
-      snapshot.values.purchaseSpendingValue = snapshot.values.purchaseEstimatedSpend;
-      snapshot.values.purchaseSpendingLimited = "true";
-    }
+    // The spending fallback is the user's draft budget, never old consumption.
+    snapshot.values.purchaseSpendingValue = `${snapshot.values.sellAmount ?? ""} ${snapshot.values.sellSymbol ?? ""}`.trim();
+    snapshot.values.purchaseSpendingEquivalent = snapshot.values.pendingEquivalent ?? "...";
     const ids = new Map<string, string>();
     for (const node of [presentation, ...presentation.querySelectorAll<HTMLElement>("*")]) {
       if (node.id) {
@@ -329,7 +321,7 @@ function bootstrapTradeDisplay(
       }
       try {
         window.sessionStorage.setItem("cg:swap-form-state:v1", JSON.stringify(draft));
-        window.sessionStorage.setItem(storageKey, JSON.stringify(snapshot));
+        window.sessionStorage.setItem(storageKey, JSON.stringify(parseSnapshot(snapshot)));
       } catch { /* Keep native editing usable when storage is unavailable. */ }
       window.dispatchEvent(new CustomEvent("trade-display-input", { detail: { field, value: input.value, driverToken: draft.driverToken } }));
     });

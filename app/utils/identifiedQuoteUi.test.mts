@@ -37,6 +37,14 @@ test("an original matched economic quote rejection retains its typed cause inste
   assert.deepEqual(result.quoteDiagnostics, { phase: "initial-search", elapsedMs: 15000 });
 });
 
+test("the original economic stream dispatch correlates its own failure", () => {
+  const diagnostics = createUiQuoteDiagnostics(scenario, config);
+  assert.equal(diagnostics.request("/api/economic-quotes/stream", request, attemptId), true);
+  assert.equal(diagnostics.diagnostic({ operation: "quote", attemptId, requestId, outcome: "failed", errorClassification: "rpc-timeout" }), true);
+  assert.deepEqual(diagnostics.snapshot().refs, { attemptId, requestId });
+  assert.equal(diagnostics.snapshot().reason, "rpc-timeout");
+});
+
 test("a matched technical quote failure remains a failed case with its actual cause", async () => {
   const { failure, result } = await prepareFailure(observer("quote-timeout"));
   assert.ok(failure instanceof QuotePreviewError);

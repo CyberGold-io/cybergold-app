@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { zeroAddress } from "viem";
-import { uiQuoteReady } from "../../tests/trading/uiQuotePreparation.ts";
+import { uiQuoteReady, uiQuoteReadiness } from "../../tests/trading/uiQuotePreparation.ts";
 import { createUiQuoteDiagnostics } from "../../tests/trading/uiDiagnostics.ts";
 import { tokenRequest } from "../../tests/trading/regression.ts";
 import { tradeScenarios, type Scenario } from "../../tests/trading/scenarios.ts";
@@ -42,3 +42,19 @@ for (const asset of ["PAXG", "USDC", "ETH", "BASKET"] as const) for (const side 
     assert.notEqual(value.plan.minimumOutput, "77");
   });
 }
+
+test("readiness evidence identifies the original failed predicate without changing it", () => {
+  const scenario = { ...tradeScenarios.find(row => row.asset === "USDC" && row.side === "buy" && row.inputMode === "exact-in")!, amountRaw: "100" };
+  const observed: QuoteObservation = { path: "/api/economic-quotes/stream", request: { intent: 0,
+    inputs: [{ currency: tokenAddresses.USDC, amount: "100" }], outputCurrency: config.contracts.core! }, status: 200,
+    requestId: "request", backendRevision: "revision", frames: [{ type: "qualified", value: { inputs: [{ currency: tokenAddresses.USDC, amount: "100" }],
+      quotedOutput: "10", plan: { body: {}, conversions: {}, allocations: [] }, context: { chainId: 31338, blockHash: null, observedAt: "now" } } }] };
+  const missingQuote = uiQuoteReadiness([], scenario, config, true);
+  assert.equal(missingQuote.quoteReady, false); assert.equal(missingQuote.swapEnabled, true);
+  const disabledButton = uiQuoteReadiness([observed], scenario, config, false);
+  assert.equal(disabledButton.quoteReady, true); assert.equal(disabledButton.swapEnabled, false);
+  assert.equal(disabledButton.matchingObservations, 1); assert.equal(disabledButton.latest?.qualifiedFrames, 1);
+  assert.equal(disabledButton.latest?.requestId, "request");
+  assert.equal(uiQuoteReady([observed], scenario, config, false), false);
+  assert.equal(uiQuoteReady([observed], scenario, config, true), true);
+});

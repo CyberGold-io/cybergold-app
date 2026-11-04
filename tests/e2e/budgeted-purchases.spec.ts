@@ -228,7 +228,7 @@ for (const { strategy, freshBalance, stage } of [
   await expect.poll(() => failedStages).toEqual([stage]);
 });
 
-test("a universal purchase retains its complete acquisition across reload and clears old terms on a pre-hydration edit", async ({ page }) => {
+test("a universal purchase restores its input budget across reload without restoring quote economics", async ({ page }) => {
   const observed = await fixture(page, "core");
   const hydrationErrors: string[] = [];
   page.on("console", message => { if (/hydrat|didn't match/i.test(message.text())) hydrationErrors.push(message.text()); });
@@ -249,11 +249,11 @@ test("a universal purchase retains its complete acquisition across reload and cl
     await expect(cached.locator("[data-trade-spending]")).toBeVisible();
     await expect(cached.locator('[data-trade-display="spendAmountLabel"]')).toHaveText("Your budget");
     await expect(cached.locator('[data-trade-display="purchaseSpendingValue"]')).toHaveText("100 PAXG");
-    await expect(cached.locator('[data-trade-display="retentionDisclosure"]')).toContainText("70 PAXG");
-    await expect(cached.locator('[data-trade-display="purchaseSpendingEquivalent"]')).toHaveText("~ 3.11 kg of gold • $311 034.77");
+    await expect(cached.locator('[data-trade-display="retentionDisclosure"]')).not.toContainText("70 PAXG");
+    await expect(cached.locator('[data-trade-display="purchaseSpendingEquivalent"]')).not.toHaveText("~ 3.11 kg of gold • $311 034.77");
     await expect(cached.locator("[data-trade-spending-value]")).toHaveAttribute("data-limited", "false");
-    await expect(cached.locator("[data-trade-evaluation]")).toHaveAttribute("data-trade-evaluation", "confirmed");
-    await expectThemeColor(page, cached.locator("[data-trade-spending-value]"), "--text-input");
+    await expect(cached.locator("[data-trade-evaluation]")).toHaveAttribute("data-trade-evaluation", "pending");
+    await expectThemeColor(page, cached.locator("[data-trade-spending-value]"), "--text-input-disabled");
     await expect(cached.locator('[data-trade-display="sellAmount"]')).toBeEditable();
     await cached.locator('[data-trade-display="sellAmount"]').fill("101");
     await expect(cached.locator("[data-trade-spending]")).toBeVisible();
@@ -306,12 +306,12 @@ test("an affordable purchase budget never flashes a wallet warning while its quo
     await expect(page.getByRole("button", { name: "Open wallet menu" })).toBeVisible();
     await expect(page.locator("#sell-amount")).toHaveValue("100");
     await expect(page.locator("#execution-tolerance")).toHaveValue("0.5");
-    await expect(page.getByTestId("purchase-spending")).toContainText("100 PAXG");
+    await expect(page.getByTestId("purchase-spending").locator("[data-trade-spending-value]")).toHaveText("…");
     await expect(page.locator("#sell-wallet-balance-warning")).toHaveCount(0);
     await expect(page.locator("#sell-amount")).not.toHaveClass(/text-text-amber/);
     await expect(page.locator("[data-trade-action]")).toBeDisabled();
     await expect(page.locator("[data-trade-action]")).not.toContainText(/balance/i);
-    await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "confirmed");
+    await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "pending");
     await page.locator("#sell-amount").fill("101");
     await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "pending");
     await page.locator("#sell-amount").fill("100");
@@ -462,9 +462,9 @@ test("a Backend capped range is not reused outside its budgets or for another in
   try {
     for (const budget of ["0.01", "2"]) {
       await input.fill(budget);
-      await expect(spending).toHaveText(budget === "2" ? "2 PAXG" : "…");
+      await expect(spending).toHaveText("…");
       await expect(output).not.toHaveText("0.936");
-      if (budget === "2") await expect(page.getByTestId("quote-estimate-description")).toHaveClass("sr-only");
+      await expect(page.getByTestId("quote-estimate-description")).toHaveCount(0);
       await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "pending");
       await expectThemeColor(page, spending, "--text-input-disabled");
       await expect(page.locator("[data-trade-action]")).toBeDisabled();
@@ -478,7 +478,7 @@ test("a Backend capped range is not reused outside its budgets or for another in
   } finally { observed.release(); }
 });
 
-test("a larger ETH budget estimates an unsaturated cached route, then preserves fresh limited output on revisits", async ({ page }) => {
+test("a larger ETH budget displays Backend arithmetic and reacquires selected limited quotes on revisits", async ({ page }) => {
   await fixture(page, "core");
   const requests: { amount: string; refresh: boolean }[] = [];
   let releaseOptimization!: () => void;
@@ -506,6 +506,13 @@ test("a larger ETH budget estimates an unsaturated cached route, then preserves 
       basis: "observed-nonretained", inputLimitObserved: true,
     } } : {}) } });
   });
+  await page.route("**/api/economic-estimates", route => route.fulfill({ json: {
+    namespace: "trade", intent: route.request().postDataJSON(), models: [], estimate: {
+      strategy: "universal", source: "cached-upper", amount: String(8838n * unit / 1000n),
+      referenceInput: String(unit / 2n), basis: "observed-nonretained", context,
+      fees: { coreProtocolFeeCygld: "0", coreHelpersFeeCygld: "0", marketFeeCygld: "0" },
+    },
+  } }));
   try {
     await page.goto("/en");
     await selectToken(page, "ETH");
@@ -529,7 +536,7 @@ test("a larger ETH budget estimates an unsaturated cached route, then preserves 
     expect(requests).toHaveLength(3);
     await amount.fill("0.5");
     await expect(output).toHaveText("8.838");
-    await expect(spending).toHaveText("0.5 ETH");
+    await expect(spending).toHaveText("…");
     await expect(spending).toHaveAttribute("data-limited", "false");
     await expect(page.getByTestId("quote-estimate-description")).toHaveClass("sr-only");
     await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "pending");
@@ -543,27 +550,32 @@ test("a larger ETH budget estimates an unsaturated cached route, then preserves 
     expect(requests).toHaveLength(4);
     await expect(page.getByTestId("quote-estimate-description")).toHaveCount(0);
     await amount.fill("0.4"); await expect(output).toHaveText("7.07");
-    await amount.fill("0.5"); await expect(output).toHaveText("8.355");
+    await amount.fill("0.5"); await expect(output).toHaveText("8.838");
+    await expect(page.locator("[data-trade-action]")).toBeDisabled();
+    await expect.poll(() => requests.length).toBe(6);
+    releaseLimitedRevisit(); await expect(output).toHaveText("8.355");
     await expect(spending).toHaveText("0.473 ETH");
-    await expect.poll(() => requests.length).toBe(5);
     await expect(page.getByTestId("quote-estimate-description")).toHaveCount(0);
     await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "confirmed");
-    releaseLimitedRevisit(); await expect(refresh).toBeEnabled();
+    await expect(refresh).toBeEnabled();
     await refresh.click();
     await expect(output).toHaveText("8.83");
     await expect(spending).toHaveText("0.5 ETH");
     await expect(spending).toHaveAttribute("data-limited", "false");
     await expect(refresh).toBeEnabled();
     await amount.fill("0.4"); await expect(output).toHaveText("7.07");
-    await amount.fill("0.5"); await expect(output).toHaveText("8.83");
+    await amount.fill("0.5"); await expect(output).toHaveText("8.355");
     await expect(refresh).toBeEnabled();
     expect(requests).toEqual([
       { amount: String(3n * unit / 10n), refresh: false },
       { amount: String(unit / 2n), refresh: false },
       { amount: String(2n * unit / 5n), refresh: false },
       { amount: String(unit / 2n), refresh: false },
+      { amount: String(2n * unit / 5n), refresh: false },
       { amount: String(unit / 2n), refresh: false },
       { amount: String(unit / 2n), refresh: true },
+      { amount: String(2n * unit / 5n), refresh: false },
+      { amount: String(unit / 2n), refresh: false },
     ]);
   } finally { releaseOptimization(); releaseLimitedRevisit(); }
 });

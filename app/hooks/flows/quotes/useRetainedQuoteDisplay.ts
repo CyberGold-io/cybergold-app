@@ -10,6 +10,8 @@ export function useRetainedQuoteDisplay<T>(identity: readonly unknown[], value: 
   const [completed, setCompleted] = useState<{ key: string; valueKey: string | undefined; value: T }>();
   if (!preparing && status === "success" && (completed?.key !== key || completed.valueKey !== valueKey)) {
     setCompleted({ key, valueKey, value });
+  } else if (!preparing && completed && (completed.key !== key || status === "invalidated")) {
+    setCompleted(undefined);
   }
   const retained = !!completed && (preparing || ((status === "loading" || status === "idle") && completed.key === key));
   return { value: retained ? completed.value : value, retained };

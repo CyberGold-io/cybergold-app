@@ -60,6 +60,13 @@ async function capture(root: Locator) {
   });
 }
 
+function draftPresentation(value: Awaited<ReturnType<typeof capture>>) {
+  return { ...value,
+    slots: Object.fromEntries(["sellSymbol", "buySymbol", "sellAmount", "spendAmountLabel", "reference"].map(key => [key, value.slots[key]])),
+    rows: value.rows.map(row => ({ id: row.id })),
+  };
+}
+
 async function stableSnapshot(page: Page) {
   await expect(page.getByRole("button", { name: "Open wallet menu", exact: true })).toBeVisible();
   await expect(page.locator('[data-trade-action]')).toHaveText("Swap currencies");
@@ -93,22 +100,22 @@ async function reloadHeld(page: Page, check: (cached: Locator, live: Locator, hy
   }
 }
 
-test("a connected single-token swap retains all visible slots before hydration and through background reads", async ({ page }) => {
+test("a connected single-token reload retains its draft and controls while economics wait for Backend", async ({ page }) => {
   await install(page); await wallet(page);
   await page.goto("/en");
   await page.locator("#sell-amount").fill("0.01");
   await expect(page.locator("#buy-amount")).toHaveText("0.01");
   const before = await stableSnapshot(page);
   await reloadHeld(page, async (cached, live, hydrate) => {
-    expect(await capture(cached)).toEqual(before);
+    expect(draftPresentation(await capture(cached))).toEqual(draftPresentation(before));
     await expect(cached.locator('[data-trade-action]')).toBeDisabled();
     await hydrate();
-    expect(await capture(live)).toEqual(before);
+    expect(draftPresentation(await capture(live))).toEqual(draftPresentation(before));
     await expect(live.locator('[data-trade-action]')).toBeDisabled();
   });
 });
 
-for (const side of ["sell", "buy"] as const) test(`${side} basket rows retain their structure and values before hydration`, async ({ page }) => {
+for (const side of ["sell", "buy"] as const) test(`${side} basket rows retain their structure and draft input before hydration`, async ({ page }) => {
   await installBasket(page); await wallet(page);
   await page.goto("/en");
   await selectBasket(page, side);
@@ -118,7 +125,7 @@ for (const side of ["sell", "buy"] as const) test(`${side} basket rows retain th
   else await expect(page.locator('[data-trade-basket-rows="buy"] output:visible')).toHaveText("1");
   const before = await stableSnapshot(page);
   await reloadHeld(page, async (cached, live, hydrate) => {
-    expect(await capture(cached)).toEqual(before);
+    expect(draftPresentation(await capture(cached))).toEqual(draftPresentation(before));
     if (side === "sell") {
       const spend = cached.getByRole("textbox", { name: "Sell amount (PAXG)", exact: true });
       await expect(spend).toBeEditable();
@@ -129,12 +136,12 @@ for (const side of ["sell", "buy"] as const) test(`${side} basket rows retain th
       await expect(restored).toBeEditable(); await expect(restored).toHaveValue("2"); await expect(restored).toBeFocused();
     } else {
       await hydrate();
-      expect(await capture(live)).toEqual(before);
+      expect(draftPresentation(await capture(live))).toEqual(draftPresentation(before));
     }
   });
 });
 
-test("a failed background quote read preserves the latest completed output and fees", async ({ page }) => {
+test("a failed new-owner quote read does not restore the prior owner output or bounds", async ({ page }) => {
   await install(page); await wallet(page);
   await page.goto("/en");
   await page.locator("#sell-amount").fill("0.01");
@@ -154,9 +161,10 @@ test("a failed background quote read preserves the latest completed output and f
   await page.reload();
   await expect.poll(() => failedReads).toBeGreaterThan(0);
   await expect(page.locator('[data-trade-action]')).not.toHaveText("Swap currencies");
-  for (const key of slots) {
-    await expect(page.getByTestId("trade-live-view").locator(`[data-trade-display="${key}"]`).first()).toHaveText(before[key]);
-  }
+  await expect(page.locator("#buy-amount")).not.toHaveText(before.buyAmount);
+  await expect(page.getByTestId("swap-minimum-output")).toContainText("...");
+  const stored = await page.evaluate(() => JSON.parse(sessionStorage.getItem("cybergold:trade-display:v1:31337:en") ?? "null"));
+  expect(stored.values.buyAmount).toBeUndefined(); expect(stored.values.feeMinimumOutput).toBeUndefined();
   await expect(page.locator('[data-trade-action]')).toBeDisabled();
 });
 
@@ -169,7 +177,7 @@ test("a focused cached basket component keeps its own row and caret at handoff",
   await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("cybergold:trade-display:v1:31337:en") ?? "null")?.basketRows?.length)).toBe(2);
   await reloadHeld(page, async (cached, live, hydrate) => {
     const selected = cached.getByRole("textbox", { name: "Sell amount (GOLD2)", exact: true });
-    await selected.focus();
+    await selected.fill("2");
     await selected.evaluate(node => (node as HTMLInputElement).setSelectionRange(1, 1));
     const before = await selected.inputValue();
     await hydrate();

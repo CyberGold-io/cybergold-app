@@ -56,6 +56,7 @@ export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "ass
   lastApproval?: { assetAddress: string; spenderAddress: string; amountRaw: string }; walletRequest?: WalletRequestDiagnostic;
   uiQuote?: UiQuoteSnapshot; wallet?: UiWalletEvidence;
   uiConfirmation?: import('./runnerDiagnostics.ts').UiConfirmationDiagnostic;
+  uiReadiness?: import('./uiQuotePreparation.ts').UiReadinessDiagnostic;
   quoteTerms?: QualityTerms; executionTerms?: QualityTerms; quoteQuality?: QualityMeasurement; executionQuality?: QualityMeasurement;
 };
 export type RegressionReport = { schema: "cybergold.trade-regression.v1"; runId: string; target: "sandbox" | "mainnet";
