@@ -14,7 +14,7 @@ const observation = (request: Record<string, unknown>, path = "/api/quotes/unive
 const scenarioFor = (asset: Scenario["asset"], side: Scenario["side"], inputMode: Scenario["inputMode"] = "exact-in") =>
   tradeScenarios.find(row => row.asset === asset && row.side === side && row.inputMode === inputMode && row.requestedStrategy === "core")!;
 
-test("latest quote observations retain a distinct prior tuple when the current unanchored observation is disproved", () => {
+test("latest quote observations clear a disproved selected replacement without resurrecting a prior tuple", () => {
   const prior = { quotedOutput: "8", context: { chainId: 1, blockHash: null, blockNumber: null, observedAt: "2026-11-03T00:00:00Z" } };
   const fresh = { quotedOutput: "9", context: { ...prior.context, observedAt: "2026-11-03T00:00:01Z" } };
   const rows: QuoteObservation[] = [
@@ -22,7 +22,7 @@ test("latest quote observations retain a distinct prior tuple when the current u
     { path: "/api/economic-quotes/stream", request: {}, status: 200,
       frames: [{ type: "qualified", value: fresh }, { type: "invalidated", context: fresh.context }] },
   ];
-  assert.deepEqual(quoteObservationIncumbent(rows)?.value, prior);
+  assert.equal(quoteObservationIncumbent(rows), undefined);
 });
 
 for (const asset of ["PAXG", "USDC", "ETH"] as const) for (const side of ["buy", "sell"] as const) {

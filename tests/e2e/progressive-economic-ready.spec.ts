@@ -380,7 +380,8 @@ test('disproof of a ready candidate cannot be undone by a legacy replay marker',
 });
 
 test('invalidation can be followed by a Backend-selected replacement in the same stream', async ({ page }) => {
-  await install(page); await wallet(page); const wire = await streams(page);
+  await install(page); await wallet(page); await page.addInitScript(installQuoteObservation as () => void);
+  const wire = await streams(page);
   const posted: { quote: EconomicQuote }[] = [];
   await page.route('**/api/tx-preparations', async route => {
     posted.push(route.request().postDataJSON());
@@ -390,16 +391,66 @@ test('invalidation can be followed by a Backend-selected replacement in the same
     await page.goto('/en'); await expect(page.getByRole('button', { name: 'Open wallet menu', exact: true })).toBeVisible();
     await page.locator('#sell-amount').fill('1'); await expect.poll(() => wire.connections.length).toBe(1);
     const current = wire.connections[0], initial = value(current.input, '10');
+    const scenario = { ...tradeScenarios.find(row => row.asset === 'ETH' && row.side === 'buy' && row.inputMode === 'exact-in')!,
+      amountRaw: current.input.inputs[0].amount };
+    const observedReady = async () => uiQuoteReady(await quoteObservations(page), scenario, config,
+      await page.locator('[data-trade-action]').isEnabled());
     current.frame({ type: 'qualified', value: initial }); await expect(page.locator('[data-trade-action]')).toBeEnabled();
+    await expect.poll(observedReady).toBe(true);
     current.frame({ type: 'invalidated', context: initial.context });
     await expect(page.locator('[data-trade-action]')).toBeDisabled(); await expect(page.locator('#buy-amount')).not.toHaveText('10');
+    await expect.poll(observedReady).toBe(false);
     const replacement = value(current.input, '9', String(9n * unit / 10n));
     current.frame({ type: 'qualified', value: replacement });
     await expect(page.locator('#buy-amount')).toHaveText('9'); await expect(page.locator('[data-trade-action]')).toBeEnabled();
+    await expect.poll(observedReady).toBe(true); // Runner readiness must recover before complete too.
     current.frame({ type: 'complete', value: replacement }); current.end();
     await expect(page.locator('[data-trade-refresh]')).not.toHaveAttribute('aria-busy', 'true');
     await page.locator('[data-trade-action]').click(); await expect.poll(() => posted.length).toBe(1);
     expect(posted[0].quote).toMatchObject(replacement); expect(wire.connections).toHaveLength(1);
+  } finally { await wire.close(); }
+});
+
+test('quote diagnostic clocks retain held time and restart for Refresh and a genuine input change', async ({ page }) => {
+  await install(page); await wallet(page); await page.clock.install();
+  await page.addInitScript(() => {
+    const target = window as Window & { __quoteClocks?: { durationMs?: number; amount?: string; attemptId?: string }[] };
+    target.__quoteClocks = [];
+    window.addEventListener('cybergold:diagnostic', event => {
+      const value = (event as CustomEvent<{ operation?: string; outcome?: string; durationMs?: number; amount?: string; attemptId?: string }>).detail;
+      if (value.operation === 'quote' && value.outcome === 'succeeded')
+        target.__quoteClocks!.push({ durationMs: value.durationMs, amount: value.amount, attemptId: value.attemptId });
+    });
+  });
+  const wire = await streams(page);
+  const clocks = () => page.evaluate(() => (window as Window & {
+    __quoteClocks?: { durationMs?: number; amount?: string; attemptId?: string }[] }).__quoteClocks ?? []);
+  try {
+    await page.goto('/en'); await expect(page.getByRole('button', { name: 'Open wallet menu', exact: true })).toBeVisible();
+    await page.locator('#sell-amount').fill('1'); await expect.poll(() => wire.connections.length).toBe(1);
+    await page.clock.runFor(2000);
+    const first = wire.connections[0]; first.frame({ type: 'qualified', value: value(first.input, '9') });
+    await expect(page.locator('#buy-amount')).toHaveText('9');
+    await expect.poll(async () => (await clocks()).length).toBe(1);
+    const original = (await clocks())[0]; expect(original.durationMs).toBeGreaterThanOrEqual(2000);
+    await page.locator('[data-trade-refresh]').click(); await expect.poll(() => wire.connections.length).toBe(2);
+    await expect(page.locator('#buy-amount')).toHaveText('9'); // Ready economics remain visible during Refresh.
+    await page.clock.runFor(700);
+    const refreshed = wire.connections[1]; refreshed.frame({ type: 'qualified', value: value(refreshed.input, '9') });
+    await expect.poll(async () => (await clocks()).length).toBe(2);
+    const refresh = (await clocks())[1];
+    expect(refresh.durationMs).toBeGreaterThanOrEqual(700); expect(refresh.durationMs).toBeLessThan(2000);
+    expect(refresh.attemptId).not.toBe(original.attemptId);
+    await page.locator('#sell-amount').fill('2'); await expect.poll(() => wire.connections.length).toBe(3);
+    await page.clock.runFor(400);
+    const changed = wire.connections[2], selected = value(changed.input, '18');
+    changed.frame({ type: 'qualified', value: selected });
+    await expect(page.locator('#buy-amount')).toHaveText('18');
+    await expect.poll(async () => (await clocks()).length).toBe(3);
+    const input = (await clocks())[2];
+    expect(input.durationMs).toBeGreaterThanOrEqual(400); expect(input.durationMs).toBeLessThan(1500);
+    expect(input.amount).toBe(String(2n * unit)); expect(input.attemptId).not.toBe(refresh.attemptId);
+    changed.frame({ type: 'complete', value: selected }); changed.end();
   } finally { await wire.close(); }
 });
 
@@ -480,6 +531,79 @@ for(const symbol of ["USDT","ETH"])test(`${symbol}: first canonical frame enable
     await expect(page.locator('[data-trade-action]')).toBeEnabled();second.frame({type:'complete',value:value(second.input,'11.5')});second.end();
     await expect(page.locator('#buy-amount')).toHaveText('11.5');
   }finally{await wire.close();}
+});
+
+for (const edit of [false, true]) test(`Basket redemption starts before held facts and ${edit ? 'cancels obsolete funding' : 'retains the same selected owner'} at metadata handoff`, async ({ page }) => {
+  await install(page); await wallet(page); await page.clock.install();
+  await page.addInitScript(() => sessionStorage.setItem('cg:swap-form-state:v1', JSON.stringify({
+    sellTokenId: 'cygld', buyTokenId: 'goldbasket', sellAmount: '1',
+  })));
+  let releaseFacts!: () => void;
+  const facts = new Promise<void>(resolve => { releaseFacts = resolve; });
+  await page.route('**/api/protocol/facts', async route => { await facts; await route.fallback(); });
+  const wire = await streams(page), posted: { quote: EconomicQuote; acceptedBounds: { expectedCoreOutputs: { minimumAmount: string }[] } }[] = [];
+  await page.route('**/api/tx-preparations', async route => {
+    posted.push(route.request().postDataJSON()); await route.fulfill({ status: 503, json: { code: 'quote-unavailable' } });
+  });
+  try {
+    const configuration = page.waitForResponse('**/api/protocol/config');
+    await page.goto('/en'); await configuration;
+    await expect(page.getByRole('button', { name: 'Open wallet menu', exact: true })).toBeVisible();
+    await expect(page.locator('#sell-amount')).toHaveValue('1');
+    await expect.poll(() => wire.connections.length).toBe(1);
+    const first = wire.connections[0]; expect(first.input).toMatchObject({ intent: 3, inputs: [{ amount: String(unit) }] });
+    first.frame({ type: 'qualified', value: value(first.input, '9') });
+    let current = first, selected = value(first.input, '9');
+    if (edit) {
+      await page.locator('#sell-amount').fill('2'); await expect.poll(() => wire.connections.length).toBe(2);
+      await expect.poll(() => first.closed).toBe(true);
+      first.frame({ type: 'qualified', value: value(first.input, '99') });
+      current = wire.connections[1]; selected = value(current.input, '18');
+      expect(current.input.inputs[0].amount).toBe(String(2n * unit));
+      current.frame({ type: 'qualified', value: selected });
+    }
+    current.frame({ type: 'complete', value: selected }); current.end();
+    await expect(page.locator('[data-trade-action]')).toBeDisabled();
+    await page.clock.runFor(3000); // Quote work overlaps this controlled metadata delay.
+    const beforeHandoff = wire.connections.length;
+    const deliveredFacts = page.waitForResponse('**/api/protocol/facts'); releaseFacts(); await deliveredFacts;
+    const output = page.locator('#buy-basket-composition').getByRole('status', { name: 'Buy amount (PAXG)', exact: true });
+    await expect(output).toHaveText(edit ? '18' : '9'); await expect(page.locator('[data-trade-action]')).toBeEnabled();
+    expect(wire.connections).toHaveLength(beforeHandoff);
+    await page.locator('[data-trade-action]').click(); await expect.poll(() => posted.length).toBe(1);
+    expect(posted[0].quote).toEqual(selected);
+    expect(posted[0].acceptedBounds.expectedCoreOutputs[0].minimumAmount)
+      .toBe(String(BigInt(selected.estimatedRecipientOutputs[0].amount) * 99n / 100n));
+    expect(wire.connections).toHaveLength(beforeHandoff);
+    await test.info().attach('early-basket-redemption', { contentType: 'application/json', body: JSON.stringify({
+      quoteDispatchedBeforeFacts: true, controlledMetadataDelayMs: 3000, editedInput: edit,
+      requestsBeforeFacts: beforeHandoff, requestsAfterFacts: wire.connections.length, exactSelectedTupleCaptured: true,
+      scope: 'Local fixture logical metadata delay; no live RPC/SDK latency or economic improvement inferred.',
+    }) });
+  } finally { releaseFacts(); await wire.close(); }
+});
+
+test('Basket issuance waits for its actual input vector while facts are held', async ({ page }) => {
+  await install(page); await wallet(page); await page.clock.install();
+  await page.addInitScript(({ driver }) => sessionStorage.setItem('cg:swap-form-state:v1', JSON.stringify({
+    sellTokenId: 'goldbasket', buyTokenId: 'cygld', driverToken: driver, driverAmountStr: '1',
+  })), { driver: tokenAddresses.PAXG });
+  let releaseFacts!: () => void;
+  const facts = new Promise<void>(resolve => { releaseFacts = resolve; });
+  await page.route('**/api/protocol/facts', async route => { await facts; await route.fallback(); });
+  const wire = await streams(page);
+  try {
+    const configuration = page.waitForResponse('**/api/protocol/config'); await page.goto('/en'); await configuration;
+    await expect(page.getByRole('button', { name: 'Open wallet menu', exact: true })).toBeVisible();
+    await page.clock.runFor(3000); expect(wire.connections).toHaveLength(0);
+    const deliveredFacts = page.waitForResponse('**/api/protocol/facts'); releaseFacts(); await deliveredFacts;
+    await expect.poll(() => wire.connections.length).toBe(1);
+    const current = wire.connections[0]; expect(current.input).toMatchObject({ intent: 2,
+      inputs: [{ currency: tokenAddresses.PAXG.toLowerCase(), amount: String(unit) }] });
+    const selected = value(current.input); current.frame({ type: 'qualified', value: selected });
+    current.frame({ type: 'complete', value: selected }); current.end();
+    await expect(page.locator('#buy-amount')).toHaveText('10'); expect(wire.connections).toHaveLength(1);
+  } finally { releaseFacts(); await wire.close(); }
 });
 
 for(const intent of [2,3]as const)test(`basket intent${intent}: early-ready snapshot is captured and its stream stops before unsigned preparation`,async({page})=>{

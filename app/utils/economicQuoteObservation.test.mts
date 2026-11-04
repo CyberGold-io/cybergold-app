@@ -111,15 +111,15 @@ test('a canonical economic qualified frame satisfies browser readiness before te
   assert.equal(economicObservationValue(observations[0]),undefined);assert.equal(uiQuoteReady(observations,scenario,config,true),false);
 });
 
-test('an ordinary refinement error keeps qualified economic evidence while a disproved terminal cannot restore it',()=>{
+test('an ordinary refinement error retains qualified evidence until matching invalidation clears it',()=>{
   const selected=quote(),observed:QuoteObservation={path:'/api/economic-quotes/stream',request:selected.request,status:200,
     frames:[{type:'qualified',value:selected}],terminal:{type:'error',code:'rpc-timeout'}};
   assert.deepEqual(economicObservationValue(observed),selected);assert.equal(uiQuoteReady([observed],scenario,config,true),true);
-  observed.frames!.push({type:'invalidated',context:selected.context});observed.terminal={type:'complete',value:selected};
+  observed.frames!.push({type:'invalidated',context:selected.context});
   assert.equal(economicObservationValue(observed),undefined);assert.equal(privateSandboxSelection([observed],scenario as MatrixScenario,config),undefined);
 });
 
-for (const distinct of [false, true]) test(`cross-request Refresh failure ${distinct ? 'retains distinct prior' : 'clears same-context disproof'} consistently`,()=>{
+for (const distinct of [false, true]) test(`Refresh retains prior until a ${distinct ? 'distinct' : 'same-context'} replacement is qualified and invalidated`,()=>{
   const prior=quote(),replacement=quote();
   if(distinct)replacement.context={...replacement.context,blockHash:'0x'+'bb'.repeat(32)};
   const rows:QuoteObservation[]=[{path:'/api/economic-quotes',request:prior.request,status:200,terminal:{type:'complete',value:prior}},
@@ -128,9 +128,40 @@ for (const distinct of [false, true]) test(`cross-request Refresh failure ${dist
   assert.deepEqual(quoteObservationIncumbent(rows)?.value,prior);
   assert.deepEqual(privateSandboxSelection(rows,scenario as MatrixScenario,config)?.economicQuote,prior);
   rows[1].frames=[{type:'qualified',value:replacement},{type:'invalidated',context:replacement.context}];
-  assert.equal(uiQuoteReady(rows,scenario,config,true),distinct);
-  assert.deepEqual(quoteObservationIncumbent(rows)?.value,distinct?prior:undefined);
-  assert.deepEqual(privateSandboxSelection(rows,scenario as MatrixScenario,config)?.economicQuote,distinct?prior:undefined);
+  assert.equal(uiQuoteReady(rows,scenario,config,true),false);
+  assert.equal(quoteObservationIncumbent(rows),undefined);
+  assert.equal(privateSandboxSelection(rows,scenario as MatrixScenario,config),undefined);
+});
+
+test('same-stream invalidation can recover with a fresh qualified selection and authoritative terminal metadata',()=>{
+  const selected=quote(),replacement=quote(),completed=quote();
+  replacement.quotedOutput='110';replacement.context={...replacement.context,blockHash:'0x'+'cc'.repeat(32)};
+  completed.quotedOutput='109';completed.context={...replacement.context};
+  completed.fees={...completed.fees,marketFeeCygld:'7'};
+  const observed:QuoteObservation={path:'/api/economic-quotes/stream',request:selected.request,status:200,
+    frames:[{type:'qualified',value:selected},{type:'invalidated',context:selected.context}]};
+  assert.equal(uiQuoteReady([observed],scenario,config,true),false);
+  observed.frames!.push({type:'qualified',value:replacement});
+  assert.equal(uiQuoteReady([observed],scenario,config,true),true);
+  assert.deepEqual(economicObservationValue(observed),replacement);
+  assert.deepEqual(privateSandboxSelection([observed],scenario as MatrixScenario,config)?.economicQuote,replacement);
+  observed.terminal={type:'complete',value:completed};
+  assert.equal(uiQuoteReady([observed],scenario,config,true),true);
+  assert.deepEqual(economicObservationValue(observed),completed);
+  assert.deepEqual(privateSandboxSelection([observed],scenario as MatrixScenario,config)?.economicQuote,completed);
+});
+
+test('unrelated invalidation does not clear a replacement, while a late superseded stream cannot displace the active owner',()=>{
+  const stale=quote(),current=quote();
+  current.quotedOutput='111';current.context={...current.context,blockHash:'0x'+'dd'.repeat(32)};
+  const older:QuoteObservation={path:'/api/economic-quotes/stream',request:stale.request,status:200,frames:[]};
+  const newer:QuoteObservation={path:'/api/economic-quotes/stream',request:current.request,status:200,
+    frames:[{type:'qualified',value:current},{type:'invalidated',context:stale.context}]};
+  const rows=[older,newer];
+  assert.deepEqual(quoteObservationIncumbent(rows)?.value,current);
+  older.frames!.push({type:'qualified',value:stale});older.terminal={type:'complete',value:stale};
+  assert.deepEqual(quoteObservationIncumbent(rows)?.value,current);
+  assert.equal(uiQuoteReady(rows,scenario,config,true),true);
 });
 
 test('early-qualified and retained-Refresh reporting belongs only to the economic producer contract',()=>{
