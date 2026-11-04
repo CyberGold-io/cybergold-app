@@ -411,6 +411,49 @@ test('invalidation can be followed by a Backend-selected replacement in the same
   } finally { await wire.close(); }
 });
 
+test('quote diagnostic clocks retain held time and restart for Refresh and a genuine input change', async ({ page }) => {
+  await install(page); await wallet(page); await page.clock.install();
+  await page.addInitScript(() => {
+    const target = window as Window & { __quoteClocks?: { durationMs?: number; amount?: string; attemptId?: string }[] };
+    target.__quoteClocks = [];
+    window.addEventListener('cybergold:diagnostic', event => {
+      const value = (event as CustomEvent<{ operation?: string; outcome?: string; durationMs?: number; amount?: string; attemptId?: string }>).detail;
+      if (value.operation === 'quote' && value.outcome === 'succeeded')
+        target.__quoteClocks!.push({ durationMs: value.durationMs, amount: value.amount, attemptId: value.attemptId });
+    });
+  });
+  const wire = await streams(page);
+  const clocks = () => page.evaluate(() => (window as Window & {
+    __quoteClocks?: { durationMs?: number; amount?: string; attemptId?: string }[] }).__quoteClocks ?? []);
+  try {
+    await page.goto('/en'); await expect(page.getByRole('button', { name: 'Open wallet menu', exact: true })).toBeVisible();
+    await page.locator('#sell-amount').fill('1'); await expect.poll(() => wire.connections.length).toBe(1);
+    await page.clock.runFor(2000);
+    const first = wire.connections[0]; first.frame({ type: 'qualified', value: value(first.input, '9') });
+    await expect(page.locator('#buy-amount')).toHaveText('9');
+    await expect.poll(async () => (await clocks()).length).toBe(1);
+    const original = (await clocks())[0]; expect(original.durationMs).toBeGreaterThanOrEqual(2000);
+    await page.locator('[data-trade-refresh]').click(); await expect.poll(() => wire.connections.length).toBe(2);
+    await expect(page.locator('#buy-amount')).toHaveText('9'); // Ready economics remain visible during Refresh.
+    await page.clock.runFor(700);
+    const refreshed = wire.connections[1]; refreshed.frame({ type: 'qualified', value: value(refreshed.input, '9') });
+    await expect.poll(async () => (await clocks()).length).toBe(2);
+    const refresh = (await clocks())[1];
+    expect(refresh.durationMs).toBeGreaterThanOrEqual(700); expect(refresh.durationMs).toBeLessThan(2000);
+    expect(refresh.attemptId).not.toBe(original.attemptId);
+    await page.locator('#sell-amount').fill('2'); await expect.poll(() => wire.connections.length).toBe(3);
+    await page.clock.runFor(400);
+    const changed = wire.connections[2], selected = value(changed.input, '18');
+    changed.frame({ type: 'qualified', value: selected });
+    await expect(page.locator('#buy-amount')).toHaveText('18');
+    await expect.poll(async () => (await clocks()).length).toBe(3);
+    const input = (await clocks())[2];
+    expect(input.durationMs).toBeGreaterThanOrEqual(400); expect(input.durationMs).toBeLessThan(1500);
+    expect(input.amount).toBe(String(2n * unit)); expect(input.attemptId).not.toBe(refresh.attemptId);
+    changed.frame({ type: 'complete', value: selected }); changed.end();
+  } finally { await wire.close(); }
+});
+
 test('a later upper model cannot retract an already ready quote', async ({ page }) => {
   await install(page); await wallet(page); await page.addInitScript(installQuoteObservation as () => void);
   const wire = await streams(page), modelInputs: string[] = [];

@@ -89,26 +89,39 @@ export function swapFailureOutcome(error: unknown, submitted?: string | boolean)
 /** In-memory identity for one quote observation, never an identity for a wallet. */
 export function createQuoteDiagnostics(reporter: Reporter = reportClientDiagnostic) {
   let previous = "";
-  let previousContext = "";
+  let previousIdentity = "";
+  let previousStatus: string | undefined;
   let attemptId: string | undefined;
-  let started = 0;
+  let started: number | undefined;
+  const restart = (identity = previousIdentity) => {
+    try {
+      const now = performance.now();
+      previousIdentity = identity; previousStatus = "loading";
+      attemptId = diagnosticAttemptId(); started = now;
+    } catch { /* Optional timing cannot interrupt the existing Refresh action. */ }
+  };
   return {
     get id() { return attemptId; },
-    observe(context: DiagnosticContext | undefined, status: string | undefined, error?: unknown, metadata?: DiagnosticReferences) {
-      if (!context || !status || status === "idle") { previous = ""; previousContext = ""; attemptId = undefined; return; }
-      const contextKey = JSON.stringify(context);
-      const refs = { ...metadata, ...diagnosticReferences(error) };
-      const key = JSON.stringify([context, status, refs]);
-      if (key === previous) return;
-      if (status === "loading" || !attemptId || contextKey !== previousContext) {
-        attemptId = refs.attemptId ?? diagnosticAttemptId(); started = performance.now();
+    // Explicit Refresh can retain a ready tuple and never transition to loading.
+    restart,
+    observe(context: DiagnosticContext | undefined, status: string | undefined, error?: unknown, metadata?: DiagnosticReferences, identity?: string) {
+      if (!context || !status || status === "idle") {
+        previous = ""; previousIdentity = ""; previousStatus = undefined; attemptId = undefined; started = undefined; return;
       }
+      // Identity describes the input intent, not its later strategy/bounds/block
+      // evidence. Attaching the actual transport ID also retains this clock.
+      const intent = identity ?? JSON.stringify([context.direction, context.route, context.inputMode,
+        context.chainId, context.side, context.amount]);
+      const refs = { ...metadata, ...diagnosticReferences(error) };
+      const key = JSON.stringify([intent, context, status, refs]);
+      if (key === previous) return;
+      if (started === undefined || intent !== previousIdentity || (status === "loading" && previousStatus !== "loading")) restart(intent);
       if (refs.attemptId) attemptId = refs.attemptId;
-      previousContext = contextKey;
+      previousStatus = status;
       previous = key;
       if (status === "success" || status === "failed") emit(reporter, { ...context, ...refs, stage: "quote", operation: "quote",
         outcome: status === "success" ? "succeeded" : "failed", attemptId,
-        durationMs: Math.round(performance.now() - started), ...(status === "failed" ? diagnosticFailure(error) : {}),
+        durationMs: Math.round(performance.now() - started!), ...(status === "failed" ? diagnosticFailure(error) : {}),
       });
     },
   };

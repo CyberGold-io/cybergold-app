@@ -920,7 +920,11 @@ function TradingScreen() {
       inputMaximum: selectedQuote?.inputMaximum.toString(), outputMinimum: selectedQuote?.outputMinimum.toString(),
       blockNumber: selectedQuote?.value.context.blockNumber ?? undefined, blockHash: selectedQuote?.value.context.blockHash ?? undefined } : {}) } : undefined;
   const activeQuoteReferences = selectedQuote?.diagnostics ?? diagnosticReferences(activeFlow && "quote" in activeFlow ? activeFlow.quote : undefined);
-  const quoteDiagnostics = useQuoteDiagnostics(diagnosticContext, activeQuoteStatus, activeQuoteFailure, activeQuoteReferences);
+  const diagnosticIntentIdentity = JSON.stringify([configurationIdentity, flowState?.direction, flowState?.route, flowState?.inputMode,
+    isActiveTokenFlow ? [tradeInput.side, tradeInput.counterToken.toLowerCase(), tradeInput.native, tradeInput.amount]
+      : isIssueFromBasketExactIn ? basketComponents.map((component, index) =>
+        [component.token.address.toLowerCase(), String(derivedBasketAmountsAsBigIntLst[index] ?? 0n)]) : String(sellAmountFromInputBigInt)]);
+  const quoteDiagnostics = useQuoteDiagnostics(diagnosticContext, activeQuoteStatus, activeQuoteFailure, activeQuoteReferences, diagnosticIntentIdentity);
 
   const executionBoundsReady = activeQuoteStatus === "success" && !isPurchaseOverCap && !quoteInputPending;
   const formatBound = (amount: bigint, decimals: number, symbol: string) =>
@@ -2735,7 +2739,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
             ? cachedTradeDisplay?.retentionDisclosure?.replace(cachedTradeDisplay.retentionDisclosurePlain ?? "", "").trim() : undefined} />
 
         <div className="order-3 mt-3 flex flex-col items-end gap-2">
-          <button type="button" data-trade-refresh onClick={() => void activeFlow?.refresh()}
+          <button type="button" data-trade-refresh onClick={() => { quoteDiagnostics.current?.restart(diagnosticIntentIdentity); void activeFlow?.refresh(); }}
             disabled={!activeFlow || !hasEnteredSwapAmount || isSubmittingSwap || quoteInputPending}
             aria-busy={activeFlow?.refreshing || undefined}
             className={cn("text-sm text-text-muted underline underline-offset-4 disabled:opacity-50",
