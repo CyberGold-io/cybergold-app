@@ -718,6 +718,9 @@ function TradingScreen() {
 
   const showSellBasket = sellTokenId === goldBasketId;
   const showBuyBasket = buyTokenId === goldBasketId;
+  // Redemption already has its complete input; output metadata can load while
+  // the Backend searches. The resolved flow still owns presentation/capture.
+  const isRedeemBasketQuoteIntent = sellTokenId === cygldTokenId && showBuyBasket;
   const isSellBasket = hasBasketComponents && showSellBasket;
   const isBuyBasket = hasBasketComponents && showBuyBasket;
 
@@ -808,7 +811,7 @@ function TradingScreen() {
 
   // Direct Basket previews start with the edited amount. Token route searches
   // retain their input debounce; MAX remains immediate.
-  const immediatePageQuote = flowState?.route === "basket";
+  const immediatePageQuote = flowState?.route === "basket" || isRedeemBasketQuoteIntent;
   const debouncedSellAmount = useDebouncedValue(sellAmount, QUOTE_INPUT_DEBOUNCE_MS, immediatePageQuote);
 
   const sellAmountFromInputBigInt = useMemo(() => {
@@ -835,7 +838,7 @@ function TradingScreen() {
 
   const redeemToBasketExactInFlow = useRedeemToBasketExactInFlow({
     slippageBps,
-    enabled: isRedeemToBasketExactIn,
+    enabled: isRedeemBasketQuoteIntent,
     grossCygldIn: sellAmountFromInputBigInt,
     basketComponents,
     onNetworkFeeEstimate: setNetworkFeeEstimate,
