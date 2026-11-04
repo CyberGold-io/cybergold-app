@@ -10,6 +10,7 @@ type Outcome = "completed" | "cancelled" | "failed";
 export function backendTransportObservation(operation: string, method: string, signal: AbortSignal, attemptId?: string) {
   const started = performance.now(), flowId = diagnosticAttemptId();
   let dispatched: number | undefined, headersAt: number | undefined, firstBodyAt: number | undefined;
+  let firstPullAt: number | undefined;
   let bytes = 0, chunks = 0, finished = false, status: number | undefined;
   let metadata: Record<string, unknown> = {};
   const elapsed = (now: number, since = started) => Math.round((now - since) * 1000) / 1000;
@@ -26,9 +27,11 @@ export function backendTransportObservation(operation: string, method: string, s
     log("finished", { outcome, bytes, chunks,
       ...(dispatched !== undefined ? { dispatchMs: elapsed(dispatched), upstreamHeadersMs: elapsed(headersAt ?? now, dispatched) } : {}),
       ...(headersAt !== undefined ? { bodyMs: elapsed(now, headersAt) } : {}),
+      ...(firstPullAt !== undefined && headersAt !== undefined ? { firstPullMs: elapsed(firstPullAt, headersAt) } : {}),
+      ...(firstPullAt !== undefined && firstBodyAt !== undefined ? { firstReadMs: elapsed(firstBodyAt, firstPullAt) } : {}),
       ...(firstBodyAt !== undefined && headersAt !== undefined ? { firstBodyMs: elapsed(firstBodyAt, headersAt) } : {}) });
   };
-  const aborted = () => finish("cancelled");
+  const aborted = () => { log("caller-aborted"); finish("cancelled"); };
   signal.addEventListener("abort", aborted, { once: true });
   const chunk = (value: Uint8Array) => {
     bytes += value.byteLength; chunks++;
@@ -50,6 +53,7 @@ export function backendTransportObservation(operation: string, method: string, s
       let cancelled = false;
       return new ReadableStream<Uint8Array>({
         async pull(controller) {
+          if (firstPullAt === undefined) { firstPullAt = performance.now(); log("first-downstream-pull"); }
           try {
             const result = await reader.read();
             if (cancelled) return;
@@ -62,7 +66,9 @@ export function backendTransportObservation(operation: string, method: string, s
         },
         async cancel(reason) {
           cancelled = true; finish("cancelled");
-          try { await reader.cancel(reason); } finally { reader.releaseLock(); }
+          const startedCancel = performance.now(); log("upstream-cancel-started");
+          try { await reader.cancel(reason); }
+          finally { reader.releaseLock(); log("upstream-cancel-finished", { cancelMs: elapsed(performance.now(), startedCancel) }); }
         },
       }, { highWaterMark: 0 });
     },
