@@ -73,7 +73,7 @@ async function enterBudget(page: Page, intent: 2 | 3) {
   return input;
 }
 
-for (const intent of [2, 3] as const) test(`capacity-limited basket intent ${intent} preserves budget, displayed funding and preparation across reload`, async ({ page }) => {
+for (const intent of [2, 3] as const) test(`capacity-limited basket intent ${intent} preserves budget across reload and reacquires funding for preparation`, async ({ page }) => {
   const observed = await capacityQuote(page, intent);
   const input = await enterBudget(page, intent);
   const spending = page.getByTestId("purchase-spending");
@@ -93,9 +93,10 @@ for (const intent of [2, 3] as const) test(`capacity-limited basket intent ${int
     await page.reload();
     await expect.poll(() => observed.requests.length).toBe(2);
     await expect(spending).toBeVisible();
-    await expect(value).toHaveText(actual);
+    await expect(value).toHaveText("…");
     await expect(input).toHaveValue("100");
     observed.release();
+    await expect(value).toHaveText(actual);
     await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
     await page.getByRole("button", { name: "Swap currencies", exact: true }).click();
     await expect.poll(() => observed.preparations.length).toBe(1);

@@ -146,7 +146,7 @@ test("unchanged heads keep reads stable; replacement refreshes facts and fees wh
   await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
 });
 
-test("revisiting an amount reuses its completed economic quote without another request", async ({ page }) => {
+test("revisiting an amount obtains the Backend selection with one new request", async ({ page }) => {
   const observed = await install(page);
   await page.goto("/en");
   await choose(page, "WETH");
@@ -165,7 +165,9 @@ test("revisiting an amount reuses its completed economic quote without another r
   await page.waitForTimeout(250);
   await expect(computed).not.toHaveAttribute("aria-busy", "true");
   await expect(computed).not.toHaveText(/^(?:0(?:[.,]0+)?|\.\.\.)?$/);
-  expect({ quotes: observed.quotes.length, previews: observed.previews.length }).toEqual(before);
+  expect({ quotes: observed.quotes.length, previews: observed.previews.length }).toEqual({
+    quotes: before.quotes + 1, previews: before.previews + 1,
+  });
 });
 
 test("the first head after an outage refreshes facts loaded at an older hash", async ({ page }) => {

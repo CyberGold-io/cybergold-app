@@ -76,7 +76,7 @@ test("ETH MAX reserves the inclusive fee cap once and quotes the exact wei remai
   expect(observed.intents.at(-1)?.amount).not.toBe("123455000000000000000");
 });
 
-test("ETH MAX uses refreshed fees while the previous gas presentation is retained", async ({ page }) => {
+test("ETH MAX uses refreshed independent gas fees while its new quote is pending", async ({ page }) => {
   let head = { ...context };
   let finish!: () => void;
   let completion = Promise.resolve();
@@ -106,7 +106,7 @@ test("ETH MAX uses refreshed fees while the previous gas presentation is retaine
     });
     await expect(gas).toContainText("~ 0.000415 ETH");
     const previousPresentation = await gasValue.innerText();
-    const total = page.locator('[data-trade-display="feeTotal"]'), previousTotal = await total.innerText();
+    const total = page.locator('[data-trade-display="feeTotal"]');
     const initialFeeReads = observed.feeReads();
     const initialIntents = observed.intents.length;
     completion = new Promise<void>(resolve => { finish = resolve; });
@@ -117,9 +117,9 @@ test("ETH MAX uses refreshed fees while the previous gas presentation is retaine
     await page.clock.install();
     head = { ...head, blockHash: `0x${"b".repeat(64)}` };
     await expect.poll(async () => { await page.clock.runFor(1000); return observed.feeReads(); }).toBe(initialFeeReads + 1);
-    await expect(gasValue).toHaveText(previousPresentation);
+    await expect(gasValue).toContainText("~ 0.00125 ETH");
     await expect(gasValue).toHaveCSS("color", pendingColor);
-    await expect(total).toHaveText(previousTotal, { useInnerText: true });
+    await expect(total).toHaveText("...", { useInnerText: true });
 
     await maximum(page).click();
     await expect(sell(page)).toHaveValue("123.455");

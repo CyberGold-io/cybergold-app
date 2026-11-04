@@ -22,6 +22,14 @@ for (const width of [1280, 390]) {
         token0BalanceRaw: "2000000000000", token1BalanceRaw: "1000000000000000000000", fee: request.fee,
       } });
     });
+    await page.route("**/api/economic-estimates", route => {
+      const input = route.request().postDataJSON();
+      return route.fulfill({ json: { namespace: "trade", intent: input, models: [], estimate: {
+        strategy: "universal", source: "cached-lower", amount: input.amount, referenceInput: input.amount,
+        basis: "funded-input-approximation", fullBudget: true, context,
+        fees: { coreProtocolFeeCygld: String(BigInt(input.amount) / 1000n), coreHelpersFeeCygld: "0", marketFeeCygld: "0" },
+      } } });
+    });
     let hold = false, started = false, release!: () => void;
     const pending = new Promise<void>(resolve => { release = resolve; });
     await page.route("**/api/transaction/fees", route => route.fulfill({ json: {
@@ -49,7 +57,6 @@ for (const width of [1280, 390]) {
     await expect(protocol).toContainText("CYGLD (~ $");
     await expect(gas).toContainText("ETH");
     await expect(fees).toHaveAttribute("aria-busy", "false");
-    const previousGas = await gas.innerText();
     const previousProtocol = await protocol.innerText();
     const total = fees.locator('[data-trade-display="feeTotal"]'), previousTotal = await total.innerText();
     const completeColor = await protocol.evaluate(element => getComputedStyle(element).color);
@@ -62,7 +69,7 @@ for (const width of [1280, 390]) {
     await expect(protocol).not.toHaveText(previousProtocol);
     await expect(total).not.toHaveText(previousTotal, { useInnerText: true });
     await expect(page.getByTestId("quote-estimate-description")).toHaveClass("sr-only");
-    await expect(gas).toHaveText(previousGas);
+    await expect(gas).toContainText("ETH");
     await expect(fees.getByText("Updating…", { exact: true })).toHaveCount(0);
     expect(await protocol.evaluate(element => getComputedStyle(element).color)).not.toBe(completeColor);
     await expect.poll(() => started).toBe(true);

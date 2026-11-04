@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
+import { runInNewContext } from "node:vm";
+import ts from "typescript";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { backendRoute } from "../server/backend-client.ts";
-import { fetchTradeModel, fetchTradeQuote, receiveTradeModel, type TradeModelRequest, type TradeQuoteModelPacket } from "./tradeQuote.ts";
+import { fetchTradeModel, fetchTradeQuote, receiveTradeModel, normalizedTradeQuote, tradeAdapter, tradeQuoteResult, withTradeProviderEvent, type TradeModelRequest, type TradeQuoteModelPacket, type TradeQuoteResult, type TradeQuoteRequest } from "./tradeQuote.ts";
 import { clearQuoteModels, getMarketQuoteModel, getQuoteModel } from "./quoteModelStore.ts";
 import { modelFamily, type QuoteModelPacket } from "./quoteModels.ts";
 import { marketModelFamily } from "./marketQuote.ts";
@@ -79,4 +82,51 @@ test("fork retirement cancels unified model acquisition and ignores the late res
     await resetSandboxQueries(client); assert.equal(signal.aborted, true);
     release(Response.json(packet)); await pending; assert.equal(client.getQueryState(key), undefined);
   } finally { client.clear(); }
+});
+
+test("deferred exact-out revisits acquire a new Backend selection instead of restoring whole-quote history", async () => {
+  const state: unknown[] = []; let cursor = 0;
+  const react = {
+    useEffect: () => {},
+    useRef: (value: unknown) => { const index = cursor++; return state[index] ??= { current: value }; },
+    useState: (value?: unknown) => { const index = cursor++; state[index] ??= value;
+      return [state[index], (next: unknown) => { state[index] = typeof next === "function" ? next(state[index]) : next; }]; },
+    useMemo: (make: () => unknown, deps: unknown[]) => { const index = cursor++, old = state[index] as { deps: unknown[]; value: unknown } | undefined;
+      if (!old || deps.some((value, item) => value !== old.deps[item])) state[index] = { deps, value: make() };
+      return (state[index] as { value: unknown }).value; },
+    useCallback: (fn: unknown, deps: unknown[]) => react.useMemo(() => fn, deps),
+  };
+  const compile = (path: string, dependencies: Record<string, unknown>) => {
+    const exports: Record<string, unknown> = {};
+    const source = ts.transpileModule(readFileSync(new URL(path, import.meta.url), "utf8"),
+      { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
+    runInNewContext(source, { exports, require: (key: string) => { assert.ok(key in dependencies, key); return dependencies[key]; },
+      setTimeout, clearTimeout, performance, JSON });
+    return exports;
+  };
+  const bound = compile("../hooks/flows/quotes/useBoundQuoteState.ts", { react });
+  let options!: { gcTime: number; refetchOnMount: string; queryFn: (input: { signal: AbortSignal }) => Promise<null> };
+  const stale = tradeQuoteResult(marketTrade("sell", "exact-out"));
+  const hook = compile("../hooks/flows/quotes/useLegacyTradeQuote.ts", {
+    react, "@tanstack/react-query": { useQueryClient: () => ({ cancelQueries: async () => {} }),
+      useQuery: (value: typeof options) => { options = value; return { data: stale, isSuccess: true, isFetching: false }; } },
+    "next-intl": { useTranslations: () => (value: string) => value },
+    "@/app/config/chain": { targetChainId: 1 },
+    "@/app/context/protocolConfigurationContext": { useProtocolConfiguration: () => ({ identity: "deployment", addresses: { core: stale.value.tokenIn, helpers: tradeOwner } }) },
+    "@/app/context/sandboxForkContext": { useSandboxForkGeneration: () => "fork" },
+    "@/app/context/chainHeadContext": { useQuoteCacheScope: () => "1:head" },
+    "@/app/hooks/usePageVisible": { usePageVisible: () => true },
+    "@/app/utils/swapPolicy": { buildQuoteDeadline: () => 1900000000n },
+    "@/app/utils/quoteErrors": { QuotePreviewError: Error, quoteErrorMessage: () => "fixture" },
+    "@/app/utils/tradeQuote": { fetchTradeQuote: async () => stale, normalizedTradeQuote, receiveTradeModel, tradeAdapter, tradeQuoteResult, withTradeProviderEvent },
+    "./useBoundQuoteState": bound, "@/app/utils/quoteModelStore": { tradeDisplayModelScope: () => "deployment" },
+  }).useLegacyTradeQuote as (input: Omit<TradeQuoteRequest, "deadline" | "retainedPlan">, enabled: boolean) => { data?: TradeQuoteResult };
+  const input = { ...intent, mode: "exact-out" as const, recipient: tradeOwner };
+  const render = (amount: string) => { cursor = 0; return hook({ ...input, amount }, true); };
+  assert.equal(render("10").data, undefined, "query.data cannot initialize a new owner's selection");
+  assert.equal(options.gcTime, 0); assert.equal(options.refetchOnMount, "always");
+  await options.queryFn({ signal: new AbortController().signal });
+  assert.deepEqual(render("10").data?.quotedOutput, stale.quotedOutput);
+  assert.equal(render("20").data, undefined);
+  assert.equal(render("10").data, undefined, "returning to a previous input owns a fresh visit");
 });

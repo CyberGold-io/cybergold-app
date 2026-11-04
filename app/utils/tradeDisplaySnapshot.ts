@@ -2,7 +2,7 @@ import type { PersistedSwapFormState } from "./swapFormState";
 
 type DisplayStorage = Pick<Storage, "getItem" | "setItem">;
 
-/** A tab's rendered labels and estimates, never a quote or an executable token. */
+/** A tab's draft and static presentation, never prior quote economics. */
 export type TradeDisplaySnapshot = {
   intentKey: string;
   scopeKey: string;
@@ -76,6 +76,12 @@ export function parseTradeDisplaySnapshot(value: unknown): TradeDisplaySnapshot 
     || !record.values || typeof record.values !== "object" || Array.isArray(record.values)) return;
   const entries = Object.entries(record.values);
   if (entries.some(([, text]) => typeof text !== "string")) return;
+  // Keep this projection self-contained for the pre-paint script. Stored
+  // strings must not restore a previous owner's quote output or bounds.
+  const economicFields = ["buyAmount", "buyEquivalent", "buyBasketEquivalent", "sellBasketEquivalent",
+    "quoteComplete", "evaluationStatus", "retentionDisclosure", "retentionDisclosurePlain"];
+  const values = Object.fromEntries(entries.filter(([key]) => !economicFields.includes(key) &&
+    (!key.startsWith("purchase") || key === "purchaseSpendingVisible") && (!key.startsWith("fee") || key.endsWith("PlainLabel")))) as Record<string, string>;
   let basketRows: TradeBasketDisplayRow[] | undefined;
   if (record.basketRows !== undefined) {
     if (!Array.isArray(record.basketRows)) return;
@@ -85,13 +91,14 @@ export function parseTradeDisplaySnapshot(value: unknown): TradeDisplaySnapshot 
         || [row.tokenId, row.symbol, row.address, row.weight, row.amount, row.equivalent, row.label]
           .some(text => typeof text !== "string")) return;
       basketRows.push({ side: row.side, tokenId: row.tokenId, symbol: row.symbol, address: row.address,
-        weight: row.weight, amount: row.amount, equivalent: row.equivalent, label: row.label, driver: row.driver });
+        weight: row.weight, amount: row.side === "sell" && row.driver ? row.amount : "",
+        equivalent: row.side === "sell" && row.driver ? row.equivalent : "", label: row.label, driver: row.driver });
     }
   }
   return {
     intentKey: record.intentKey,
     scopeKey: record.scopeKey,
-    values: Object.fromEntries(entries) as Record<string, string>,
+    values,
     ...(basketRows ? { basketRows } : {}),
   };
 }

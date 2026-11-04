@@ -31,10 +31,12 @@ const snapshot: TradeDisplaySnapshot = {
   },
 };
 
-test("a reload restores the same tab's spend and receive presentation without storing operational objects", () => {
+test("a reload restores draft presentation without retaining quote economics or operational objects", () => {
   const tab = storage();
   writeTradeDisplaySnapshot(key, { ...snapshot, quote: { calldata: "private-quote" }, balance: 10n } as TradeDisplaySnapshot, tab);
-  assert.deepEqual(readTradeDisplaySnapshot(key, snapshot.intentKey, snapshot.scopeKey, tab), snapshot);
+  assert.deepEqual(readTradeDisplaySnapshot(key, snapshot.intentKey, snapshot.scopeKey, tab), parseTradeDisplaySnapshot(snapshot));
+  assert.equal(readTradeDisplaySnapshot(key, snapshot.intentKey, snapshot.scopeKey, tab)?.values.buyAmount, undefined);
+  assert.equal(readTradeDisplaySnapshot(key, snapshot.intentKey, snapshot.scopeKey, tab)?.values.sellAmount, "0.01");
   assert.doesNotMatch(tab.getItem(key)!, /calldata|private-quote|balance/);
 });
 
@@ -112,5 +114,25 @@ test("pre-paint helpers remain serializable without references to module closure
   const prefs = storage(); prefs.setItem("display-gold-unit", "imperial");
   assert.equal(restoredIntentKey(intent), snapshot.intentKey);
   assert.equal(restoredScopeKey(restoredScope(31338, "en", prefs)), snapshot.scopeKey);
-  assert.deepEqual(restoredParser(snapshot), snapshot);
+  assert.deepEqual(restoredParser(snapshot), parseTradeDisplaySnapshot(snapshot));
+});
+
+test("old snapshot economics are retired on read and write while only the Basket driver input survives", () => {
+  const old = { ...snapshot, values: { ...snapshot.values, quoteComplete: "true", evaluationStatus: "confirmed",
+    feeProtocolValue: "old fee", feeMinimumOutput: "old minimum", purchaseSpendingValue: "old funding",
+    retentionDisclosure: "old retained amounts", feeProtocolPlainLabel: "Protocol fee:" },
+    basketRows: [
+      { side: "sell" as const, tokenId: "paxg", symbol: "PAXG", address: "0x1", weight: "50%", amount: "2", equivalent: "$2", label: "Amount", driver: true },
+      { side: "sell" as const, tokenId: "gold", symbol: "GOLD", address: "0x2", weight: "50%", amount: "3", equivalent: "$3", label: "Amount", driver: false },
+      { side: "buy" as const, tokenId: "paxg", symbol: "PAXG", address: "0x1", weight: "50%", amount: "4", equivalent: "$4", label: "Amount", driver: false },
+    ] };
+  const tab = storage(); tab.setItem(key, JSON.stringify(old));
+  const restored = readTradeDisplaySnapshot(key, old.intentKey, old.scopeKey, tab)!;
+  assert.equal(restored.values.sellAmount, "0.01"); assert.equal(restored.values.feeProtocolPlainLabel, "Protocol fee:");
+  for (const field of ["buyAmount", "buyEquivalent", "quoteComplete", "evaluationStatus", "feeProtocolValue", "feeMinimumOutput", "purchaseSpendingValue", "retentionDisclosure"])
+    assert.equal(restored.values[field], undefined, field);
+  assert.deepEqual(restored.basketRows?.map(row => row.amount), ["2", "", ""]);
+  assert.deepEqual(restored.basketRows?.map(row => row.equivalent), ["$2", "", ""]);
+  writeTradeDisplaySnapshot(key, old, tab);
+  assert.deepEqual(JSON.parse(tab.getItem(key)!), restored);
 });

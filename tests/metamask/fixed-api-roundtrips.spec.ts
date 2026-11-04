@@ -97,7 +97,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     const current = activeResult();
     const quoteEvidence = current ?? (!setupComplete ? setupQuoteEvidence : undefined);
     if (path === "/api/rpc") genericRequests.push(request.url());
-    if (quoteEvidence && !activeSwapAttempt && (path === "/api/economic-quotes" || path.startsWith("/api/quotes/"))) {
+    if (quoteEvidence && !activeSwapAttempt && (path === "/api/economic-quotes" || path === "/api/economic-quotes/stream" || path.startsWith("/api/quotes/"))) {
       try {
         if (activeQuoteDiagnostics?.request(path, request.postDataJSON(), request.headers()["x-cybergold-attempt-id"]))
           Object.assign(quoteEvidence, activeQuoteDiagnostics.snapshot());
@@ -173,7 +173,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     await checkpoint("ui-prepare-details");
     await openFeeDetails(page);
     await checkpoint("ui-prepare-swap");
-    await waitForUiSwapReady(page, config, scenario, () => activeQuoteDiagnostics?.snapshot());
+    await waitForUiSwapReady(page, config, scenario, () => activeQuoteDiagnostics?.snapshot(), value => {
+      const current = activeResult(); if (current) current.uiReadiness = value;
+    });
   }
   async function releaseUiRequest(result: ScenarioResult) {
     if (helpersHash) result.transactionHash = helpersHash;

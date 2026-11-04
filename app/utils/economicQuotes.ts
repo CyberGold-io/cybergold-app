@@ -77,21 +77,9 @@ export function fetchTxPreparation(quote: EconomicQuote, input: { sender: Addres
   return quoteRequest("/api/tx-preparations", { quote, ...input }, signal, fetchImpl);
 }
 
-/** A measured display observation is retained until input changes or explicit Refresh. */
+/** Request plumbing only: reusable whole-quote history belongs to the Backend. */
 export function economicQuoteOptions(request: EconomicRequest, scope: EconomicQuoteScope, fetchImpl: typeof fetch = fetch) {
-  return { queryKey: economicQuoteKey(request, scope), retry: false as const, staleTime: Infinity, gcTime: Infinity,
-    refetchOnMount: false as const, refetchOnWindowFocus: false as const, refetchOnReconnect: false as const,
+  return { queryKey: economicQuoteKey(request, scope), retry: false as const, staleTime: 0, gcTime: 0,
+    refetchOnMount: "always" as const, refetchOnWindowFocus: false as const, refetchOnReconnect: false as const,
     queryFn: ({ signal }: { signal: AbortSignal }) => fetchEconomicQuote(request, signal, false, fetchImpl) };
-}
-
-/** A revisit keeps its observation while smaller-funded plans try the requested budget. */
-export function progressiveEconomicQuoteOptions(request: EconomicRequest, scope: EconomicQuoteScope, selected?: EconomicQuote, stopped = false) {
-  const revisit = (query: { state: { data: unknown } }) => {
-    if (query.state.data === null) return true;
-    if (stopped) return false;
-    const value = selected ?? query.state.data as EconomicQuote | undefined;
-    return Boolean(value && request.intent < 2 && BigInt(value.inputs[0].amount) < BigInt(request.inputs[0].amount));
-  };
-  return { ...economicQuoteOptions(request, scope), staleTime: (query: { state: { data: unknown } }) => revisit(query) ? 0 : Infinity,
-    refetchOnMount: revisit };
 }

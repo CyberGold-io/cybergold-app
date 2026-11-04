@@ -52,7 +52,7 @@ for (const { symbol, consumed, expected, side } of [
   { symbol: "ETH", consumed: unit, expected: "9", side: "buy" },
   { symbol: "PAXG", consumed: unit * 6n / 10n, expected: "10", side: "buy" },
   { symbol: "PAXG", consumed: unit, expected: "9", side: "sell" },
-]) test(`${side} ${symbol}, consumed ${consumed}: immediate cached arithmetic precedes debounce and exact work`, async ({ page }) => {
+]) test(`${side} ${symbol}, consumed ${consumed}: Backend arithmetic packets precede debounce and exact work`, async ({ page }) => {
   await install(page); await readOnlyWallet(page);
   const exact = deferred(), estimate = deferred(), requests: EconomicRequest[] = [], estimateRequests: string[] = [];
   const preparations: { quote: EconomicQuote; acceptedBounds: { minimumOutput: string; inputs: EconomicRequest["inputs"] } }[] = [];
@@ -60,8 +60,13 @@ for (const { symbol, consumed, expected, side } of [
   page.on("pageerror", error => errors.push(error.message));
   await page.route("**/api/economic-estimates", async route => {
     const input = route.request().postDataJSON(); estimateRequests.push(input.amount);
-    if (input.amount !== String(unit)) await estimate.promise;
-    await route.fulfill({ json: { namespace: "trade", intent: input, models: [] } });
+    const amount = input.amount === String(unit) ? 10n * unit : BigInt(expected.replace(".", "")) * unit;
+    const scale = consumed === unit ? 9n : 10n;
+    await route.fulfill({ json: { namespace: "trade", intent: input, models: [], estimate: {
+      strategy: "universal", source: "cached-upper", amount: String(amount), referenceInput: String(consumed),
+      basis: "observed-nonretained", fees: Object.fromEntries(Object.entries(fees).map(([key, value]) =>
+        [key, String(BigInt(value) * scale / 10n)])), context,
+    } } });
   });
   await page.route("**/api/economic-quotes", async route => {
     const input: EconomicRequest & { refresh?: boolean } = route.request().postDataJSON(); requests.push(input);
@@ -114,9 +119,9 @@ for (const { symbol, consumed, expected, side } of [
       expect(preparations[0].acceptedBounds.inputs[0].amount).toBe(String(unit * 9n / 10n));
     }
     expect(errors).toEqual([]);
-    await test.info().attach("cached-arithmetic-before-exact", { contentType: "application/json", body: JSON.stringify({ symbol, side,
+    await test.info().attach("backend-arithmetic-before-exact", { contentType: "application/json", body: JSON.stringify({ symbol, side,
       consumed: String(consumed), requested: String(unit), edited: String(unit * 9n / 10n), hint: expected, exact: "8.5",
-      requests, estimateRequests, scope: "Actual App, paused debounce, held estimator/exact replies and synthetic read-only wallet; no chain execution." }) });
+      requests, estimateRequests, scope: "Actual App, paused debounce, Backend estimator packets and held exact replies and synthetic read-only wallet; no chain execution." }) });
   } finally { exact.release(); estimate.release(); }
 });
 

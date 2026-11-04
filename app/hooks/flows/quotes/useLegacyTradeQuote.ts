@@ -21,10 +21,11 @@ export function useLegacyTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | 
   const t = useTranslations("Home"), client = useQueryClient(), visible = usePageVisible();
   const generation = useSandboxForkGeneration(), observedScope = useQuoteCacheScope();
   const canFetch = enabled && visible && Boolean(addresses.core && addresses.helpers);
-  const inputKey = JSON.stringify(input), identity = JSON.stringify([generation, configurationIdentity, inputKey, enabled]);
+  const inputKey = JSON.stringify(input), ownerKey = JSON.stringify([generation, configurationIdentity, inputKey, enabled]);
+  const identity = useMemo(() => Symbol(ownerKey), [ownerKey]);
   const sequence = useRef(0), fetching = useRef(false);
   const [deadlineRevision, renewDeadline] = useState(0);
-  const [accepted, accept] = useState<{ identity: string; attempt: number; deadline: number; value: TradeQuoteResult }>();
+  const [accepted, accept] = useState<{ identity: symbol; attempt: number; deadline: number; value: TradeQuoteResult }>();
   const [binding, bindScope] = useBoundQuoteState<{ scope: string | undefined }>([generation, configurationIdentity, inputKey, enabled]);
   const scope = binding ? binding.scope : observedScope;
   const request: TradeQuoteRequest = useMemo(() => {
@@ -43,7 +44,7 @@ export function useLegacyTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | 
   }, [identity, request.deadline, addresses]);
   const query = useQuery({
     queryKey: ["trade-quote", targetChainId, generation, scope, request, configurationIdentity], enabled: canFetch, retry: false,
-    staleTime: query => query.state.data?.value.context.blockHash?.toLowerCase() === scope?.split(":").at(-1)?.toLowerCase() ? 10_000 : 0,
+    staleTime: 0, gcTime: 0, refetchOnMount: "always", refetchOnWindowFocus: false, refetchOnReconnect: false,
     queryFn: ({ signal }: { signal: AbortSignal }) => {
       const attempt = ++sequence.current, stages = new Map<string, { completed: number; total: number }>();
       // Ordinary head refresh competes again; explicit retained-plan revalidation is a separate operation.
@@ -70,12 +71,10 @@ export function useLegacyTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | 
         }
       }).then(result => {
         if (!signal.aborted) publishQualified(result, attempt);
-        return { ...result, deployment: { core: addresses.core, helpers: result.value.strategy === "universal" ? result.value.deployment.helpers as `0x${string}` : addresses.helpers, adapter: tradeAdapter(result.value) } };
+        return null;
       });
     },
   });
-  if (enabled && query.isSuccess && !query.isFetching && query.data && accepted?.identity !== identity)
-    accept({ identity, attempt: 0, deadline: Number(request.deadline), value: query.data });
   const incumbent = accepted?.identity === identity ? accepted : undefined;
   useEffect(() => {
     if (!visible || !incumbent) return;
@@ -93,7 +92,7 @@ export function useLegacyTradeQuote(input: Omit<TradeQuoteRequest, "deadline" | 
   useEffect(() => {
     if (!canFetch) void client.cancelQueries({ queryKey: JSON.parse(key), exact: true });
   }, [client, canFetch, key]);
-  return { data: enabled ? incumbent?.value ?? (!query.isError && !query.isFetching ? query.data : undefined) : undefined,
+  return { data: enabled ? incumbent?.value : undefined,
     status: !enabled ? "idle" as const : incumbent ? "success" as const : query.isError ? "failed" as const
       : query.isFetching ? "loading" as const : query.isSuccess ? "success" as const : "loading" as const,
     error: query.isError && !incumbent ? quoteErrorMessage(query.error, t) : undefined,

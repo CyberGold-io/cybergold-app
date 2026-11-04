@@ -15,7 +15,7 @@ test.afterAll(() => {
 });
 
 for (let repeat = 1; repeat <= 3; repeat++) for (const mode of modes) {
-  test(`${repeat} ${mode}: edited Basket intent and cached revisit`, async ({ page }) => {
+  test(`${repeat} ${mode}: edited Basket intent and Backend reacquisition on revisit`, async ({ page }) => {
     const observed = await install(page, false, false, undefined, 250);
     await page.goto("/en");
     await selectBasket(page);
@@ -43,7 +43,7 @@ for (let repeat = 1; repeat <= 3; repeat++) for (const mode of modes) {
     const single = await measure(["456"]);
     expect(single.requests).toBe(1);
     const revisit = await measure(["123"]);
-    expect(revisit.requests).toBe(0);
+    expect(revisit.requests).toBe(1);
     expect(revisit.displayedInputs).toEqual(rapid.displayedInputs);
     records.push({ repeat, mode, rapid, single, revisit });
   });
