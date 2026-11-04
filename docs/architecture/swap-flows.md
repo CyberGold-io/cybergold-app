@@ -40,13 +40,24 @@ A known limited complete tuple also remains available for an uncached budget
 that fits its actual funding, regardless of its original requested maximum.
 For example, a qualified 0.473 ETH / 8.355 CYGLD observation stays at 8.355 for
 new 0.6 or 0.7 ETH budgets while ordinary optimization explores current state.
-An unknown lower route remains display-only when that new budget has no exact
-cached observation; it can still improve an existing exact historical hit.
+Fitting historical offers can arrive from either exact lookup or neighbors,
+including when there is no exact-budget observation. An unknown partial lower
+remains the actual execution fallback while a full-budget arithmetic estimate
+is displayed. A cached upper can supply that estimate without ending its pending
+presentation when the lower arrives. A known limited tuple retains its measured
+funding and output instead.
 Below the known funding amount, the existing clipped downward estimate remains
 available. A cleared/disproved exact cache slot still excludes historical fallback.
 
-The estimate has a visible Estimate label, pending presentation and indicative
-spending/fees. It never enters the economic quote cache or execution bounds.
+The estimate retains the existing screen-reader description, pending
+presentation and indicative spending/fees. Only the estimated scalar receive
+number has a subtle three-second opacity pulse; labels, fees and spending stay
+steady. When a validated receive amount replaces a different displayed amount,
+that number gets one cycle of the same pulse. Metadata-only or same-amount
+updates and initial static cache restoration do not restart it. Unchanged
+validated amounts, including known limited cached quotes, stay steady while
+optimization continues.
+Reduced-motion preferences disable both forms. The estimate never enters the economic quote cache or execution bounds.
 A fresh qualified quote immediately replaces
 it, including a smaller funded/output result while refinement continues. A
 stored response cannot erase a better complete historical fallback. Completion,
@@ -65,6 +76,12 @@ below an earlier arithmetic estimate. Legacy replay-completion markers do not
 delay readiness. The finite producer completes independently; input edits,
 hidden/unmounted views and an explicit Swap capture cancel their owned work.
 Refinement errors preserve an already qualified tuple and its request reference.
+Settling an attempt does not manually publish the identical owned tuple again;
+new qualified metadata, origins and limitation observations still publish.
+Exact-in advisory model keys include configuration, generation and input, but
+no block head. A head change alone does not restart that cached arithmetic
+request or the executable quote stream. Legacy exact-out model keys retain
+their existing head scope.
 Latest execution simulations may have null block coordinates. Those remain
 unknown in diagnostics and measurements, rather than becoming block zero or
 requiring another header read. Disproof associates an unanchored observation

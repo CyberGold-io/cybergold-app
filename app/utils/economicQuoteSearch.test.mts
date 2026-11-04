@@ -59,6 +59,33 @@ for (const output of ["8", "10", "11"]) test(`every qualified whole output ${out
   } finally { f.close(); }
 });
 
+for (const outcome of ["complete", "error", "eof"] as const) test(`${outcome} settles without republishing an identical owned tuple`, async () => {
+  const f = fixture(); let manualPublications = 0, snapshots = 0;
+  const unsubscribeCache = f.client.getQueryCache().subscribe(event => {
+    if (event.type === "updated" && event.action.type === "success" && event.action.manual) manualPublications++;
+  });
+  const unsubscribeSearch = f.search.subscribe(() => { snapshots++; });
+  const pending = f.run(), settled = pending.then(value => ({ value }), error => ({ error }));
+  try {
+    await tick(); f.wire.frame({ type: "qualified", value: quote() }); await tick();
+    const updated = quote(); updated.reuseSample!.inputLimitObserved = true;
+    f.wire.frame({ type: "qualified", value: updated, requestId: "44444444-4444-4444-8444-444444444444" }); await tick();
+    assert.deepEqual(f.search.current(), updated, "a genuine same-amount input-limit update still publishes");
+    assert.equal(diagnosticReferences(f.search.current()).requestId, "44444444-4444-4444-8444-444444444444");
+    assert.equal(manualPublications, 2); assert.equal(snapshots, 3);
+    if (outcome === "complete") f.wire.frame({ type: "complete", value: updated });
+    else if (outcome === "error") f.wire.frame({ type: "error", code: "rpc-timeout" });
+    else f.wire.end();
+    const result = await settled;
+    assert.equal("error" in result, outcome !== "complete");
+    assert.deepEqual(f.search.current(), updated); assert.deepEqual(f.client.getQueryData(f.key), updated);
+    assert.equal(f.search.snapshot().optimizing, false);
+    assert.equal(Boolean(f.search.snapshot().error), outcome !== "complete");
+    assert.equal(manualPublications, 2, "terminal cleanup does not repeat the ready cache publication");
+    assert.equal(snapshots, outcome === "complete" ? 4 : 5, "settlement and errors remain observable");
+  } finally { unsubscribeSearch(); unsubscribeCache(); f.close(); }
+});
+
 for (const release of ["stored", "marker-first", "complete", "complete-only", "ordinary-error", "eof"] as const)
   test(`${release} preserves available qualified work without an estimate threshold`, async () => {
     const f = fixture(), pending = f.run();

@@ -35,7 +35,7 @@ test("the unified hook retains Backend families and prefers optional cached arit
     native: false, amount: "1002", slippageBps: 100 };
   const packet: TradeQuoteModelPacket = { namespace: "trade", intent: request,
     models: [{ strategy: "market", value: model }], estimate: { strategy: "market", amount: "42" } };
-  const identity = "configured-roots-adapter-unavailable";
+  let identity = "configured-roots-adapter-unavailable", cacheScope = "1:head", generation: string | null = null;
   const client = new QueryClient();
   let observedKey: unknown[] = [], acquire!: (input: { signal: AbortSignal }) => Promise<TradeQuoteModelPacket>;
   const dependencies: Record<string, unknown> = {
@@ -47,8 +47,8 @@ test("the unified hook retains Backend families and prefers optional cached arit
     viem: { zeroAddress },
     "@/app/context/protocolConfigurationContext": { useProtocolConfiguration: () => ({ identity, addresses: { core: model.cygld } }) },
     "@/app/config/chain": { targetChainId: 1 },
-    "@/app/context/sandboxForkContext": { useSandboxForkGeneration: () => null },
-    "@/app/context/chainHeadContext": { useQuoteCacheScope: () => "1:head" },
+    "@/app/context/sandboxForkContext": { useSandboxForkGeneration: () => generation },
+    "@/app/context/chainHeadContext": { useQuoteCacheScope: () => cacheScope },
     "@/app/hooks/usePageVisible": { usePageVisible: () => true },
     "@/app/utils/quoteModelStore": { getTradeBudgetRange, subscribeQuoteModels, tradeDisplayModelScope },
     "@/app/utils/nearbyEconomicEstimate": { arithmeticEconomicEstimate, fittingEconomicQuote, fullBudgetEconomicEstimate, upperEconomicQuote },
@@ -75,6 +75,18 @@ test("the unified hook retains Backend families and prefers optional cached arit
     assert.deepEqual(observedKey[4], request, "the unified request requires no caller adapter");
     assert.equal(observedKey[5], identity);
     assert.deepEqual(await acquire({ signal: new AbortController().signal }), packet);
+    const unchanged = JSON.stringify(observedKey);
+    cacheScope = "1:next-head"; exports.useTradeModel!(request, true);
+    assert.equal(JSON.stringify(observedKey), unchanged, "advisory exact-in arithmetic has no head identity");
+    generation = "replacement-fork"; exports.useTradeModel!(request, true);
+    assert.equal(observedKey[2], generation);
+    generation = null; identity = "replacement-configuration"; exports.useTradeModel!(request, true);
+    assert.equal(observedKey[5], identity);
+    identity = "configured-roots-adapter-unavailable";
+    const legacy = { ...request, mode: "exact-out" as const }; exports.useTradeModel!(legacy, true);
+    const legacyKey = JSON.stringify(observedKey);
+    cacheScope = "1:another-head"; exports.useTradeModel!(legacy, true);
+    assert.notEqual(JSON.stringify(observedKey), legacyKey, "legacy exact-out head identity remains unchanged");
 
     const source = { request: { intent: 1, inputs: [{ currency: model.cygld, amount: "2000" }],
       outputCurrency: request.counterToken }, reuseSample: { referenceInput: "600", netOutput: "99",
@@ -96,7 +108,15 @@ test("the unified hook retains Backend families and prefers optional cached arit
     const lower = { ...source, request: { ...source.request, inputs: [{ currency: model.cygld, amount: "800" }] },
       inputs: [{ currency: model.cygld, amount: "800" }], quotedOutput: "99", fees: source.reuseSample!.fees };
     client.setQueryData(economicQuoteKey(lower.request, scope), lower);
-    assert.equal(exports.useTradeModel!(request, true)?.quotedOutput, 99n, "the existing upper arithmetic retains its precedence");
+    const upperAndLower = exports.useTradeModel!(request, true)!;
+    assert.equal(upperAndLower.quotedOutput, 99n, "the existing upper arithmetic retains its precedence");
+    assert.equal(upperAndLower.fullBudget, true, "a historical partial floor does not end the upper budget estimate");
+    packet.budgetRange = { minimumBudget: "900", maximumBudget: "2000", quotedInput: "800", quotedOutput: "99" };
+    exports.useTradeModel!(request, true);
+    const range = exports.useTradeModel!(request, true)!;
+    assert.equal(range.fullBudget, undefined, "a Backend fixed budget range keeps its existing presentation");
+    assert.equal(range.quotedInput, 800n); assert.equal(range.inputMaximum, 900n);
+    delete packet.budgetRange; exports.useTradeModel!(request, true);
     client.removeQueries({ queryKey: economicQuoteKey(source.request, scope), exact: true });
     const fullBudget = exports.useTradeModel!(request, true)!;
     assert.equal(fullBudget.quotedOutput, 165n); assert.equal(fullBudget.fullBudget, true);
@@ -106,6 +126,7 @@ test("the unified hook retains Backend families and prefers optional cached arit
     const limited = { ...lower, inputs: [{ currency: model.cygld, amount: "473" }], quotedOutput: "8355",
       reuseSample: { ...lower.reuseSample, referenceInput: "473", netOutput: "8355", inputLimitObserved: true } };
     client.setQueryData(economicQuoteKey(limited.request, scope), limited);
+    client.setQueryData(economicQuoteKey(source.request, scope), source);
     for (const amount of ["600", "700", "1002"]) {
       const known = exports.useTradeModel!({ ...request, amount }, true)!;
       assert.equal(known.quotedOutput, 8355n, "a known limited tuple wins over another unbounded display model");

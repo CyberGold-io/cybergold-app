@@ -19,11 +19,12 @@ type TradeDisplayEstimate = Partial<ArithmeticEconomicEstimate> & {
 export function useTradeModel(input: TradeModelRequest, enabled: boolean): TradeDisplayEstimate | undefined {
   const { identity, addresses } = useProtocolConfiguration(), generation = useSandboxForkGeneration();
   const scope = useQuoteCacheScope(), visible = usePageVisible();
+  const modelScope = input.mode === "exact-in" ? undefined : scope;
   const displayScope = tradeDisplayModelScope(identity, generation), inputKey = JSON.stringify(input);
   const readRange = useCallback(() => enabled ? getTradeBudgetRange(JSON.parse(inputKey), displayScope) : undefined,
     [enabled, inputKey, displayScope]);
   const range = useSyncExternalStore(subscribeQuoteModels, readRange, () => undefined);
-  const client = useQueryClient(), key = JSON.stringify(["trade-model", targetChainId, generation, scope, input, identity]);
+  const client = useQueryClient(), key = JSON.stringify(["trade-model", targetChainId, generation, modelScope, input, identity]);
   const subscribe = useCallback((changed: () => void) => {
     const notify = notifyManager.batchCalls(changed);
     return client.getQueryCache().subscribe(event => {
@@ -45,7 +46,7 @@ export function useTradeModel(input: TradeModelRequest, enabled: boolean): Trade
   const readFitting = useCallback(() => readQuote(fittingEconomicQuote), [readQuote]);
   const upper = useSyncExternalStore(subscribe, readUpper, () => undefined);
   const fitting = useSyncExternalStore(subscribe, readFitting, () => undefined);
-  const query = useQuery({ queryKey: ["trade-model", targetChainId, generation, scope, input, identity],
+  const query = useQuery({ queryKey: ["trade-model", targetChainId, generation, modelScope, input, identity],
     enabled: enabled && visible && Boolean(input.counterToken), retry: false, staleTime: 10_000,
     queryFn: ({ signal }) => fetchTradeModel(input, signal) });
   useEffect(() => { if (query.data) receiveTradeModel(query.data, identity, displayScope); }, [query.data, identity, displayScope]);
@@ -60,7 +61,7 @@ export function useTradeModel(input: TradeModelRequest, enabled: boolean): Trade
   const fullBudget = fitting && fullBudgetEconomicEstimate(fitting, BigInt(input.amount));
   const local = upper?.reuseSample && arithmeticEconomicEstimate(upper.reuseSample, BigInt(input.amount));
   const rangeFunding = range ? { quotedInput: BigInt(range.quotedInput), inputMaximum: BigInt(range.minimumBudget) } : undefined;
-  if (local) return { ...local, ...rangeFunding };
+  if (local) return { ...local, ...rangeFunding, ...(fullBudget && !range ? { fullBudget: true as const } : {}) };
   if (fullBudget && range) return { ...rangeFunding, quotedOutput: BigInt(range.quotedOutput) };
   if (fullBudget) return { ...fullBudget, fullBudget: true };
   const estimate = query.data?.estimate;

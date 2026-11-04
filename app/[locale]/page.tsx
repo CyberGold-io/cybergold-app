@@ -1717,6 +1717,33 @@ const computedReceiveQuote = useMemo((): Prefill => {
     : keepCompletedQuotePresentation ? cachedTradeDisplay?.buyAmount
     : liveDisplayedQuotedBuyAmount || (activeQuoteStatus !== "failed" ? cachedTradeDisplay?.buyAmount : undefined);
 
+  const hasValidatedReceiveAmount = !hasProgressiveBuyEstimate && Boolean(readySpendingQuote) && !showBuyBasket && !isSpendAmountZero;
+  // Pulse displayed number replacements, independently of quote identity or capture.
+  const previousReceiveAmount = useRef<string | undefined>(undefined);
+  const [receiveUpdatePulse, setReceiveUpdatePulse] = useState<string | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (isSpendAmountZero || showBuyBasket) {
+      previousReceiveAmount.current = undefined;
+      setReceiveUpdatePulse(undefined);
+      return;
+    }
+    if (!displayedQuotedBuyAmount || (!hasProgressiveBuyEstimate && !hasValidatedReceiveAmount)) return;
+    const previous = previousReceiveAmount.current;
+    previousReceiveAmount.current = displayedQuotedBuyAmount;
+    if (hasProgressiveBuyEstimate) {
+      setReceiveUpdatePulse(undefined);
+    } else if (previous !== undefined && previous !== displayedQuotedBuyAmount &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setReceiveUpdatePulse(displayedQuotedBuyAmount);
+    }
+  }, [displayedQuotedBuyAmount, hasProgressiveBuyEstimate, hasValidatedReceiveAmount, isSpendAmountZero, showBuyBasket]);
+  useEffect(() => {
+    const preference = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const stopPulse = () => { if (preference.matches) setReceiveUpdatePulse(undefined); };
+    preference.addEventListener("change", stopPulse);
+    return () => preference.removeEventListener("change", stopPulse);
+  }, []);
+
   const sellAmountPlaceholderText = zeroAmountPlaceholder;
   const buyAmountPlaceholderText = isSpendAmountZero ? zeroAmountPlaceholder : loadingAmountPlaceholder;
   const zeroAmountEquivalents = `~ ${formatCombinedDisplayValueFromUsd({
@@ -2587,8 +2614,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
                   </div>
                   <div data-trade-single="buy" hidden={showBuyBasket}>
                   {hasProgressiveBuyEstimate && (
-                    <span id="quote-buy-estimate" data-testid="quote-estimate-description"
-                      className={hasFullBudgetEstimate ? "block text-xs text-text-input-disabled" : "sr-only"}>{t('quoteEstimate')}</span>
+                    <span id="quote-buy-estimate" data-testid="quote-estimate-description" className="sr-only">{t('quoteEstimate')}</span>
                   )}
                   <output
                     id="buy-amount"
@@ -2597,13 +2623,18 @@ const computedReceiveQuote = useMemo((): Prefill => {
                     aria-labelledby="buy-amount-label buy-token-label"
                     className={cn(
                       swapStyles.amountOutput,
+                      hasProgressiveBuyEstimate && "quote-estimate-pulse",
                       isPurchaseOverCap ? "text-red-500" : shouldMuteQuotedBuyAmounts ? "text-text-input-disabled" : "text-text-input"
                     )}
                     aria-busy={shouldBlockQuotedBuyInput || hasFullBudgetEstimate || undefined}
                     aria-describedby={["receive-amount-description", isPurchaseOverCap && "purchase-cap-warning",
                       hasProgressiveBuyEstimate && "quote-buy-estimate"].filter(Boolean).join(" ")}
                   >
-                    {displayedQuotedBuyAmount || buyAmountPlaceholderText}
+                    <span key={displayedQuotedBuyAmount}
+                      className={receiveUpdatePulse !== undefined && !hasProgressiveBuyEstimate && receiveUpdatePulse === displayedQuotedBuyAmount ? "quote-update-pulse" : undefined}
+                      onAnimationEnd={() => setReceiveUpdatePulse(current => current === displayedQuotedBuyAmount ? undefined : current)}>
+                      {displayedQuotedBuyAmount || buyAmountPlaceholderText}
+                    </span>
                   </output>
                   </div>
                 </>
