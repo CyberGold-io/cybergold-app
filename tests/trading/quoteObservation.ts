@@ -26,20 +26,13 @@ export function quoteObservationIncumbent(observations: readonly QuoteObservatio
   };
   for (const observation of observations) {
     if (!isEconomicQuoteObservation(observation)) continue;
-    let prior = incumbent, published = false, disproved = false;
     for (const frame of observation.frames ?? []) {
-      if (frame.type === 'qualified' && !disproved) {
-        incumbent = { observation, value: frame.value }; published = true;
-      }
-      if (frame.type === 'invalidated') {
-        if (sameContext(prior?.value, frame.context)) prior = undefined;
-        if (sameContext(incumbent?.value, frame.context)) incumbent = prior;
-        disproved = true;
-      }
+      if (frame.type === 'qualified') incumbent = { observation, value: frame.value };
+      if (frame.type === 'invalidated' && sameContext(incumbent?.value, frame.context)) incumbent = undefined;
     }
-    // The producer publishes terminal reconstruction before complete too. A
-    // duplicate complete cannot downgrade a delivered tuple or undo disproof.
-    if (!published && !disproved && observation.terminal?.type === 'complete')
+    // Match production: a disproof clears the selected tuple, later qualified
+    // frames can recover, and the producer's current terminal tuple is final.
+    if (observation.terminal?.type === 'complete')
       incumbent = { observation, value: observation.terminal.value };
   }
   return incumbent;

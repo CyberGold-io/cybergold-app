@@ -380,7 +380,8 @@ test('disproof of a ready candidate cannot be undone by a legacy replay marker',
 });
 
 test('invalidation can be followed by a Backend-selected replacement in the same stream', async ({ page }) => {
-  await install(page); await wallet(page); const wire = await streams(page);
+  await install(page); await wallet(page); await page.addInitScript(installQuoteObservation as () => void);
+  const wire = await streams(page);
   const posted: { quote: EconomicQuote }[] = [];
   await page.route('**/api/tx-preparations', async route => {
     posted.push(route.request().postDataJSON());
@@ -390,12 +391,19 @@ test('invalidation can be followed by a Backend-selected replacement in the same
     await page.goto('/en'); await expect(page.getByRole('button', { name: 'Open wallet menu', exact: true })).toBeVisible();
     await page.locator('#sell-amount').fill('1'); await expect.poll(() => wire.connections.length).toBe(1);
     const current = wire.connections[0], initial = value(current.input, '10');
+    const scenario = { ...tradeScenarios.find(row => row.asset === 'ETH' && row.side === 'buy' && row.inputMode === 'exact-in')!,
+      amountRaw: current.input.inputs[0].amount };
+    const observedReady = async () => uiQuoteReady(await quoteObservations(page), scenario, config,
+      await page.locator('[data-trade-action]').isEnabled());
     current.frame({ type: 'qualified', value: initial }); await expect(page.locator('[data-trade-action]')).toBeEnabled();
+    await expect.poll(observedReady).toBe(true);
     current.frame({ type: 'invalidated', context: initial.context });
     await expect(page.locator('[data-trade-action]')).toBeDisabled(); await expect(page.locator('#buy-amount')).not.toHaveText('10');
+    await expect.poll(observedReady).toBe(false);
     const replacement = value(current.input, '9', String(9n * unit / 10n));
     current.frame({ type: 'qualified', value: replacement });
     await expect(page.locator('#buy-amount')).toHaveText('9'); await expect(page.locator('[data-trade-action]')).toBeEnabled();
+    await expect.poll(observedReady).toBe(true); // Runner readiness must recover before complete too.
     current.frame({ type: 'complete', value: replacement }); current.end();
     await expect(page.locator('[data-trade-refresh]')).not.toHaveAttribute('aria-busy', 'true');
     await page.locator('[data-trade-action]').click(); await expect.poll(() => posted.length).toBe(1);
