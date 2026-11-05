@@ -69,6 +69,12 @@ The onchain Uniswap Quoter is retired from production pricing;
 the SDK Bridge performs arithmetic and Universal Router remains execution
 infrastructure. This document records local implementation, not deployment.
 
+The fixed stream facade emits `X-Accel-Buffering: no` for its own downstream
+proxy hop, even when that control is absent from the Backend response. Nginx
+[consumes and hides these controls by default](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_hide_header),
+so the Backend header alone need not reach the App. This requests unbuffered
+forwarding; it does not establish public flush timing or explain a measured delay.
+
 `focusedUsdtCases(configuration)` supplies separate exact raw-input cases for
 0.01, 0.02, 0.04, 0.06, 0.08 and 0.10 USDT. It uses configured token addresses
 and decimals and performs no valuation/pool reads that would warm the measured

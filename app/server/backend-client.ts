@@ -174,6 +174,7 @@ export function backendRoute(path: PublicBackendPath, fetchImpl: typeof fetch = 
         if (value !== null) responseHeaders.set(name, value);
       }
       const streaming = path === "/api/economic-quotes/stream" || path === "/api/quotes/routes/stream" || path === "/api/quotes/intent/stream" || path === "/api/quotes/market/stream" || path === "/api/quotes/trade/stream";
+      if (streaming) responseHeaders.set("X-Accel-Buffering", "no");
       let body: BodyInit | null = null;
       if (request.method !== "HEAD" && response.status !== 204 && response.status !== 304) {
         if (streaming) body = response.body ? observation.stream(response.body) : null;
