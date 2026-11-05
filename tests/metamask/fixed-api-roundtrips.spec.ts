@@ -8,7 +8,7 @@ import { checkpointExecutionStage, originFetch, readJson, requireInvariant, resu
 import { observeUiReceipt } from "../trading/uiReceipt";
 import { assertCapturedTradeInput } from "../trading/planAssertions";
 import { armUiQuoteCapture, capturedUiQuote, displayedUiAmount, quoteAssets } from "../trading/uiQuoteCapture";
-import { setupPurchase } from "../trading/setupPurchase";
+import { runnerFundingPlan, observeRunnerCygld, observeRunnerPaxg, type RunnerFundingPlan } from "../trading/runnerFunding";
 import { assertWalletEconomics, positiveDisplayedAmount, walletAmounts, walletEvidence } from "../trading/uiEconomics";
 import { expectWalletBalanceDisplay } from "../trading/uiWalletDisplay";
 import { observeUiGas, ownedReceiptGas } from "../trading/uiGas";
@@ -60,6 +60,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   const setupQuoteEvidence: Pick<ScenarioResult, "refs" | "reason" | "quoteDiagnostics"> = {};
   let config: ProtocolConfiguration;
   let valuation: Awaited<ReturnType<typeof readValuation>> | undefined;
+  let fundingPlan: RunnerFundingPlan | undefined;
   const runPolicy = regressionPolicy(process.env.TRADE_REGRESSION_RUN_POLICY);
   const progress = { completedScenarioIds: [] as string[] };
   let diagnosticStop: { scenarioId: string; role: "winner" | "alternate" } | undefined;
@@ -81,7 +82,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     if (config) for (const row of [...results, ...fixtures]) enrichResultQuality(row, valuation, config);
     const path = process.env.TRADE_REGRESSION_UI_OUTPUT;
     await writeFile(path + ".tmp", JSON.stringify({ schema: "cybergold.trade-regression.v1", suite: privatePhase ? 'independent' : 'sequential', runPolicy, progress, diagnosticStop,
-      ...(isolation ? { isolation } : {}), matrix: matrixCountsFor(scenarios), coverage: executionCoverage(results), valuation, scenarios: results, fixtures }, null, 2) + "\n");
+      ...(isolation ? { isolation } : {}), matrix: matrixCountsFor(scenarios), coverage: executionCoverage(results), valuation, fundingPlan, scenarios: results, fixtures }, null, 2) + "\n");
     await rename(path + ".tmp", path);
   }
   async function checkpoint(stage: ExecutionStage) {
@@ -137,12 +138,17 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   await checkpoint("setup-accounts");
   const accounts = await page.evaluate(() => (window as unknown as { ethereum: { request: (input: unknown) => Promise<string[]> } }).ethereum.request({ method: "eth_accounts" }));
   const owner = accounts[0] as Address;
-  await checkpoint("setup-funding");
-  await fundSandboxWallet(owner, fetcher);
   const gasObservation = observeUiGas(page, owner);
-  const manifest = process.env.TRADE_REGRESSION_MATRIX && privatePhase !== 'prepare' ? JSON.parse(await readFile(process.env.TRADE_REGRESSION_MATRIX, "utf8")) : undefined;
+  const frozenManifest = process.env.TRADE_REGRESSION_FROZEN_MATRIX
+    ?? (privatePhase !== "prepare" ? process.env.TRADE_REGRESSION_MATRIX : undefined);
+  const manifest = frozenManifest ? JSON.parse(await readFile(frozenManifest, "utf8")) : undefined;
   valuation = manifest?.valuation ?? await readValuation(config, await readJson<ProtocolFacts>(fetcher, "/api/protocol/facts"), fetcher);
   scenarios.splice(0, scenarios.length, ...privateSandboxScenarios(manifest?.scenarios ?? buildMatrix(config, valuation!), privatePhase, process.env.TRADE_REGRESSION_PRIVATE_SCENARIO));
+  const startup = !privatePhase || privatePhase === "prepare"
+    ? runnerFundingPlan(config, valuation!, scenarios, privatePhase ? "independent" : "sequential") : undefined;
+  fundingPlan = startup?.plan ?? manifest?.fundingPlan;
+  await checkpoint("setup-funding");
+  await fundSandboxWallet(owner, fetcher);
   results.splice(0, results.length, ...scenarios.map(scenario => ({ ...resultFor(scenario, "execution"), id: `ui-${scenario.id}`, requestedStrategy: "auto" as const, executionAttempted: false, transactionDisposition: "not-submitted" as const,
     ...(isolation && privatePhase !== 'prepare' ? { isolation: scenarioIsolation(isolation, privatePhase === 'alternate' ? 'alternate' : 'winner') } : {}) })));
 
@@ -339,7 +345,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   if (!privatePhase || privatePhase === 'prepare') {
   // Exercise wallet cancellation with funded collateral. ETH route readiness
   // belongs to its matrix cases, rather than every scenario's shared setup.
-  const rejectionPurchase = setupPurchase(config, valuation!, "0.25", "fixture-wallet-rejection");
+  const rejectionPurchase = startup!.rejection;
   try { activeQuoteDiagnostics = createUiQuoteDiagnostics(rejectionPurchase, config); } catch { /* Optional evidence cannot change setup. */ }
   await prepare("PAXG", "CYGLD", rejectionPurchase.displayAmount);
   const beforeRejected = await readWalletBalances(page, ["cygld"]);
@@ -359,7 +365,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
 
   // A real setup trade gives redemption cases inventory even when later issue
   // quotes are unavailable. It is separate evidence, never a matrix pass.
-  const bootstrap = setupPurchase(config, valuation!, "5", "fixture-cygld-bootstrap");
+  const bootstrap = startup!.bootstrap;
   fixtures.push({ ...resultFor(bootstrap, "execution"), requestedStrategy: "auto" });
   activeFixtureIndex = 0; helpersHash = undefined; activeSwapAttempt = undefined;
   try { activeQuoteDiagnostics = createUiQuoteDiagnostics(bootstrap, config); } catch { /* Optional evidence cannot change setup. */ }
@@ -369,6 +375,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     await prepare("PAXG", "CYGLD", bootstrap.displayAmount);
     observationPhase = "ui-balances"; await checkpoint(observationPhase);
     const walletBefore = await fetchWalletBalances(owner, undefined, fetcher, "swap-preflight");
+    if (fundingPlan) try { observeRunnerPaxg(fundingPlan, walletBefore); } catch { /* Optional funding evidence. */ }
     fixtures[0].code = "execution-not-completed"; await persist();
     const uiQuote = await submit(quoteAssets(bootstrap, config, []), bootstrap.inputMode);
     observationPhase = "ui-hash"; await checkpoint(observationPhase);
@@ -399,6 +406,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     if (fixtures[0].executionAttempted) try { await finishUiRequest(fixtures[0], error); }
     catch (failure) { fixtures[0].durationMs = Math.round(performance.now() - bootstrapStarted); await persist(); throw failure; }
   }
+  if (fundingPlan && fixtures[0].wallet?.outputAfter[0] !== undefined) try {
+    observeRunnerCygld(fundingPlan, fixtures[0].wallet.outputAfter[0], fixtures[0].wallet.outputDelta[0]);
+  } catch { /* Optional observed shortfall never changes the setup outcome. */ }
   fixtures[0].durationMs = Math.round(performance.now() - bootstrapStarted); await persist();
   activeFixtureIndex = undefined; activeQuoteDiagnostics = undefined; activeSwapAttempt = undefined;
   if (runPolicy === "diagnostic" && unexpectedFailure(fixtures[0])) expect(fixtures[0].status).toBe("pass");
@@ -406,9 +416,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     // All compared cases use this post-funding/bootstrap state and these same
     // frozen sizing inputs. Only the host that owns the fork takes its snapshot.
     requireInvariant(fixtures[0].status === 'pass', 'private-sandbox-bootstrap-failed');
-    valuation = await readValuation(config, await readJson<ProtocolFacts>(fetcher, '/api/protocol/facts'), fetcher);
-    const preparedScenarios = buildMatrix(config, valuation);
-    const prepared = { matrix: matrixCountsFor(preparedScenarios), valuation, scenarios: preparedScenarios, walletAddress: owner };
+    // Freeze the sizing identity before the ordinary setup purchase; changing
+    // prices afterwards must not shrink the inventory requirement or cases.
+    const prepared = { matrix: matrixCountsFor(scenarios), valuation, scenarios, fundingPlan, walletAddress: owner };
     if (!process.env.TRADE_REGRESSION_MATRIX) throw new Error('private-sandbox-matrix-output-unavailable');
     await writeFile(process.env.TRADE_REGRESSION_MATRIX, JSON.stringify(prepared, null, 2) + '\n', { mode: 0o600 });
     results.splice(0);

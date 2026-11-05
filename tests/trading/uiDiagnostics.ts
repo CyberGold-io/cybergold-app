@@ -54,13 +54,14 @@ export function createUiQuoteDiagnostics(scenario: Scenario, config: ProtocolCon
 }
 
 /** Keep an original matched quote error when its UI readiness assertion expires. */
-export async function uiPreparationAssertion(code: "ui-quoted-amount-not-ready" | "ui-swap-not-enabled", assertion: () => Promise<unknown>,
+type UiPreparationFailure = "ui-quoted-amount-not-ready" | "ui-readiness-not-observed" | "ui-quote-observation-not-ready" | "ui-swap-not-enabled";
+export async function uiPreparationAssertion(code: UiPreparationFailure | (() => UiPreparationFailure), assertion: () => Promise<unknown>,
   quoteEvidence?: () => ReturnType<ReturnType<typeof createUiQuoteDiagnostics>["snapshot"]> | undefined) {
   try { await assertion(); } catch (error) {
     if (error && typeof error === "object" && "matcherResult" in error) {
       const evidence = quoteEvidence?.();
       throw knownQuoteError({ code: evidence?.reason, ...evidence?.refs, quoteDiagnostics: evidence?.quoteDiagnostics })
-        ?? new RegressionAssertionError(code);
+        ?? new RegressionAssertionError(typeof code === "function" ? code() : code);
     }
     throw error;
   }

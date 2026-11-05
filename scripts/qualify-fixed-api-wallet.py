@@ -211,6 +211,9 @@ def main() -> None:
     parser.add_argument("--test-file", action="append", dest="test_files",
                         help="Explicit focused test selection; omission runs every existing wallet profile file plus Quoter integration.")
     args = parser.parse_args()
+    selected_files = args.test_files or ["fixed-api-roundtrips.spec.ts", "wallet-session.spec.ts",
+                                        "regression-execution.spec.ts", "quoter-integration.spec.ts"]
+    funds_matrix = any(Path(name).name == "fixed-api-roundtrips.spec.ts" for name in selected_files)
     def stop_owned_fixture(signum, _frame):
         raise SystemExit(128 + signum)
     signal.signal(signal.SIGTERM, stop_owned_fixture)
@@ -293,7 +296,13 @@ def main() -> None:
         checkpoint("funding")
         rpc(fork, "anvil_setBalance", [address, hex(100 * 10**18)])
         funding = json.loads(args.funding_json.read_text())["fork"]["funding"]["tokenFunding"]
+        deferred_paxg = None
         for symbol, token, holder, amount in zip(funding["symbols"], funding["addresses"], funding["holders"], funding["perAddr"]):
+            if symbol.upper() == "PAXG" and funds_matrix:
+                # Matrix valuation is wallet-free. Defer this one transfer until
+                # its frozen plan can include bootstrap and actual case budgets.
+                deferred_paxg = (token, holder, amount)
+                continue
             if symbol.upper() == "USDC":
                 decimals = int(subprocess.check_output(["cast", "call", "--rpc-url", fork, token,
                     "decimals()(uint8)"], text=True).strip())
@@ -411,6 +420,29 @@ def main() -> None:
         run(["node", "node_modules/next/dist/bin/next", "build", "--webpack"], "frontend-build")
         start(["node", "node_modules/next/dist/bin/next", "start", "--hostname", "127.0.0.1", "--port", str(frontend_port)], "frontend")
         wait_http(settings["NEXT_PUBLIC_APP_ORIGIN"] + "/en")
+        if deferred_paxg is not None:
+            frozen_matrix = output / "frozen-runner-matrix.json"
+            run(["node", "--import", "./tests/fixtures/register-server-only.mjs",
+                 "--experimental-strip-types", "--experimental-specifier-resolution=node",
+                 "scripts/plan-runner-funding.mts", "--base-url", settings["NEXT_PUBLIC_APP_ORIGIN"],
+                 "--output", str(frozen_matrix)], "frozen-runner-funding-plan", timeout=180)
+            frozen = json.loads(frozen_matrix.read_text())
+            environment["TRADE_REGRESSION_MATRIX"] = str(frozen_matrix)
+            token, holder, manifest_amount = deferred_paxg
+            planned = json.loads(subprocess.check_output(["node", "--input-type=module", "-e",
+                "import {ownedPaxgStartupFunding} from './tests/trading/ownedWalletFunding.ts';"
+                "console.log(JSON.stringify(ownedPaxgStartupFunding(process.argv[1],JSON.parse(process.argv[2]))));",
+                "--", manifest_amount, json.dumps(frozen["fundingPlan"])], cwd=work, env=environment, text=True))
+            evidence["paxgStartupFunding"] = planned
+            evidence["fundingPlan"] = frozen["fundingPlan"]
+            checkpoint("funding")
+            rpc(fork, "anvil_setBalance", [holder, hex(10**18)])
+            rpc(fork, "anvil_impersonateAccount", [holder])
+            try:
+                run(["cast", "send", "--rpc-url", fork, "--from", holder, "--unlocked", token,
+                     "transfer(address,uint256)", address, planned["transferAmount"]], "fund-PAXG", timeout=120)
+            finally:
+                rpc(fork, "anvil_stopImpersonatingAccount", [holder])
         (work / "playwright.wallet.config.ts").write_text(
             "import {defineConfig,devices} from '@playwright/test';export default defineConfig({"
             "testDir:'./tests/metamask',timeout:120000,workers:1,fullyParallel:false,retries:0,"
@@ -422,7 +454,8 @@ def main() -> None:
                       "tests/metamask/quoter-integration.spec.ts",
                       "tests/metamask/wallet-session.spec.ts", "tests/metamask/wallet-ui.ts", "tests/metamask/token-flows/helpers.ts",
                       "tests/metamask/regression-execution.spec.ts", "tests/trading/scenarios.ts", "tests/trading/matrix.ts", "tests/trading/providerEvidence.ts", "tests/trading/planAssertions.ts", "tests/trading/quoteObservation.ts", "tests/trading/regression.ts", "tests/trading/runnerDiagnostics.ts", "tests/trading/walletExecution.ts",
-                      "tests/trading/uiReceipt.ts", "tests/trading/uiEconomics.ts", "tests/trading/uiQuoteCapture.ts", "tests/trading/uiGas.ts", "tests/trading/uiDiagnostics.ts", "tests/trading/sandboxFunding.ts", "tests/trading/ownedWalletFunding.ts"]
+                      "tests/trading/uiReceipt.ts", "tests/trading/uiEconomics.ts", "tests/trading/uiQuoteCapture.ts", "tests/trading/uiGas.ts", "tests/trading/uiDiagnostics.ts", "tests/trading/uiQuotePreparation.ts", "tests/trading/sandboxFunding.ts", "tests/trading/ownedWalletFunding.ts",
+                      "tests/trading/runnerFunding.ts", "scripts/plan-runner-funding.mts"]
         try:
             image_environment = json.loads(docker("image", "inspect", args.backend_image, "--format", "{{json .Config.Env}}"))
             backend_commit = next((value.split("=", 1)[1] for value in image_environment if value.startswith("CYBERGOLD_BACKEND_COMMIT=")), None)
@@ -447,8 +480,6 @@ def main() -> None:
             "scope": "24 exact-input UI-selected funded paths, rejection/session cases and integrated two-browser Quoter verification; real Python APIs/native PG18/production Next.js, actual wallet/receipt economics with gas separate. Only browser B's economic/preparation paths use unchanged API2 responses; other requests retain normal App/API1 forwarding. No generated quote or receipt responses.",
             "wallet": "New disposable seed/profile; no owner wallet or B2B/public-chain write",
         })
-        selected_files = args.test_files or ["fixed-api-roundtrips.spec.ts", "wallet-session.spec.ts",
-                                            "regression-execution.spec.ts", "quoter-integration.spec.ts"]
         evidence["testSelection"] = {"mode": "focused" if args.test_files else "full-existing-profile-plus-quoter-integration",
                                      "files": selected_files}
         if args.test_files:

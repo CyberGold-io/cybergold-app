@@ -45,6 +45,7 @@ async function walletResults() {
       const native = JSON.parse(await readFile(resolve(output, file), "utf8"));
       report.scenarios.push(...native.scenarios);
       if (native.valuation) report.valuation = native.valuation;
+      if (native.fundingPlan) report.fundingPlan = native.fundingPlan;
       if (native.observations) report.observations = { ...report.observations, ...native.observations };
       if (native.suite === 'sequential' || native.suite === 'independent') report.suite = native.suite;
       if (native.progress) report.progress = native.progress;
