@@ -27,8 +27,16 @@ export function runnerFundingPlan(config: ProtocolConfiguration, valuation: Valu
   const cygld = configuredToken(config, "CYGLD");
   const rejection = setupPurchase(config, valuation, "0.25", "fixture-wallet-rejection");
   const bootstrap = setupPurchase(config, valuation, formatUnits(required, cygld.decimals), "fixture-cygld-bootstrap");
-  const paxgSpendBudgets = scenarios.filter(row => row.asset === "PAXG" && row.side === "buy"
-    && row.inputMode === "exact-in" && !row.sizingError).map(row => ({ scenarioId: row.id, amountRaw: row.amountRaw }));
+  const paxg = configuredToken(config, "PAXG");
+  const paxgAddress = paxg.type === "erc20" ? paxg.address.toLowerCase() : undefined;
+  const paxgSpendBudgets = scenarios.filter(row => row.side === "buy" && row.inputMode === "exact-in" && !row.sizingError)
+    .flatMap(row => {
+      if (row.asset === "PAXG") return [{ scenarioId: row.id, amountRaw: row.amountRaw }];
+      if (row.asset !== "BASKET") return [];
+      const amount = row.basketAssets!.reduce((sum, currency, index) => currency.toLowerCase() === paxgAddress
+        ? sum + BigInt(row.basketAmounts![index]) : sum, 0n);
+      return [{ scenarioId: row.id, amountRaw: String(amount) }];
+    });
   const plannedPaxg = paxgSpendBudgets.reduce((amount, row) => combine(amount, BigInt(row.amountRaw)), 0n);
   const executionPaxg = BigInt(bootstrap.amountRaw!) + plannedPaxg;
   const rejectionPaxg = BigInt(rejection.amountRaw!);

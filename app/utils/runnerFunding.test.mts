@@ -36,6 +36,19 @@ test("independent reset inventory uses the largest case, without summing mutuall
   assert.equal(plan.inventoryPolicy, "maximum-redemption-budget");
 });
 
+test("PAXG collateral includes its actual basket component and applies SUM or per-case MAX", () => {
+  const basket = { ...scenario("basket-buy", "buy", "USDC", 900n * unit), asset: "BASKET",
+    basketAssets: [tokenAddresses.USDC, tokenAddresses.PAXG], basketAmounts: [String(900n * unit), String(3n * unit)] } as MatrixScenario;
+  const sequential = runnerFundingPlan(config, valuation, [...selected, basket], "sequential").plan;
+  assert.equal(sequential.plannedPaxgSpendsRaw, String(9n * unit));
+  assert.equal(sequential.paxgSpendBudgets.at(-1)?.amountRaw, String(3n * unit));
+  assert.equal(sequential.requiredPaxgRaw, String(1675n * unit / 100n));
+  const largerBasket = { ...basket, basketAmounts: [String(900n * unit), String(31n * unit)] };
+  const independent = runnerFundingPlan(config, valuation, [...selected, largerBasket], "independent").plan;
+  assert.equal(independent.plannedPaxgSpendsRaw, String(31n * unit));
+  assert.equal(independent.requiredPaxgRaw, String(35n * unit));
+});
+
 test("an ordinary partial bootstrap remains a measured shortfall, not a new target-achieved failure", () => {
   const { plan } = runnerFundingPlan(config, valuation, selected, "sequential");
   observeRunnerCygld(plan, String(7n * unit), String(5n * unit));

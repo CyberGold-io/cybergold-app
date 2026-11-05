@@ -169,7 +169,8 @@ For the existing owned local fork
 qualifier's full matrix, PAXG funding waits until that plan is available, then
 uses its existing holder-to-dedicated-wallet transfer once. The amount is the
 larger of the original manifest allocation and bootstrap PAXG plus planned
-PAXG case spending, also covering the cancelled rejection's balance requirement
+PAXG case spending, including the matching PAXG component of basket purchases,
+also covering the cancelled rejection's balance requirement
 without counting it as spent collateral. The same frozen manifest reaches the browser; the
 independent prepare phase no longer revalues cases after the bootstrap.
 Focused selections that omit the matrix keep their existing funding behavior.
