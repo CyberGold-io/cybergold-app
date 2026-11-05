@@ -10,10 +10,21 @@ canonical_for: App Quoter benchmark loop and measurement report semantics
 
 # Quoter validation measurements
 
-The existing public quote, Sandbox execution and owned-local-fork profiles remain
-the environment/fixture owners. `tests/trading/quoterBenchmark.ts` adds the serial
+Public quote checks remain read-only. Sandbox execution profiles now create
+owned copies of the deployed Sandbox; the sequential suite evolves one copy
+while independent roles restore their private baseline. Owned-local-fork
+qualifiers remain the local environment/fixture owners. `tests/trading/quoterBenchmark.ts` adds the serial
 paired measurement loop; it does not reset a deployed service, start another
 worker, or alter the standard 24-journey operating matrix.
+
+The App's former public `sandbox-execution` CLI branch is retired. The wallet
+npm command delegates to the existing owned qualifier and includes the full
+native wallet file inventory. Default Playwright discovery registers only
+browser smoke tests; owned orchestrators generate the wallet configuration.
+No new ownership flag, URL heuristic or admission gate is introduced. These
+changes affect test launchers, leaving product quote and execution behavior
+unchanged. Source/image qualification records the selected native files and
+uses an owned generated config for offline wallet discovery.
 
 ## Current local App workflow
 
@@ -156,10 +167,12 @@ top-up, and leaves the public funding manifest and product checks unchanged.
 
 The runner-funding follow-up starts from App Dev `98b0cd5` and changes only
 test fixtures and diagnostics. Freeze the existing valuation and exact-input
-matrix **before** the ordinary inventory purchase. Sequential execution plans
-the sum of its frozen CYGLD redemption budgets without assuming future issue
-proceeds or refunds; independent reset attempts plan their maximum. The one
-PAXG exact-input bootstrap is sized indicatively for that quantity. Its actual
+matrix **before** the ordinary inventory purchase. Both suites nominate the
+largest single frozen CYGLD redemption budget as their **initial** buffer.
+Sequential execution still provisions the sum of planned PAXG debits; independent
+reset attempts use their maximum. The initial CYGLD buffer does not subtract
+prospective issue credits or promise to fund every future sale. The one PAXG
+exact-input bootstrap is sized indicatively for that buffer. Its actual
 receipt and remaining inventory shortfall are observations, not a guaranteed
 output or an additional setup-success condition. Normal capacity, reserve,
 liquidity and wallet-funding errors keep their original outcomes. No retry,

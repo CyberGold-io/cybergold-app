@@ -30,6 +30,17 @@ from pathlib import Path
 APP = Path(__file__).resolve().parents[1]
 POSTGRES = "postgres:18-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"
 
+
+def wallet_test_selection(test_files=None, all_wallet_tests=False, root=None):
+    """Keep explicit focused selections and the complete native wallet inventory."""
+    if test_files:
+        return list(test_files)
+    if all_wallet_tests:
+        root = root if root is not None else APP / "tests/metamask"
+        return sorted(str(path.relative_to(root)) for path in root.rglob("*.spec.ts"))
+    return ["fixed-api-roundtrips.spec.ts", "wallet-session.spec.ts",
+            "regression-execution.spec.ts", "quoter-integration.spec.ts"]
+
 LOG_OPERATIONS = {
     "quote", "swap", "wallet", "unmatched", "/api/economic-quotes", "/api/tx-preparations",
     "/api/economic-estimates", "/api/protocol/config", "/api/protocol/facts", "/api/governance/helpers-facts",
@@ -210,10 +221,9 @@ def main() -> None:
                         if sys.platform == "darwin" else "docker"))
     parser.add_argument("--test-file", action="append", dest="test_files",
                         help="Explicit focused test selection; omission runs every existing wallet profile file plus Quoter integration.")
+    parser.add_argument("--all-wallet-tests", action="store_true",
+                        help="Run every native MetaMask test file on this qualifier's owned fork.")
     args = parser.parse_args()
-    selected_files = args.test_files or ["fixed-api-roundtrips.spec.ts", "wallet-session.spec.ts",
-                                        "regression-execution.spec.ts", "quoter-integration.spec.ts"]
-    funds_matrix = any(Path(name).name == "fixed-api-roundtrips.spec.ts" for name in selected_files)
     def stop_owned_fixture(signum, _frame):
         raise SystemExit(128 + signum)
     signal.signal(signal.SIGTERM, stop_owned_fixture)
@@ -268,6 +278,8 @@ def main() -> None:
         with tarfile.open(fileobj=io.BytesIO(subprocess.check_output(["git", "archive", "HEAD"], cwd=APP))) as archive:
             archive.extractall(work, filter="data")
         (work / "node_modules").symlink_to((APP / "node_modules").resolve(), target_is_directory=True)
+        selected_files = wallet_test_selection(args.test_files, args.all_wallet_tests, work / "tests/metamask")
+        funds_matrix = any(Path(name).name == "fixed-api-roundtrips.spec.ts" for name in selected_files)
         checkpoint("fork")
         anchor_selector = hex(args.fork_block) if args.fork_block is not None else "finalized"
         anchor = rpc(os.environ["MAINNET_RPC_URL"], "eth_getBlockByNumber", [anchor_selector, False])
@@ -456,6 +468,8 @@ def main() -> None:
                       "tests/metamask/regression-execution.spec.ts", "tests/trading/scenarios.ts", "tests/trading/matrix.ts", "tests/trading/providerEvidence.ts", "tests/trading/planAssertions.ts", "tests/trading/quoteObservation.ts", "tests/trading/regression.ts", "tests/trading/runnerDiagnostics.ts", "tests/trading/walletExecution.ts",
                       "tests/trading/uiReceipt.ts", "tests/trading/uiEconomics.ts", "tests/trading/uiQuoteCapture.ts", "tests/trading/uiGas.ts", "tests/trading/uiDiagnostics.ts", "tests/trading/uiQuotePreparation.ts", "tests/trading/sandboxFunding.ts", "tests/trading/ownedWalletFunding.ts",
                       "tests/trading/runnerFunding.ts", "scripts/plan-runner-funding.mts"]
+        test_paths = sorted(set(test_paths) | {str(path.relative_to(work))
+            for path in (work / "tests/metamask").rglob("*.spec.ts")})
         try:
             image_environment = json.loads(docker("image", "inspect", args.backend_image, "--format", "{{json .Config.Env}}"))
             backend_commit = next((value.split("=", 1)[1] for value in image_environment if value.startswith("CYBERGOLD_BACKEND_COMMIT=")), None)
@@ -480,7 +494,7 @@ def main() -> None:
             "scope": "24 exact-input UI-selected funded paths, rejection/session cases and integrated two-browser Quoter verification; real Python APIs/native PG18/production Next.js, actual wallet/receipt economics with gas separate. Only browser B's economic/preparation paths use unchanged API2 responses; other requests retain normal App/API1 forwarding. No generated quote or receipt responses.",
             "wallet": "New disposable seed/profile; no owner wallet or B2B/public-chain write",
         })
-        evidence["testSelection"] = {"mode": "focused" if args.test_files else "full-existing-profile-plus-quoter-integration",
+        evidence["testSelection"] = {"mode": "focused" if args.test_files else "all-existing-wallet-files" if args.all_wallet_tests else "full-existing-profile-plus-quoter-integration",
                                      "files": selected_files}
         if args.test_files:
             evidence["scope"] = "Explicit focused wallet files listed in testSelection; only their actual results are claimed. The existing 24-journey matrix remains available in the default full profile."

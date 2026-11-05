@@ -18,7 +18,7 @@ import { protocolConfigurationFixture } from "../../tests/fixtures/protocol-conf
 import { activeMatrixTemplates } from "../../tests/trading/matrix.ts";
 import { installQuoteObservation } from "../../tests/trading/quoteObservation.ts";
 import { createUiQuoteDiagnostics, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion } from "../../tests/trading/uiDiagnostics.ts";
-import { qualificationBackendRevision, readWalletSetupDiagnostic, safeRunnerError, walletFixtureOutput, walletOnboardingStep, observeWalletOnboarding } from "../../tests/trading/runnerDiagnostics.ts";
+import { qualificationBackendRevision, readWalletSetupDiagnostic, walletFixtureOutput, walletOnboardingStep, observeWalletOnboarding } from "../../tests/trading/runnerDiagnostics.ts";
 import { ownedUsdcStartupFunding } from "../../tests/trading/ownedWalletFunding.ts";
 
 test("owned USDC startup funding covers cumulative issue tiers before sale credits", () => {
@@ -683,229 +683,121 @@ test("a served protocol-facts timeout fails required startup observations for al
   } finally { rmSync(output, { recursive: true, force: true }); }
 });
 
-type SandboxRunnerFixture = {
-  cacheExitCode?: number; testExitCode?: number; testSignal?: string; cacheCheckpoint?: unknown; cacheCheckpointText?: string;
-  factsUnavailable?: boolean; diagnosticScenario?: string;
-  spawnError?: { name: string; code?: string }; independent?: unknown; ui?: unknown;
-  uiFixtureDiagnostic?: unknown; independentFixtureDiagnostic?: unknown; uiFixtureDiagnosticText?: string;
-};
+type OwnedRunnerFixture = { exitCode?: number; signal?: string; ui?: unknown; qualification?: unknown;
+  spawnError?: { name: string; code?: string }; walletDiagnostic?: unknown; walletDiagnosticText?: string };
 
-function runSandboxRunnerFixture(options: SandboxRunnerFixture) {
-  const output = mkdtempSync(join(tmpdir(), "cybergold-trade-runner-diagnostics-"));
-  const fixture = join(output, "owned-command-fixture.mjs");
+function runOwnedRunnerFixture(options: OwnedRunnerFixture) {
+  const output = mkdtempSync(join(tmpdir(), "cybergold-owned-runner-")), fixture = join(output, "fixture.mjs");
   writeFileSync(fixture, `
-import { mock } from "node:test";
-import * as matrix from ${JSON.stringify(fileURLToPath(new URL("../../tests/trading/matrix.ts", import.meta.url)))};
-mock.module(${JSON.stringify(fileURLToPath(new URL("../../tests/trading/matrix.ts", import.meta.url)))}, { namedExports: {
-  ...matrix, readValuation: async () => ({ id: "synthetic-runner-control" }), buildMatrix: (_config, _valuation, templates = matrix.activeMatrixTemplates()) => templates,
-} });
-import childProcess from "node:child_process";
-import assert from "node:assert/strict";
-import { syncBuiltinESMExports } from "node:module";
-import { EventEmitter } from "node:events";
-import { writeFileSync } from "node:fs";
-const options = ${JSON.stringify(options)};
-const config = ${JSON.stringify(protocolConfigurationFixture)};
-globalThis.fetch = async url => new URL(url).pathname === "/en" ? new Response("")
-  : options.factsUnavailable && new URL(url).pathname === "/api/protocol/facts"
-    ? Response.json({ code: "rpc-timeout" }, { status: 504 })
-    : Response.json(new URL(url).pathname === "/api/protocol/config" ? config : {});
-childProcess.spawn = (_executable, args, commandOptions) => {
-  const child = new EventEmitter();
-  child.kill = () => true;
-  const cache = args[0] === "scripts/cache-metamask-wallet.mjs";
-  if (cache) assert.deepEqual(args, ["scripts/cache-metamask-wallet.mjs", "--extension-only"]);
-  const env = commandOptions.env;
-  assert.equal(env.NEXT_PUBLIC_CHAIN_NAME, "CyberGold Sandbox");
-  if (cache && options.cacheCheckpoint !== undefined)
-    writeFileSync(env.TRADE_REGRESSION_WALLET_SETUP_OUTPUT, JSON.stringify(options.cacheCheckpoint));
-  if (cache && options.cacheCheckpointText !== undefined)
-    writeFileSync(env.TRADE_REGRESSION_WALLET_SETUP_OUTPUT, options.cacheCheckpointText);
-  if (!cache && options.independent !== undefined)
-    writeFileSync(env.TRADE_REGRESSION_OUTPUT, JSON.stringify(options.independent));
-  if (!cache && options.ui !== undefined)
-    writeFileSync(env.TRADE_REGRESSION_UI_OUTPUT, JSON.stringify(options.ui));
-  if (!cache && options.uiFixtureDiagnostic !== undefined)
-    writeFileSync(env.TRADE_REGRESSION_UI_FIXTURE_OUTPUT, JSON.stringify(options.uiFixtureDiagnostic));
-  if (!cache && options.independentFixtureDiagnostic !== undefined)
-    writeFileSync(env.TRADE_REGRESSION_INDEPENDENT_FIXTURE_OUTPUT, JSON.stringify(options.independentFixtureDiagnostic));
-  if (!cache && options.uiFixtureDiagnosticText !== undefined)
-    writeFileSync(env.TRADE_REGRESSION_UI_FIXTURE_OUTPUT, options.uiFixtureDiagnosticText);
-  process.nextTick(() => {
-    if (cache && options.spawnError)
-      child.emit("error", Object.assign(new Error("private-error-message"), options.spawnError));
-    else child.emit("exit", cache ? options.cacheExitCode ?? 0 : options.testSignal ? null : options.testExitCode ?? 0,
-      cache ? null : options.testSignal ?? null);
-  });
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+import { EventEmitter } from 'node:events';
+import assert from 'node:assert/strict';
+import { writeFileSync } from 'node:fs';
+const options = ${JSON.stringify(options)}, output = ${JSON.stringify(output)};
+globalThis.fetch = async () => { throw new Error('owned-runner-must-not-use-public-origin'); };
+childProcess.spawn = (executable,args) => {
+  assert.equal(executable,'python3'); assert.equal(args[0],'scripts/qualify-fixed-api-wallet.py');
+  assert.equal(args[args.indexOf('--output-dir')+1],output);
+  const child=new EventEmitter(); child.kill=()=>true;
+  if(options.ui!==undefined)writeFileSync(output+'/regression-ui.json',JSON.stringify(options.ui));
+  if(options.qualification!==undefined)writeFileSync(output+'/qualification.json',JSON.stringify(options.qualification));
+  if(options.walletDiagnostic!==undefined)writeFileSync(output+'/wallet-fixture-ui.json',JSON.stringify(options.walletDiagnostic));
+  if(options.walletDiagnosticText!==undefined)writeFileSync(output+'/wallet-fixture-ui.json',options.walletDiagnosticText);
+  process.nextTick(()=>options.spawnError ? child.emit('error',Object.assign(new Error('private-child-message'),options.spawnError))
+    :child.emit('exit',options.signal?null:options.exitCode??0,options.signal??null));
   return child;
-};
-syncBuiltinESMExports();
+}; syncBuiltinESMExports();
 `);
   try {
-    const child = spawnSync(process.execPath, ["--experimental-test-module-mocks", "--import", fixture, "scripts/run-trade-regression.mjs", "--target", "sandbox",
-      "--mode", "sandbox-execution", "--base-url", "http://app.test", "--output-dir", output,
-      ...(options.diagnosticScenario ? ["--diagnostic-scenario", options.diagnosticScenario] : [])],
-    { cwd: new URL("../../", import.meta.url), stdio: "ignore" });
-    return { exitCode: child.status, report: JSON.parse(readFileSync(join(output, "report.json"), "utf8")),
-      manifest: existsSync(join(output, "matrix.json")) ? JSON.parse(readFileSync(join(output, "matrix.json"), "utf8")) : undefined };
+    const child = spawnSync(process.execPath, ["--import", fixture, "scripts/run-trade-regression.mjs", "--target", "mainnet",
+      "--mode", "fork-execution", "--base-url", "http://unused-public-origin.invalid", "--output-dir", output],
+    { cwd: new URL("../../", import.meta.url), env: { ...process.env, BACKEND_IMAGE: "inert-image", CONTRACTS_JSON: "inert-contracts",
+      FUNDING_JSON: "inert-funding", MAINNET_RPC_URL: "http://inert-upstream.invalid" }, stdio: "ignore" });
+    return { exitCode: child.status, report: JSON.parse(readFileSync(join(output, "report.json"), "utf8")) };
   } finally { rmSync(output, { recursive: true, force: true }); }
 }
 
-function sandboxSuiteReports() {
-  return {
-    independent: { schema: "cybergold.trade-regression.v1", scenarios: tradeScenarios.map(scenario => ({
-      ...resultFor(scenario, "execution"), status: "pass", code: undefined })) },
-    ui: { schema: "cybergold.trade-regression.v1", scenarios: activeMatrixTemplates()
-      .map(scenario => ({ ...resultFor(scenario, "execution"), id: `ui-${scenario.id}`, requestedStrategy: "auto", status: "pass", code: undefined })) },
-  };
+function ownedSuiteReport() {
+  return { schema: "cybergold.trade-regression.v1", valuation: { id: "frozen-owned-valuation" },
+    scenarios: activeMatrixTemplates().map(scenario => ({ ...resultFor(scenario, "execution"),
+      id: `ui-${scenario.id}`, requestedStrategy: "auto", status: "pass", code: undefined })) };
 }
 
-test("regression runner retains extension readiness and consumes only its24UI scenario report", () => {
-  const suites = sandboxSuiteReports();
-  const { exitCode, report, manifest } = runSandboxRunnerFixture({ independent: suites.independent, ui: suites.ui,
-    cacheCheckpoint: { stage: "extension", result: "pass" } });
+test("removed public Sandbox execution cannot fetch, fund or launch a wallet child", () => {
+  const output = mkdtempSync(join(tmpdir(), "cybergold-retired-execution-")), fixture = join(output, "fixture.mjs");
+  writeFileSync(fixture, `import childProcess from 'node:child_process';import {syncBuiltinESMExports} from 'node:module';
+  globalThis.fetch=()=>{throw Error('unexpected-public-fetch')};
+  childProcess.spawn=()=>{throw Error('unexpected-wallet-child')};syncBuiltinESMExports();`);
+  try {
+    const child = spawnSync(process.execPath, ["--import", fixture, "scripts/run-trade-regression.mjs", "--target", "sandbox",
+      "--mode", "sandbox-execution", "--base-url", "https://public.invalid", "--output-dir", join(output, "uncreated")],
+    { cwd: new URL("../../", import.meta.url), encoding: "utf8" });
+    assert.equal(child.status, 1); assert.match(child.stderr, /Sandbox wallet execution uses Ops-owned disposable forks/);
+    assert.doesNotMatch(child.stderr, /unexpected-public-fetch|unexpected-wallet-child/);
+    assert.equal(existsSync(join(output, "uncreated")), false);
+  } finally { rmSync(output, { recursive: true, force: true }); }
+});
+
+test("owned qualifier report retains all24 UI cases and its frozen valuation without public reads", () => {
+  const ui = ownedSuiteReport(), { exitCode, report } = runOwnedRunnerFixture({ ui });
   assert.equal(exitCode, 0); assert.equal(report.runnerOutcome, "pass");
-  assert.deepEqual(report.runnerDiagnostics.walletSetup, { stage: "extension", result: "pass" });
-  assert.equal(report.scenarios.length, 24);
-  assert.deepEqual(report.matrix, { scenarioCount: 24, providerAssessmentCount: 48, maximumTradeExecutions: 48 });
-  assert.deepEqual(manifest.matrix, report.matrix);
-  assert.deepEqual(manifest.scenarios.map((row: { id: string }) => `ui-${row.id}`), report.scenarios.map((row: { id: string }) => row.id));
-  assert.ok(manifest.scenarios.every((row: { inputMode: string }) => row.inputMode === "exact-in"));
-  assert.ok(report.scenarios.every((row: { status: string }) => row.status === "pass"));
+  assert.equal(report.scenarios.length, 24); assert.deepEqual(report.valuation, ui.valuation);
+  assert.deepEqual(report.scenarios.map((row: { id: string }) => row.id), ui.scenarios.map(row => row.id));
 });
 
-test("a named exact-out execution diagnostic keeps one selected manifest and its direct result", () => {
-  const scenario = tradeScenarios.find(row => row.id === "core-issue-paxg-exact-out")!;
-  const independent = { schema: "cybergold.trade-regression.v1", scenarios: [{ ...resultFor(scenario, "execution"), status: "pass", code: undefined }] };
-  const { exitCode, report, manifest } = runSandboxRunnerFixture({ independent, diagnosticScenario: scenario.id });
-  assert.equal(exitCode, 0);
-  assert.deepEqual(report.matrix, { scenarioCount: 1, providerAssessmentCount: 1, maximumTradeExecutions: 1 });
-  assert.deepEqual(manifest.matrix, report.matrix);
-  assert.deepEqual(manifest.scenarios, [scenario]);
-  assert.equal(report.scenarios.length, 1);
-  assert.equal(report.scenarios[0].id, scenario.id);
-  assert.equal(report.scenarios[0].inputMode, "exact-out");
-  assert.equal(report.scenarios[0].layer, "execution");
+test("owned qualifier observations retain exact source revisions and prepared anchor", () => {
+  const { exitCode, report } = runOwnedRunnerFixture({ ui: ownedSuiteReport(), qualification: {
+    result: "pass", stage: "receipts", frontendCommit: "a".repeat(40), backendRuntimeCommit: "b".repeat(40),
+    forkBlock: 100, forkBlockHash: `0x${"c".repeat(64)}`, cleanup: { source: "complete" }, privateUrl: "private-rpc" } });
+  assert.equal(exitCode, 0); assert.equal(report.context.appRevision, "a".repeat(40));
+  assert.equal(report.context.backendRevision, "b".repeat(40)); assert.equal(report.context.blockNumber, "100");
+  assert.deepEqual(report.qualification, { result: "pass", stage: "receipts", cleanup: { source: "complete" } });
+  assert.doesNotMatch(JSON.stringify(report), /private-rpc/);
 });
 
-test("wallet cache failure fails the runner and leaves all24 cases unstarted with safe setup diagnostics", () => {
-  const { exitCode, report } = runSandboxRunnerFixture({ cacheExitCode: 1,
-    cacheCheckpoint: { stage: "wallet-onboarding", result: "fail", errorClass: "TimeoutError",
-      onboarding: { step: "import-wallet", elapsedMs: 1200, message: "private-onboarding-error" },
-      errorCode: "private-errno", error: "private-error-message", seedPhrase: "private-wallet-seed", rpcUrl: "https://private-rpc.invalid" } });
-  assert.equal(exitCode, 1);
-  assert.equal(report.runnerOutcome, "fail"); assert.equal(report.runnerCode, "wallet-setup-failed");
-  assert.equal(report.runnerDiagnostics.stage, "wallet-cache"); assert.equal(report.runnerDiagnostics.exitCode, 1);
-  assert.deepEqual(report.runnerDiagnostics.walletSetup, { stage: "wallet-onboarding", result: "fail", errorClass: "TimeoutError",
-    onboarding: { step: "import-wallet", elapsedMs: 1200 } });
-  assert.equal(report.scenarios.length, 24);
-  assert.equal(new Set(report.scenarios.map((row: { id: string }) => row.id)).size, 24);
-  assert.ok(report.scenarios.every((row: { status: string; code: string }) => row.status === "unavailable" && row.code === "wallet-setup-unavailable"));
-  assert.doesNotMatch(JSON.stringify(report), /private-errno|private-error-message|private-wallet-seed|private-rpc|private-onboarding-error/);
-});
-
-test("native wallet setup import errors retain only their fixed code through runner projection", () => {
-  const error = Object.assign(new Error("private-import-message"), {
-    code: "ERR_MODULE_NOT_FOUND", path: "private-import-path", stack: "private-import-stack",
-  });
-  assert.deepEqual(safeRunnerError(error), { errorClass: "Error", errorCode: "ERR_MODULE_NOT_FOUND" });
-  assert.deepEqual(safeRunnerError(Object.assign(new Error("private-import-message"), { code: "private-import-code" })),
-    { errorClass: "Error" });
-  const { exitCode, report } = runSandboxRunnerFixture({ cacheExitCode: 1,
-    cacheCheckpoint: { stage: "setup-import", result: "fail", ...safeRunnerError(error),
-      message: error.message, path: error.path, stack: error.stack, errorCodeSuffix: "private-import-code" } });
-  assert.equal(exitCode, 1);
-  assert.deepEqual(report.runnerDiagnostics.walletSetup,
-    { stage: "setup-import", result: "fail", errorClass: "Error", errorCode: "ERR_MODULE_NOT_FOUND" });
-  assert.equal(report.runnerCode, "wallet-setup-failed");
-  assert.ok(report.scenarios.every((row: { status: string; code: string }) =>
-    row.status === "unavailable" && row.code === "wallet-setup-unavailable"));
-  assert.doesNotMatch(JSON.stringify(report), /private-import/);
-});
-
-test("a child spawn failure retains its safe system code and never exports an arbitrary error name", () => {
-  const { exitCode, report } = runSandboxRunnerFixture({ spawnError: { name: "private-error-name", code: "ENOENT" } });
-  assert.equal(exitCode, 1);
-  assert.equal(report.runnerOutcome, "fail"); assert.equal(report.runnerCode, "wallet-setup-failed");
-  assert.equal(report.runnerDiagnostics.stage, "wallet-cache");
-  assert.equal(report.runnerDiagnostics.errorClass, "UnknownError"); assert.equal(report.runnerDiagnostics.errorCode, "ENOENT");
-  assert.equal(report.scenarios.length, 24);
-  assert.ok(report.scenarios.every((row: { status: string }) => row.status === "unavailable"));
-  assert.doesNotMatch(JSON.stringify(report), /private-error-name|private-error-message/);
-});
-
-test("missing execution reports fail the runner without inventing attempted failures for all24 cases", () => {
-  for (const command of [{ testExitCode: 1 }, { testSignal: "SIGTERM" }]) {
-    const { exitCode, report } = runSandboxRunnerFixture(command);
-    assert.equal(exitCode, 1);
-    assert.equal(report.runnerOutcome, "fail"); assert.equal(report.runnerCode, "ui-results-unavailable");
+test("missing owned execution reports keep all24 cases unattempted after child failure or signal", () => {
+  for (const result of [{ exitCode: 1 }, { signal: "SIGTERM" }]) {
+    const { exitCode, report } = runOwnedRunnerFixture(result);
+    assert.equal(exitCode, 1); assert.equal(report.runnerCode, "ui-results-unavailable");
     assert.equal(report.runnerDiagnostics.stage, "ui-report");
-    assert.equal(report.runnerDiagnostics.exitCode, command.testExitCode);
-    assert.equal(report.runnerDiagnostics.signal, command.testSignal);
-    assert.equal(report.runnerDiagnostics.errorClass, "Error"); assert.equal(report.runnerDiagnostics.errorCode, "ENOENT");
     assert.equal(report.scenarios.length, 24);
-    assert.equal(report.scenarios.filter((row: { status: string }) => row.status === "fail").length, 0);
-    assert.ok(report.scenarios.filter((row: { id: string }) => !row.id.startsWith("ui-"))
-      .every((row: { status: string; code: string }) => row.status === "unavailable" && row.code === "execution-results-unavailable"));
-    assert.ok(report.scenarios.filter((row: { id: string }) => row.id.startsWith("ui-"))
-      .every((row: { status: string; code: string }) => row.status === "unavailable" && row.code === "ui-results-unavailable"));
+    assert.ok(report.scenarios.every((row: { executionAttempted: boolean; transactionDisposition: string }) =>
+      row.executionAttempted === false && row.transactionDisposition === "not-submitted"));
+    assert.equal(report.runnerDiagnostics.signal, result.signal);
   }
 });
 
-test("an absent independent report is irrelevant and partial UI evidence retains all other unstarted cases", () => {
-  const transactionHash = `0x${"d".repeat(64)}`;
-  const ui = { schema: "cybergold.trade-regression.v1", scenarios: activeMatrixTemplates()
-    .map((scenario, index) => ({ ...resultFor(scenario, "execution"), id: `ui-${scenario.id}`, requestedStrategy: "auto",
-      ...(index === 0 ? { status: "pass", code: undefined, transactionHash, actualOperation: "issueFromTokenExactOut",
-        receipt: { transactionHash, blockNumber: "26100001", netPaid: ["100"], netReceived: ["90"] } } : {}) })) };
-  const { exitCode, report } = runSandboxRunnerFixture({ testExitCode: 1, ui });
-  assert.equal(exitCode, 1);
-  assert.equal(report.runnerOutcome, "fail"); assert.equal(report.runnerCode, "wallet-tests-failed");
-  assert.equal(report.scenarios.length, 24);
-  assert.equal(report.scenarios.filter((row: { status: string }) => row.status === "pass").length, 1);
-  assert.equal(report.scenarios.filter((row: { status: string }) => row.status === "unavailable").length, 23);
-  const mined = report.scenarios.find((row: { id: string }) => row.id === ui.scenarios[0].id);
-  assert.equal(mined.transactionHash, transactionHash);
-  assert.equal(mined.actualOperation, "issueFromTokenExactOut"); assert.deepEqual(mined.receipt, ui.scenarios[0].receipt);
+test("owned child failure preserves its confirmed receipt and remaining unstarted inventory", () => {
+  const ui = ownedSuiteReport(), hash = `0x${"d".repeat(64)}`;
+  Object.assign(ui.scenarios[0], { transactionHash: hash, receipt: { transactionHash: hash, amountOut: "90" } });
+  for (const row of ui.scenarios.slice(1)) Object.assign(row, { status: "unavailable", code: "not-exercised" });
+  const { exitCode, report } = runOwnedRunnerFixture({ exitCode: 1, ui });
+  assert.equal(exitCode, 1); assert.equal(report.runnerCode, "fork-qualification-failed");
+  assert.equal(report.scenarios.length, 24); assert.equal(report.scenarios[0].transactionHash, hash);
+  assert.deepEqual(report.scenarios[0].receipt, { transactionHash: hash, amountOut: "90" });
 });
 
-test("explicit single-case diagnostic retains mined evidence and safe fixture diagnostics without requiring a UI report", () => {
-  const independent = sandboxSuiteReports().independent;
-  independent.scenarios = independent.scenarios.slice(0, 1);
-  const transactionHash = `0x${"e".repeat(64)}`;
-  Object.assign(independent.scenarios[0], { transactionHash, actualOperation: "issueFromTokenExactOutWithPermit2",
-    authorization: ["permit2"], receipt: { transactionHash, inputUsed: "100", amountOut: "90" } });
-  const { exitCode, report } = runSandboxRunnerFixture({ independent, diagnosticScenario: tradeScenarios[0].id, testExitCode: 1,
-    uiFixtureDiagnostic: { stage: "wallet-onboarding", result: "fail", errorClass: "TimeoutError", errorCode: "EACCES",
-      onboarding: { step: "completion-click", elapsedMs: 2400, dom: "private-wallet-DOM" },
-      message: "private-wallet-error", password: "private-wallet-password", rpcUrl: "https://private-fixture-rpc.invalid" },
-    independentFixtureDiagnostic: { stage: "browser-close", result: "pass" } });
-  assert.equal(exitCode, 1);
-  assert.equal(report.runnerOutcome, "fail"); assert.equal(report.runnerCode, "wallet-tests-failed");
-  assert.equal(report.runnerDiagnostics.stage, "wallet-tests"); assert.equal(report.runnerDiagnostics.errorCode, undefined);
-  assert.deepEqual(report.runnerDiagnostics.walletTests, {
-    ui: { stage: "wallet-onboarding", result: "fail", errorClass: "TimeoutError", errorCode: "EACCES",
-      onboarding: { step: "completion-click", elapsedMs: 2400 } },
-    independent: { stage: "browser-close", result: "pass" },
-  });
-  assert.equal(report.scenarios.filter((row: { status: string }) => row.status === "pass").length, 1);
-  assert.equal(report.scenarios.filter((row: { status: string }) => row.status === "unavailable").length, 0);
-  const mined = report.scenarios.find((row: { id: string }) => row.id === independent.scenarios[0].id);
-  assert.equal(mined.transactionHash, transactionHash); assert.deepEqual(mined.authorization, ["permit2"]);
-  assert.deepEqual(mined.receipt, { transactionHash, inputUsed: "100", amountOut: "90" });
-  assert.doesNotMatch(JSON.stringify(report), /private-wallet-error|private-wallet-password|private-fixture-rpc|private-wallet-DOM/);
+test("owned native startup diagnostics retain only safe fields", () => {
+  const { exitCode, report } = runOwnedRunnerFixture({ ui: ownedSuiteReport(), walletDiagnostic: {
+    stage: "wallet-onboarding", result: "fail", errorClass: "TimeoutError", error: "private-wallet-DOM",
+    onboarding: { step: "import-wallet", elapsedMs: 1200, message: "private-wallet-error" } } });
+  assert.equal(exitCode, 0);
+  assert.deepEqual(report.runnerDiagnostics.walletTests.ui, { stage: "wallet-onboarding", result: "fail", errorClass: "TimeoutError",
+    onboarding: { step: "import-wallet", elapsedMs: 1200 } });
+  assert.doesNotMatch(JSON.stringify(report), /private-wallet/);
 });
 
-test("optional missing or invalid wallet setup diagnostics cannot reject successful execution reports", () => {
-  for (const checkpoint of [{}, { cacheCheckpointText: "invalid optional json" },
-    { cacheCheckpoint: { stage: "private-stage", result: "private-result", errorClass: "private-error-name", error: "private-error-message" } },
-    { uiFixtureDiagnosticText: "invalid optional json", independentFixtureDiagnostic: { stage: "private-stage", result: "private-result" } }]) {
-    const { exitCode, report } = runSandboxRunnerFixture({ ...sandboxSuiteReports(), ...checkpoint });
-    assert.equal(exitCode, 0);
-    assert.equal(report.runnerOutcome, "pass"); assert.equal(report.scenarios.length, 24);
-    assert.ok(report.scenarios.every((row: { status: string }) => row.status === "pass"));
-    assert.doesNotMatch(JSON.stringify(report), /private-stage|private-result|private-error-name|private-error-message/);
-  }
+test("optional malformed diagnostics cannot reject owned native execution reports", () => {
+  const { exitCode, report } = runOwnedRunnerFixture({ ui: ownedSuiteReport(), walletDiagnosticText: "invalid optional json" });
+  assert.equal(exitCode, 0); assert.equal(report.runnerOutcome, "pass"); assert.equal(report.scenarios.length, 24);
+});
+
+test("owned command spawn failure retains its safe system error without private prose", () => {
+  const { exitCode, report } = runOwnedRunnerFixture({ ui: ownedSuiteReport(), spawnError: { name: "private-error-name", code: "ENOENT" } });
+  assert.equal(exitCode, 1); assert.equal(report.runnerCode, "fork-qualification-failed");
+  assert.equal(report.runnerDiagnostics.errorClass, "UnknownError"); assert.equal(report.runnerDiagnostics.errorCode, "ENOENT");
+  assert.doesNotMatch(JSON.stringify(report), /private-error-name|private-child-message/);
 });
 
 test("fresh fixture diagnostics belong only to the two owned regression suites", () => {

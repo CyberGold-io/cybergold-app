@@ -16,14 +16,14 @@ export type RunnerFundingPlan = {
   actualCygldRaw?: string; acquiredCygldRaw?: string; cygldShortfallRaw?: string;
 };
 
-/** Plan from frozen inputs without assuming future issue proceeds or refunds.
- * The setup is one ordinary exact-input purchase, not an output guarantee. */
+/** Nominate an initial largest-case buffer from frozen redemption inputs.
+ * No prospective issue proceeds/refunds are subtracted. One ordinary exact-input
+ * setup purchase neither guarantees that output nor funds every future sale. */
 export function runnerFundingPlan(config: ProtocolConfiguration, valuation: ValuationSnapshot,
   scenarios: readonly MatrixScenario[], suite: RunnerFundingPlan["suite"]) {
   const redemptionBudgets = scenarios.filter(row => row.side === "sell" && row.inputMode === "exact-in" && !row.sizingError)
     .map(row => ({ scenarioId: row.id, amountRaw: row.amountRaw }));
-  const combine = (left: bigint, right: bigint) => suite === "sequential" ? left + right : left > right ? left : right;
-  const required = redemptionBudgets.reduce((amount, row) => combine(amount, BigInt(row.amountRaw)), 0n);
+  const required = redemptionBudgets.reduce((amount, row) => amount > BigInt(row.amountRaw) ? amount : BigInt(row.amountRaw), 0n);
   const cygld = configuredToken(config, "CYGLD");
   const rejection = setupPurchase(config, valuation, "0.25", "fixture-wallet-rejection");
   const bootstrap = setupPurchase(config, valuation, formatUnits(required, cygld.decimals), "fixture-cygld-bootstrap");
@@ -37,11 +37,12 @@ export function runnerFundingPlan(config: ProtocolConfiguration, valuation: Valu
         ? sum + BigInt(row.basketAmounts![index]) : sum, 0n);
       return [{ scenarioId: row.id, amountRaw: String(amount) }];
     });
-  const plannedPaxg = paxgSpendBudgets.reduce((amount, row) => combine(amount, BigInt(row.amountRaw)), 0n);
+  const combinePaxg = (left: bigint, right: bigint) => suite === "sequential" ? left + right : left > right ? left : right;
+  const plannedPaxg = paxgSpendBudgets.reduce((amount, row) => combinePaxg(amount, BigInt(row.amountRaw)), 0n);
   const executionPaxg = BigInt(bootstrap.amountRaw!) + plannedPaxg;
   const rejectionPaxg = BigInt(rejection.amountRaw!);
   const plan: RunnerFundingPlan = { suite, valuationId: valuation.id,
-    inventoryPolicy: suite === "sequential" ? "sum-redemption-budgets" : "maximum-redemption-budget",
+    inventoryPolicy: "maximum-redemption-budget",
     requiredCygldRaw: String(required), bootstrapPaxgRaw: bootstrap.amountRaw!, rejectionPaxgRaw: rejection.amountRaw!,
     plannedPaxgSpendsRaw: String(plannedPaxg),
     // Rejection needs collateral but cancels before spending it. Cover its

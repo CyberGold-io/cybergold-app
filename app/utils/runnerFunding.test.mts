@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { runnerFundingPlan, observeRunnerCygld, observeRunnerPaxg } from "../../tests/trading/runnerFunding.ts";
 import { ownedPaxgStartupFunding } from "../../tests/trading/ownedWalletFunding.ts";
-import type { MatrixScenario, ValuationSnapshot } from "../../tests/trading/matrix.ts";
+import { activeMatrixTemplates, type MatrixScenario, type ValuationSnapshot } from "../../tests/trading/matrix.ts";
 import { protocolConfigurationFixture as config, tokenAddresses } from "../../tests/fixtures/protocol-configuration.ts";
 
 const unit = 10n ** 18n;
@@ -16,12 +16,13 @@ const scenario = (id: string, side: "buy" | "sell", asset: "PAXG" | "USDC", amou
 const selected = [scenario("paxg-buy-small", "buy", "PAXG", unit), scenario("paxg-buy-large", "buy", "PAXG", 5n * unit),
   scenario("paxg-redeem", "sell", "PAXG", 75n * unit), scenario("usdc-redeem", "sell", "USDC", 80n * unit)];
 
-test("sequential inventory covers frozen redemption budgets without assuming the preceding buys succeeded", () => {
+test("sequential setup nominates a largest-case CYGLD buffer while retaining cumulative PAXG spending", () => {
   const { plan, bootstrap } = runnerFundingPlan(config, valuation, selected, "sequential");
-  assert.equal(plan.requiredCygldRaw, String(155n * unit));
-  assert.equal(plan.bootstrapPaxgRaw, String(775n * unit / 100n));
+  assert.equal(plan.requiredCygldRaw, String(80n * unit));
+  assert.equal(plan.bootstrapPaxgRaw, String(4n * unit));
   assert.equal(plan.plannedPaxgSpendsRaw, String(6n * unit));
-  assert.equal(plan.requiredPaxgRaw, String(1375n * unit / 100n));
+  assert.equal(plan.requiredPaxgRaw, String(10n * unit));
+  assert.equal(plan.inventoryPolicy, "maximum-redemption-budget");
   assert.equal(bootstrap.inputMode, "exact-in");
   assert.equal(plan.valuationId, valuation.id);
   assert.deepEqual(plan.redemptionBudgets.map(row => row.scenarioId), ["paxg-redeem", "usdc-redeem"]);
@@ -42,7 +43,7 @@ test("PAXG collateral includes its actual basket component and applies SUM or pe
   const sequential = runnerFundingPlan(config, valuation, [...selected, basket], "sequential").plan;
   assert.equal(sequential.plannedPaxgSpendsRaw, String(9n * unit));
   assert.equal(sequential.paxgSpendBudgets.at(-1)?.amountRaw, String(3n * unit));
-  assert.equal(sequential.requiredPaxgRaw, String(1675n * unit / 100n));
+  assert.equal(sequential.requiredPaxgRaw, String(13n * unit));
   const largerBasket = { ...basket, basketAmounts: [String(900n * unit), String(31n * unit)] };
   const independent = runnerFundingPlan(config, valuation, [...selected, largerBasket], "independent").plan;
   assert.equal(independent.plannedPaxgSpendsRaw, String(31n * unit));
@@ -54,7 +55,7 @@ test("an ordinary partial bootstrap remains a measured shortfall, not a new targ
   observeRunnerCygld(plan, String(7n * unit), String(5n * unit));
   assert.equal(plan.actualCygldRaw, String(7n * unit));
   assert.equal(plan.acquiredCygldRaw, String(5n * unit));
-  assert.equal(plan.cygldShortfallRaw, String(148n * unit));
+  assert.equal(plan.cygldShortfallRaw, String(73n * unit));
   observeRunnerCygld(plan, String(160n * unit));
   assert.equal(plan.cygldShortfallRaw, "0");
 });
@@ -67,6 +68,27 @@ test("owned holder transfer uses the larger of manifest collateral and the exact
   assert.equal(ownedPaxgStartupFunding(String(20n * unit), plan).transferAmount, String(20n * unit));
   const wide = String(2n ** 100n);
   assert.equal(ownedPaxgStartupFunding("0", { ...plan, requiredPaxgRaw: wide }).transferAmount, wide);
+});
+
+test("initial buffer preserves all24 frozen cases and order without subtracting prospective buy credits", () => {
+  const frozen = activeMatrixTemplates().map((row, index) => ({ ...row,
+    amountRaw: String(BigInt(index + 1) * unit), valuationId: valuation.id,
+    ...(row.asset === "BASKET" ? { basketAssets: [tokenAddresses.USDC, tokenAddresses.PAXG],
+      basketAmounts: [String(2n * unit), String(3n * unit)] } : {}),
+  })) as MatrixScenario[];
+  const original = structuredClone(frozen);
+  const { plan } = runnerFundingPlan(config, valuation, frozen, "sequential");
+  assert.equal(frozen.length, 24); assert.deepEqual(frozen, original);
+  assert.equal(plan.valuationId, valuation.id);
+  const redemptions = frozen.filter(row => row.side === "sell");
+  assert.deepEqual(plan.redemptionBudgets, redemptions.map(row => ({ scenarioId: row.id, amountRaw: row.amountRaw })));
+  const maximum = redemptions.reduce((left, row) => left > BigInt(row.amountRaw) ? left : BigInt(row.amountRaw), 0n);
+  assert.equal(plan.requiredCygldRaw, String(maximum));
+  const withoutIssues = runnerFundingPlan(config, valuation, frozen.filter(row => row.side === "sell"), "sequential").plan;
+  assert.equal(plan.requiredCygldRaw, withoutIssues.requiredCygldRaw);
+  const moreIssueFunding = frozen.map(row => row.side === "buy" ? { ...row, amountRaw: String(10n ** 30n) } : row);
+  assert.equal(runnerFundingPlan(config, valuation, moreIssueFunding, "sequential").plan.requiredCygldRaw, plan.requiredCygldRaw);
+  assert.equal(plan.plannedPaxgSpendsRaw, String(plan.paxgSpendBudgets.reduce((sum, row) => sum + BigInt(row.amountRaw), 0n)));
 });
 
 test("available collateral is optional evidence, including a fixed public grant's shortfall", () => {
