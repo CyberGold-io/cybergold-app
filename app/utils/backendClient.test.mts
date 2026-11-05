@@ -108,7 +108,9 @@ test("generic catalog filters and V4 snapshots retain lossless bytes through the
       assert.equal(init?.method, "GET");
       return new Response(raw, { headers: { "Content-Type": "application/json" } });
     }) as typeof fetch);
-    assert.equal(await (await catalog(new Request(`https://app.invalid/api/pools/catalog?tokenA=${tokenA}&tokenB=${tokenB}`))).text(), raw);
+    const response = await catalog(new Request(`https://app.invalid/api/pools/catalog?tokenA=${tokenA}&tokenB=${tokenB}`));
+    assert.equal(response.headers.get("x-accel-buffering"), null);
+    assert.equal(await response.text(), raw);
     const body = JSON.stringify({ protocol: "v4", tokenA, tokenB, fee: 100, tickSpacing: 1, hooks: `0x${"0".repeat(40)}` }, null, 2) + "\n";
     const pool = backendRoute("/api/pools/snapshot", (async (_url, init) => {
       assert.equal(await new Response(init?.body).text(), body);
@@ -179,7 +181,8 @@ for (const path of ["/api/economic-quotes/stream", "/api/quotes/routes/stream", 
     });
     const route = backendRoute(path, (async (_url, init) => {
       assert.equal(new Headers(init?.headers).get("authorization"), "Bearer fixture-private");
-      return new Response(body, { headers: { "content-type": "application/x-ndjson", "cache-control": "no-store", "x-accel-buffering": "no" } });
+      // An intervening reverse proxy may consume the upstream buffering control.
+      return new Response(body, { headers: { "content-type": "application/x-ndjson", "cache-control": "no-store" } });
     }) as typeof fetch);
     let returned = false;
     const pending = route(new Request(`https://app.invalid${path}`, { method: "POST", body: "{}" })).then(value => {
