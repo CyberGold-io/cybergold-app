@@ -35,14 +35,22 @@ export function uiQuoteReady(observations: readonly QuoteObservation[], scenario
   return state.quoteReady && state.swapEnabled;
 }
 
+/** Identify the existing combined poll's failed predicate from its last read. */
+export function uiReadinessFailure(state?: Pick<UiReadinessDiagnostic, "quoteReady" | "swapEnabled">) {
+  if (!state) return "ui-readiness-not-observed" as const;
+  return state?.quoteReady === false ? "ui-quote-observation-not-ready" as const : "ui-swap-not-enabled" as const;
+}
+
 /** Observe the original quote within the existing enabled-Swap deadline. */
 export async function waitForUiSwapReady(page: Page, configuration: ProtocolConfiguration, scenario?: Scenario,
   quoteEvidence?: Parameters<typeof uiPreparationAssertion>[2], observed?: (value: UiReadinessDiagnostic) => void) {
-  await uiPreparationAssertion("ui-swap-not-enabled", async () => {
+  let lastReadiness: UiReadinessDiagnostic | undefined;
+  await uiPreparationAssertion(() => scenario ? uiReadinessFailure(lastReadiness) : "ui-swap-not-enabled", async () => {
     if (!scenario) return expect(await getSwapButton(page)).toBeEnabled({ timeout: 60000 });
     await expect.poll(async () => {
       const state = uiQuoteReadiness(await quoteObservations(page), scenario, configuration,
         await (await getSwapButton(page)).isEnabled());
+      lastReadiness = state;
       try { observed?.(state); } catch { /* Optional predicate evidence cannot change readiness. */ }
       return state.quoteReady && state.swapEnabled;
     }, { timeout: 60000 }).toBe(true);

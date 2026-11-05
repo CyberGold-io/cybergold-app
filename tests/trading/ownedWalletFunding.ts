@@ -1,5 +1,6 @@
 import { parseUnits } from "viem";
 import { activeMatrixTemplates } from "./matrix.ts";
+import type { RunnerFundingPlan } from "./runnerFunding.ts";
 
 /** These sequential buys precede any USDC sale credits in the active matrix. */
 export function ownedUsdcStartupFunding(manifestAmount: string, decimals: number) {
@@ -14,4 +15,12 @@ export function ownedUsdcStartupFunding(manifestAmount: string, decimals: number
   return { manifestAmount: String(supplied), plannedAmount: String(planned),
     transferAmount: String(supplied > planned ? supplied : planned),
     decimals, reason: "cumulative-active-usdc-issue-budgets", debits };
+}
+
+/** Existing holder-to-wallet funding; never mint or alter Protocol backing. */
+export function ownedPaxgStartupFunding(manifestAmount: string, plan: RunnerFundingPlan) {
+  const supplied = BigInt(manifestAmount), planned = BigInt(plan.requiredPaxgRaw);
+  return { manifestAmount: String(supplied), plannedAmount: String(planned),
+    transferAmount: String(supplied > planned ? supplied : planned), valuationId: plan.valuationId,
+    reason: "frozen-runner-paxg-budgets", suite: plan.suite };
 }

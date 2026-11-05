@@ -60,6 +60,7 @@ export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "ass
   quoteTerms?: QualityTerms; executionTerms?: QualityTerms; quoteQuality?: QualityMeasurement; executionQuality?: QualityMeasurement;
 };
 export type RegressionReport = { schema: "cybergold.trade-regression.v1"; runId: string; target: "sandbox" | "mainnet";
+  fundingPlan?: import('./runnerFunding.ts').RunnerFundingPlan;
   suite?: 'sequential' | 'independent'; isolation?: import('./privateSandbox.ts').SandboxIsolation;
   mode: "quotes" | "sandbox-execution" | "fork-execution"; startedAt: string; finishedAt?: string;
   observations?: { chainId?: number; forkGeneration?: string | null; correlationAvailable?: boolean };

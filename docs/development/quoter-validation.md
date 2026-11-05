@@ -146,6 +146,50 @@ amounts. This corrects the demonstrated 10,000 USDC fixture shortfall after its
 first 101 USDC of spending; it adds no balance buffer, admission check or live
 top-up, and leaves the public funding manifest and product checks unchanged.
 
+### Matrix-derived runner inventory setup
+
+The runner-funding follow-up starts from App Dev `98b0cd5` and changes only
+test fixtures and diagnostics. Freeze the existing valuation and exact-input
+matrix **before** the ordinary inventory purchase. Sequential execution plans
+the sum of its frozen CYGLD redemption budgets without assuming future issue
+proceeds or refunds; independent reset attempts plan their maximum. The one
+PAXG exact-input bootstrap is sized indicatively for that quantity. Its actual
+receipt and remaining inventory shortfall are observations, not a guaranteed
+output or an additional setup-success condition. Normal capacity, reserve,
+liquidity and wallet-funding errors keep their original outcomes. No retry,
+CYGLD mint, reserve repair or test amount reduction is introduced.
+
+`scripts/plan-runner-funding.mts` prepares the wallet-free config/facts/valuation
+and frozen manifest, including `fundingPlan`. Its explicit `--wallet-address`
+flag adds the first dedicated account derived from the existing private runner
+seed to that manifest; no signing material is written or logged. The host can
+run this finite planning phase, provision collateral, then start the ordinary
+runner with the same manifest. No child acknowledgement wait is added.
+For the existing owned local fork
+qualifier's full matrix, PAXG funding waits until that plan is available, then
+uses its existing holder-to-dedicated-wallet transfer once. The amount is the
+larger of the original manifest allocation and bootstrap PAXG plus planned
+PAXG case spending, also covering the cancelled rejection's balance requirement
+without counting it as spent collateral. The same frozen manifest reaches the browser; the
+independent prepare phase no longer revalues cases after the bootstrap.
+Focused selections that omit the matrix keep their existing funding behavior.
+
+An owner-controlled private baseline can pass a prepared manifest through
+`TRADE_REGRESSION_FROZEN_MATRIX`; `TRADE_REGRESSION_MATRIX` remains its prepared
+output path. This lets its existing owner provision real PAXG collateral before
+the ordinary purchase without a circular wallet-dependent valuation. The public
+Sandbox faucet still accepts only address/requestId and supplies its configured
+allocation. The runner reports its derived requirement; it cannot request a
+larger grant through that API. Additional dedicated-wallet provisioning belongs
+to the existing authorized fixture/host boundary, never the Protocol account.
+
+Native reports retain `fundingPlan` with valuation identity, sum/max policy,
+individual raw case budgets, PAXG requirement and available/acquired/shortfall
+observations when present. Existing UI readiness predicates and deadlines stay
+unchanged. A timeout identifies missing quote observation separately from a
+disabled Swap button; unavailable readiness evidence stays explicit, and a
+matched typed Backend refusal takes precedence over the timeout label.
+
 At cleanup, `*-failures.jsonl` retains the closed projection of failed operation,
 quote and wallet-diagnostic events from each whole owned-container log. It does
 not truncate failures to the final 100 lines. The separate `.log` contains only a

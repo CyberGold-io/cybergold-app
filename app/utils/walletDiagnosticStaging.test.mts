@@ -58,7 +58,7 @@ function fixture(policy: "diagnostic" | "full", failure: "winner" | "alternate" 
     activeQuoteDiagnostics: undefined, clickedSelection: undefined as unknown,
     activeConfirmationDeadline: performance.now() + 90_000,
     fixtures: [] as ScenarioResult[], bootstrap: scenarios[0], bootstrapStarted: performance.now(),
-    setupComplete: true, setupRefs: {},
+    setupComplete: true, setupRefs: {}, fundingPlan: undefined,
     expect, requireInvariant, notAttemptedAlternate, transactionDisposition, uiObservationFailure,
     unexpectedFailure, isWalletRequestCleanupError,
     test: { step: async (_name: string, action: () => Promise<void>) => action() },
