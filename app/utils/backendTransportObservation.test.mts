@@ -33,7 +33,9 @@ test("proxy timing separates held headers/body, passes early chunks without pref
     assert.equal(handoff.backendRevision, revision);
     assert.deepEqual(handoff.serverTiming, [{ name: "cache", durationMs: 12.5 }, { name: "resolve", durationMs: 2 }]);
     assert.equal(events.some(event => event.phase === "finished"), false);
+    now = 65;
     const reader = response.body!.getReader(), first = reader.read();
+    await Promise.resolve();
     now = 80;
     const bytes = new TextEncoder().encode('{"type":"qualified","value":{}}\n'); writer.enqueue(bytes);
     assert.equal((await first).value, bytes, "forward the original chunk without decoding or copying");
@@ -44,6 +46,7 @@ test("proxy timing separates held headers/body, passes early chunks without pref
     assert.equal(final.length, 1);
     assert.equal(final[0].outcome, "completed"); assert.equal(final[0].upstreamHeadersMs, 25);
     assert.equal(final[0].firstBodyMs, 55); assert.equal(final[0].bodyMs, 175); assert.equal(final[0].bytes, bytes.length);
+    assert.equal(final[0].firstPullMs, 40); assert.equal(final[0].firstReadMs, 15);
     assert.equal(final[0].chunks, 1);
     assert.doesNotMatch(JSON.stringify(events), /private|secret|Bearer|Authorization|payload|query/);
   });

@@ -36,6 +36,7 @@ import { readSwapFeePreferences, writeSwapFeePreferences } from "../utils/swapFe
 import { useTransactionFees } from "@/app/hooks/useTransactionFees";
 import { useRetainedQuoteDisplay } from "@/app/hooks/flows/quotes/useRetainedQuoteDisplay";
 import { useQuoteDiagnostics } from "@/app/hooks/useQuoteDiagnostics";
+import { useQuoteLatency } from "@/app/hooks/useQuoteLatency";
 import { DiagnosticReference } from "@/app/components/diagnosticReference";
 import { diagnosticReference, diagnosticReferences } from "@/app/utils/diagnosticReferences";
 import { createSwapDiagnostics, diagnosticReason, swapFailureOutcome } from "@/app/utils/clientDiagnostics";
@@ -1684,6 +1685,11 @@ const computedReceiveQuote = useMemo((): Prefill => {
     : activeQuoteInvalidated ? loadingAmountPlaceholder : liveDisplayedQuotedBuyAmount;
 
   const hasValidatedReceiveAmount = !hasProgressiveBuyEstimate && Boolean(readySpendingQuote) && !showBuyBasket && !isSpendAmountZero;
+  useQuoteLatency(!hasFullBudgetEstimate && !quoteInputPending && !activeQuoteInvalidated &&
+    activeQuoteStatus === "success" && !isSpendAmountZero && !isSubmittingSwap &&
+    Boolean(activeUniversalQuote && isEconomicQuote(activeUniversalQuote)) &&
+    Boolean(showBuyBasket ? qualifiedBasketQuote : hasValidatedReceiveAmount || basketSpendingInputs),
+    activeQuoteReferences, activeUniversalQuote && isEconomicQuote(activeUniversalQuote) ? activeUniversalQuote.observation?.source : undefined);
   // Pulse displayed number replacements, independently of quote identity or capture.
   const previousReceiveAmount = useRef<string | undefined>(undefined);
   const [receiveUpdatePulse, setReceiveUpdatePulse] = useState<string | undefined>(undefined);

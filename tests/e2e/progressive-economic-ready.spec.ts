@@ -33,13 +33,15 @@ async function wallet(page:Page){
   await page.route("**/api/transaction/fees",route=>route.fulfill({json:{context,maxFeePerGas:"2000000000",maxPriorityFeePerGas:"1000000000"}}));
 }
 type Connection={input:EconomicRequest;response:ServerResponse;closed:boolean;frame:(frame:unknown)=>void;end:()=>void};
-async function streams(page:Page){
+async function streams(page:Page, observedIds=false){
   const connections:Connection[]=[];
   const server=createServer(async(request,response)=>{
     response.setHeader("Access-Control-Allow-Origin","*");response.setHeader("Access-Control-Allow-Headers","content-type,x-cybergold-attempt-id");
     response.setHeader("Access-Control-Allow-Methods","POST,OPTIONS");
     if(request.method==="OPTIONS"){response.writeHead(204);response.end();return;}
     let body="";for await(const chunk of request)body+=chunk;
+    if(observedIds){response.setHeader("X-CyberGold-Request-Id",`00000000-0000-4000-8000-${String(connections.length+1).padStart(12,'0')}`);
+      response.setHeader("Access-Control-Expose-Headers","X-CyberGold-Request-Id");}
     response.writeHead(200,{"content-type":"application/x-ndjson","cache-control":"no-store"});response.flushHeaders();
     const connection:Connection={input:JSON.parse(body),response,closed:false,frame:frame=>{if(!response.destroyed)response.write(JSON.stringify(frame)+"\n");},end:()=>response.end()};
     response.on("close",()=>{connection.closed=true;});connections.push(connection);
@@ -196,6 +198,63 @@ for (const result of ['fresh', 'limited', 'full'] as const) test(`a Backend full
     await expect(page.locator('[data-trade-action]')).toBeEnabled();
     current.frame({ type: 'complete', value: selected }); current.end();
   } finally { await wire.close(); }
+});
+
+test('latency evidence includes typing settlement and records validated display only after the arithmetic overlay ends', async ({page}) => {
+  await install(page); await wallet(page);
+  await page.addInitScript(() => {
+    const scope = window as unknown as { latency: Record<string, unknown>[] };
+    scope.latency = [];
+    window.addEventListener('cybergold:quote-latency', event => scope.latency.push((event as CustomEvent).detail));
+  });
+  await page.route('**/api/economic-estimates', route => route.fulfill({json:{
+    namespace:'trade',intent:route.request().postDataJSON(),models:[],estimate:{strategy:'universal',source:'cached-lower',
+      amount:String(12n*unit),referenceInput:String(unit),basis:'funded-input-approximation',fullBudget:true,context,
+      fees:{coreProtocolFeeCygld:'0',coreHelpersFeeCygld:'0',marketFeeCygld:'0'}}}}));
+  const wire = await streams(page, true);
+  const evidence = () => page.evaluate(() => (window as unknown as {latency:Record<string,unknown>[]}).latency);
+  try {
+    await page.goto('/en');
+    await expect(page.getByRole('button',{name:'Open wallet menu',exact:true})).toBeVisible();
+    await page.locator('#sell-amount').fill('1');
+    await expect.poll(() => wire.connections.length).toBe(1);
+    await expect(page.locator('#buy-amount')).toHaveText('12');
+    const current = wire.connections[0];
+    current.frame({type:'qualified',value:{...value(current.input,'10',String(8n*unit/10n)),observation:{source:'stored',refresh:false}}});
+    await expect(page.locator('[data-trade-action]')).toBeEnabled();
+    await expect(page.locator('#buy-amount')).toHaveText('12');
+    await expect.poll(async () => (await evidence()).filter(event => event.phase === 'first-selected').length).toBe(1);
+    expect((await evidence()).filter(event => event.phase === 'display')).toHaveLength(0);
+    current.frame({type:'qualified',value:{...value(current.input,'9'),observation:{source:'search',refresh:false}}});
+    await expect(page.locator('#buy-amount')).toHaveText('9');
+    await expect.poll(async () => (await evidence()).filter(event => event.phase === 'display').length).toBe(1);
+    const events = await evidence(), edited = events.filter(event => event.phase === 'input').at(-1)!;
+    const dispatch = events.find(event => event.phase === 'dispatch')!, displayed = events.find(event => event.phase === 'display')!;
+    expect(Number(dispatch.atMs)-Number(edited.atMs)).toBeGreaterThanOrEqual(90);
+    expect(displayed.requestId).toBe('00000000-0000-4000-8000-000000000001');
+    expect(displayed.source).toBe('search'); expect(displayed.origin).toBe('input');
+    expect(Number(displayed.elapsedMs)).toBeGreaterThanOrEqual(Number(dispatch.elapsedMs));
+    const visibility = (visible: boolean) => page.evaluate(visible => {
+      Object.defineProperty(document, 'hidden', {configurable:true,get:()=>!visible});
+      Object.defineProperty(document, 'visibilityState', {configurable:true,get:()=>visible?'visible':'hidden'});
+      document.dispatchEvent(new Event('visibilitychange'));
+    }, visible);
+    await visibility(false); await expect.poll(() => current.closed).toBe(true);
+    await visibility(true); await expect.poll(() => wire.connections.length).toBe(2);
+    const resumed = wire.connections[1];
+    resumed.frame({type:'qualified',value:{...value(resumed.input,'10'),observation:{source:'search',refresh:false}}});
+    await expect(page.locator('#buy-amount')).toHaveText('10');
+    expect((await evidence()).filter(event => event.phase === 'display')).toHaveLength(1);
+    await page.locator('[data-trade-refresh]').click();
+    await expect.poll(() => wire.connections.length).toBe(3);
+    await expect.poll(() => resumed.closed).toBe(true);
+    expect((await evidence()).filter(event => event.phase === 'display')).toHaveLength(1);
+    wire.connections[2].frame({type:'qualified',value:{...value(wire.connections[2].input,'11'),observation:{source:'search',refresh:true}}});
+    await expect(page.locator('#buy-amount')).toHaveText('11');
+    await expect.poll(async () => (await evidence()).filter(event => event.phase === 'display').length).toBe(2);
+    const refreshed = (await evidence()).filter(event => event.phase === 'display').at(-1)!;
+    expect(refreshed.origin).toBe('refresh'); expect(refreshed.requestId).toBe('00000000-0000-4000-8000-000000000003');
+  } finally {await wire.close();}
 });
 
 test('validated receive replacements pulse once without restarting for metadata or unchanged Refresh', async ({ page }) => {
