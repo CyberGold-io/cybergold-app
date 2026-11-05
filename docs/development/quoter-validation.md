@@ -416,3 +416,35 @@ timeouts/failures. Initial small repetition counts have median/min/max, not a
 misleading tail-percentile claim. Adapter measurements contain only projected
 public economic amounts/context and counters; no wallet material, calldata,
 signatures, credentials or raw provider errors belong in them.
+
+## Passive wallet RPC observations
+
+The native wallet runner observes existing requests to its configured wallet RPC
+endpoint during the current confirmation or wallet-request window. Method
+counters count batch members; `pendingHttpRequests` counts their HTTP requests.
+Two pending `eth_call` members can therefore belong to one HTTP batch. Each
+method's optional `firstStartedMs`, `lastFinishedMs` and `lastFailedMs` uses the
+observer's monotonic origin, independently of server clocks or transaction time.
+These fields describe observed transport ordering, not JSON-RPC success or mining.
+
+`pendingEthCalls` retains at most eight pending members. Each has a local
+one-based `transportOrdinal`, original zero-based `batchIndex`, full `batchSize`,
+`startedMs` and current `pendingMs`. The remaining fields are a four-byte
+`selector` when available, a closed `targetCategory`, a `blockTagCategory`, an
+optional `requireCanonical` boolean and `stateOverridePresent`. Selectors use only
+the first four bytes of `data` (or `input` when `data` is absent), without
+validating or retaining the remaining calldata. The override flag distinguishes
+a provided non-null map object, including an empty map, from absent or malformed
+values. Block references
+retain only their category, with no block hash or quantity. Target categories use
+already available public configuration; a missing mapping stays `other`.
+`pendingEthCallsTruncated` marks omitted pending details while method and HTTP
+counts remain complete for the observed window.
+
+Snapshots and stopped observations return independent copies. Optional metadata
+failures cannot replace the native outcome, and the observer adds no request,
+response-body read, wait, retry, transaction decoding or admission condition. Raw
+addresses, RPC IDs, URLs, arguments, calldata and provider errors are excluded.
+Requests that began before listener registration are outside this observation;
+these fields alone cannot identify every outstanding node operation or prove
+which operation holds a state lock.

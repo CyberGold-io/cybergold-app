@@ -1,12 +1,12 @@
 import { EventEmitter } from "node:events";
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { observeWalletRpc } from "../../tests/trading/walletRpcObservation.ts";
+import { observeWalletRpc, walletRpcTargets, type WalletRpcTargets } from "../../tests/trading/walletRpcObservation.ts";
 
 const endpoint = "http://127.0.0.1:12345";
-function fixture() {
+function fixture(targets?: WalletRpcTargets) {
   const context = new EventEmitter();
-  const observe = observeWalletRpc(context as never, endpoint)!;
+  const observe = observeWalletRpc(context as never, endpoint, targets)!;
   const request = (method: unknown, extra: Record<string, unknown> = {}) => ({
     url: () => endpoint+"/",
     postDataJSON: () => ({ jsonrpc: "2.0", id: 987654321, method,
@@ -128,5 +128,176 @@ test("failure accounting survives unavailable failure metadata", () => {
   const result = observe.snapshot()!.methods.eth_getCode!;
   assert.equal(result.started, 1); assert.equal(result.failed, 1); assert.equal(result.pending, 0);
   assert.deepEqual(result.errors, {});
+  observe.stop();
+});
+
+
+test("two pending eth_calls in one HTTP batch retain membership without payloads or responses", t => {
+  let clock = 1000;
+  t.mock.method(performance, "now", () => clock);
+  const helpers = "0x" + "2".repeat(40), token = "0x" + "3".repeat(40), blockHash = "0x" + "4".repeat(64);
+  const data = "0xABF176FD" + "55".repeat(100);
+  const { context, observe, request } = fixture({ helpers, tokens: [token] });
+  let responseAccesses = 0, payloadReads = 0;
+  const batch = request(undefined, { postDataJSON: () => { payloadReads++; return [
+    { method: "eth_blockNumber", id: "private-id" },
+    { method: "eth_call", id: 123456789, params: [{ from: token, to: helpers, data }, "pending", { [token]: { balance: "private-override" } }] },
+    { method: "private-method", params: ["private-input"] },
+    { method: "eth_call", params: [{ to: token, data: "0x70a08231" + "66".repeat(32) }, { blockHash, requireCanonical: false }] },
+  ]; }, response: async () => { responseAccesses++; throw Error("must not read a pending response"); } });
+  clock = 1010; context.emit("request", batch);
+  clock = 1035;
+  const snapshot = observe.snapshot()!;
+  assert.equal(snapshot.pendingHttpRequests, 1);
+  assert.equal(snapshot.methods.eth_call!.pending, 2);
+  assert.equal(snapshot.methods.eth_blockNumber!.pending, 1);
+  assert.equal(snapshot.pendingEthCallsTruncated, false);
+  assert.deepEqual(snapshot.pendingEthCalls, [
+    { selector: "0xabf176fd", targetCategory: "helpers", blockTagCategory: "pending", stateOverridePresent: true,
+      transportOrdinal: 1, batchIndex: 1, batchSize: 4, startedMs: 10, pendingMs: 25 },
+    { selector: "0x70a08231", targetCategory: "token", blockTagCategory: "hash", requireCanonical: false,
+      stateOverridePresent: false, transportOrdinal: 1, batchIndex: 3, batchSize: 4, startedMs: 10, pendingMs: 25 },
+  ]);
+  assert.equal(payloadReads, 1); assert.equal(responseAccesses, 0);
+  const serialized = JSON.stringify(snapshot);
+  for (const privateValue of [helpers, token, blockHash, data, "123456789", "private-"]) assert.ok(!serialized.includes(privateValue));
+  assert.doesNotMatch(serialized, /"(?:to|from|url|params|id|data|input|balance|blockHash|blockNumber)":/);
+  observe.stop();
+});
+
+test("method clocks place unfinished calls before raw submission and retain settlement order", t => {
+  let clock = 500;
+  t.mock.method(performance, "now", () => clock);
+  const { context, observe, request } = fixture();
+  const call = request("eth_call"), raw = request("eth_sendRawTransaction"), failed = request("eth_call");
+  clock = 510; context.emit("request", call);
+  clock = 520; context.emit("request", raw);
+  clock = 540; context.emit("requestfinished", raw);
+  clock = 545; context.emit("request", failed);
+  clock = 555; context.emit("requestfailed", failed);
+  clock = 600;
+  const snapshot = observe.snapshot()!;
+  assert.equal(snapshot.elapsedMs, 100);
+  assert.equal(snapshot.pendingHttpRequests, 1);
+  assert.equal(snapshot.methods.eth_call!.firstStartedMs, 10);
+  assert.equal(snapshot.methods.eth_call!.lastFailedMs, 55);
+  assert.equal(snapshot.methods.eth_call!.lastFinishedMs, undefined);
+  assert.equal(snapshot.methods.eth_sendRawTransaction!.firstStartedMs, 20);
+  assert.equal(snapshot.methods.eth_sendRawTransaction!.lastFinishedMs, 40);
+  assert.equal(snapshot.pendingEthCalls[0].startedMs, 10);
+  assert.equal(snapshot.pendingEthCalls[0].pendingMs, 90);
+  observe.stop();
+});
+
+test("pending detail truncation keeps all method and HTTP counts and recovers after a batch settles", () => {
+  const { context, observe, request } = fixture();
+  const batch = request(undefined, { postDataJSON: () => Array.from({ length: 10 }, () => ({ method: "eth_call" })) });
+  const later = request("eth_call");
+  context.emit("request", batch); context.emit("request", later);
+  let snapshot = observe.snapshot()!;
+  assert.equal(snapshot.pendingHttpRequests, 2);
+  assert.equal(snapshot.methods.eth_call!.pending, 11);
+  assert.equal(snapshot.pendingEthCalls.length, 8);
+  assert.equal(snapshot.pendingEthCallsTruncated, true);
+  assert.deepEqual(snapshot.pendingEthCalls.map(call => call.batchIndex), [0, 1, 2, 3, 4, 5, 6, 7]);
+  snapshot.pendingEthCalls[0].targetCategory = "private-mutation" as never;
+  assert.equal(observe.snapshot()!.pendingEthCalls[0].targetCategory, "other");
+  context.emit("requestfinished", batch);
+  snapshot = observe.snapshot()!;
+  assert.equal(snapshot.methods.eth_call!.pending, 1);
+  assert.equal(snapshot.methods.eth_call!.finished, 10);
+  assert.equal(snapshot.pendingHttpRequests, 1);
+  assert.equal(snapshot.pendingEthCallsTruncated, false);
+  assert.equal(snapshot.pendingEthCalls[0].transportOrdinal, 2);
+  assert.equal(snapshot.pendingEthCalls[0].batchIndex, 0);
+  assert.equal(snapshot.pendingEthCalls[0].batchSize, 1);
+  observe.stop();
+  const frozen = observe.snapshot()!;
+  frozen.pendingEthCalls[0].selector = "0xdeadbeef";
+  context.emit("requestfinished", later);
+  assert.equal(observe.snapshot()!.pendingEthCalls[0].selector, undefined);
+  assert.equal(observe.snapshot()!.methods.eth_call!.pending, 1);
+});
+
+test("block references and known targets become closed categories; unknown input never supplies raw identity", () => {
+  const targets = { core: "0x" + "1".repeat(40), helpers: "0x" + "2".repeat(40), permit2: "0x" + "3".repeat(40),
+    multicall: "0x" + "4".repeat(40), tokens: ["0x" + "5".repeat(40)] };
+  const { context, observe, request } = fixture(targets);
+  const cases: [unknown, string, string | undefined][] = [
+    [undefined, "omitted", targets.core], ["latest", "latest", targets.helpers], ["pending", "pending", targets.permit2],
+    ["earliest", "earliest", targets.multicall], ["safe", "safe", targets.tokens[0]], ["finalized", "finalized", undefined],
+    ["0x1234", "number", "0x" + "6".repeat(40)], ["0x" + "7".repeat(64), "hash", "not-an-address"],
+    [{ blockNumber: "0x0" }, "number", undefined], [{ blockHash: "private-hash", requireCanonical: true }, "other", undefined],
+    ["private-block", "other", undefined], [null, "other", undefined],
+  ];
+  const categories = ["core", "helpers", "permit2", "multicall", "token", "other"];
+  for (const [index, [block, expected, to]] of cases.entries()) {
+    const value = request("eth_call", { postDataJSON: () => ({ method: "eth_call", params: [{ to, data: "private-data" }, block] }) });
+    context.emit("request", value);
+    const detail = observe.snapshot()!.pendingEthCalls[0];
+    assert.equal(detail.blockTagCategory, expected);
+    assert.equal(detail.targetCategory, categories[index] ?? "other");
+    assert.equal(detail.selector, undefined);
+    assert.equal(detail.requireCanonical, index === 9 ? true : undefined);
+    context.emit("requestfinished", value);
+  }
+  assert.doesNotMatch(JSON.stringify(observe.snapshot()), /private-|0x[1-7]{40}/);
+  observe.stop();
+});
+
+test("optional target mapping failures preserve method counts and block observations", () => {
+  assert.deepEqual(walletRpcTargets(undefined as never), {});
+  const { context, observe, request } = fixture({ tokens: [null] } as never);
+  const value = request("eth_call", { postDataJSON: () => ({ method: "eth_call", params: [{ to: "0x" + "1".repeat(40) }, "pending"] }) });
+  assert.doesNotThrow(() => context.emit("request", value));
+  assert.equal(observe.snapshot()!.methods.eth_call!.pending, 1);
+  assert.equal(observe.snapshot()!.pendingHttpRequests, 1);
+  assert.equal(observe.snapshot()!.pendingEthCalls[0].targetCategory, "other");
+  assert.equal(observe.snapshot()!.pendingEthCalls[0].blockTagCategory, "pending");
+  observe.stop();
+});
+
+
+test("selector observation accepts input aliases and valid four-byte prefixes without validating or retaining tails", () => {
+  const { context, observe, request } = fixture();
+  const cases = [
+    { transaction: { input: "0xABF176FDprivate-input-tail" }, selector: "0xabf176fd" },
+    { transaction: { data: "0x70a08231private-invalid-hex-tail", input: "0xdeadbeefprivate-unused-alias" }, selector: "0x70a08231" },
+    { transaction: { data: "0x123", input: "0xdeadbeefprivate-unused-alias" }, selector: undefined },
+  ];
+  for (const { transaction, selector } of cases) {
+    const value = request("eth_call", { postDataJSON: () => ({ method: "eth_call", params: [transaction, "latest"] }) });
+    context.emit("request", value);
+    const snapshot = observe.snapshot()!;
+    assert.equal(snapshot.pendingEthCalls[0].selector, selector);
+    assert.equal(snapshot.methods.eth_call!.pending, 1);
+    assert.doesNotMatch(JSON.stringify(snapshot), /private-|input|calldata|unused-alias/);
+    context.emit("requestfinished", value);
+  }
+  assert.equal(observe.snapshot()!.methods.eth_call!.started, 3);
+  assert.equal(observe.snapshot()!.methods.eth_call!.finished, 3);
+  observe.stop();
+});
+
+test("override presence distinguishes address-map objects from absent, null and malformed third parameters", () => {
+  const { context, observe, request } = fixture();
+  const privateAddress = "0x" + "9".repeat(40);
+  const cases: [unknown[], boolean][] = [
+    [[{}, "latest"], false], [[{}, "latest", undefined], false], [[{}, "latest", null], false],
+    [[{}, "latest", false], false], [[{}, "latest", 1], false], [[{}, "latest", "private-override"], false],
+    [[{}, "latest", []], false], [[{}, "latest", {}], true],
+    [[{}, "latest", { [privateAddress]: { stateDiff: { "private-slot": "private-value" } } }], true],
+  ];
+  for (const [params, expected] of cases) {
+    const value = request("eth_call", { postDataJSON: () => ({ method: "eth_call", params }) });
+    context.emit("request", value);
+    const snapshot = observe.snapshot()!;
+    assert.equal(snapshot.pendingEthCalls[0].stateOverridePresent, expected);
+    assert.equal(snapshot.methods.eth_call!.pending, 1);
+    assert.doesNotMatch(JSON.stringify(snapshot), /private-|0x9{40}|stateDiff/);
+    context.emit("requestfinished", value);
+  }
+  assert.equal(observe.snapshot()!.methods.eth_call!.started, cases.length);
+  assert.equal(observe.snapshot()!.methods.eth_call!.finished, cases.length);
   observe.stop();
 });

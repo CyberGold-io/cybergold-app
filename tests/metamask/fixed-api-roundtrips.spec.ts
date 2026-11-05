@@ -26,7 +26,7 @@ import { createUiQuoteDiagnostics, isUiCompletionDeadlineError, uiObservationFai
 import { enrichResultQuality } from "../trading/quoteQuality";
 import { safeWalletClickError, type UiConfirmationDiagnostic } from "../trading/runnerDiagnostics";
 import { readWalletUiState } from "../trading/walletUiState";
-import { observeWalletRpc } from "../trading/walletRpcObservation";
+import { observeWalletRpc, walletRpcTargets } from "../trading/walletRpcObservation";
 import { privateSandboxPhase, privateSandboxScenarios, privateSandboxSelection, sandboxIsolation, scenarioIsolation, type SandboxIsolation } from "../trading/privateSandbox";
 import { cleanupOwnedWalletRequest, closeOwnedWalletContext, isWalletRequestCleanupError, walletRequestContextClosedError } from "../trading/walletRequestLifecycle";
 import { hasUiReceiptOutcome, observeUiReceiptUntilDeadline, recoverUiTransaction, uiWalletRequestSettled } from "../trading/uiTransactionRecovery";
@@ -258,7 +258,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     activeConfirmationDeadline = performance.now() + 90_000;
     let observing = true, readingUi = false;
     let walletRpc: ReturnType<typeof observeWalletRpc>;
-    try { walletRpc = observeWalletRpc(page.context(), rpcUrl); }
+    try { walletRpc = observeWalletRpc(page.context(), rpcUrl, walletRpcTargets(config)); }
     catch { /* Optional transport observations cannot change native confirmation. */ }
     const snapshotRpc = () => {
       try { const value = walletRpc?.snapshot(); if (value) confirmation.rpc = value; }

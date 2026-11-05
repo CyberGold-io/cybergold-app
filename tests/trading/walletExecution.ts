@@ -16,7 +16,7 @@ import { ScenarioUnavailableError } from "./scenarios.ts";
 import { applyUniversalExactInputQuote, readJson, requireInvariant, resultFor, type QuoteObservation, type ScenarioResult } from "./regression.ts";
 import { safeRunnerError, safeWalletClickError, type WalletRequestDiagnostic } from "./runnerDiagnostics.ts";
 import { readWalletUiState } from "./walletUiState.ts";
-import { observeWalletRpc } from "./walletRpcObservation.ts";
+import { observeWalletRpc, walletRpcTargets, type WalletRpcTargets } from "./walletRpcObservation.ts";
 import { cleanupOwnedWalletRequest, closeOwnedWalletContext, walletRequestContextClosedError } from "./walletRequestLifecycle.ts";
 import { retainReceiptOutcome } from "./uiTransactionRecovery.ts";
 import { protocolConfigurationValues, type ProtocolConfiguration } from "../../app/utils/protocolConfiguration.ts";
@@ -39,7 +39,7 @@ function safeWalletRequestErrorCode(value: unknown): number | undefined {
 }
 
 /** Native MetaMask owns every signature and broadcast; no signer exists in Node. */
-export async function requestWallet(page: Page, request: { method: string; params: unknown[] }, reject = false, result?: ScenarioResult): Promise<unknown> {
+export async function requestWallet(page: Page, request: { method: string; params: unknown[] }, reject = false, result?: ScenarioResult, targets?: WalletRpcTargets): Promise<unknown> {
   await page.bringToFront();
   let settled = false;
   let nativeOutcome: "fulfilled" | "rejected" | undefined;
@@ -51,7 +51,7 @@ export async function requestWallet(page: Page, request: { method: string; param
     ? { method: request.method, settlement: "pending", elapsedMs: 0, pendingBefore, pendingAfter: pendingBefore + 1,
       clickAttempts: 0, clickCompleted: 0, ...(result?.executionStage ? { requestStage: result.executionStage } : {}) } : undefined;
   let rpc: ReturnType<typeof observeWalletRpc>;
-  try { if (diagnostic && result) rpc = observeWalletRpc(page.context(), process.env.NEXT_PUBLIC_WALLET_RPC_URL); }
+  try { if (diagnostic && result) rpc = observeWalletRpc(page.context(), process.env.NEXT_PUBLIC_WALLET_RPC_URL, targets); }
   catch { /* Optional setup cannot replace a native request. */ }
   const snapshot = () => {
     if (!diagnostic || !observing) return;
@@ -204,11 +204,11 @@ export async function waitReceipt(hash: Hex, fetcher: typeof fetch, result?: Sce
   if (result) retainReceiptOutcome(result, receipt!);
   requireInvariant(receipt!.status === "success", "receipt-reverted"); return receipt!;
 }
-async function approval(page: Page, token: Address, owner: Address, spender: Address, amount: bigint, chainId: number, fetcher: typeof fetch, result: ScenarioResult) {
+async function approval(page: Page, token: Address, owner: Address, spender: Address, amount: bigint, chainId: number, fetcher: typeof fetch, result: ScenarioResult, targets?: WalletRpcTargets) {
   result.executionStage = "approval-submission";
   result.lastApproval = { assetAddress: token, spenderAddress: spender, amountRaw: String(amount) };
   const hash = await requestWallet(page, { method: "eth_sendTransaction", params: [{ from: owner, to: token,
-    chainId: toHex(chainId), gas: toHex(120_000), data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [spender, amount] }) }] }, false, result) as Hex;
+    chainId: toHex(chainId), gas: toHex(120_000), data: encodeFunctionData({ abi: erc20Abi, functionName: "approve", args: [spender, amount] }) }] }, false, result, targets) as Hex;
   (result.approvalTransactionHashes ??= []).push(hash);
   result.executionStage = "approval-confirmation";
   await waitReceipt(hash, fetcher, undefined, page, result);
@@ -217,13 +217,13 @@ async function allowance(page: Page, token: Address, owner: Address, amount: big
   result.executionStage = "allowance-read";
   const context = await fetchTokenPermit(token, owner, fetcher);
   if (context.allowance.status !== "success") throw new ScenarioUnavailableError("allowance-unavailable");
-  if (BigInt(context.allowance.value) < amount) await approval(page, token, owner, config.contracts.helpers as Address, amount, config.chainId, fetcher, result);
+  if (BigInt(context.allowance.value) < amount) await approval(page, token, owner, config.contracts.helpers as Address, amount, config.chainId, fetcher, result, walletRpcTargets(config));
 }
 async function nativePermit(page: Page, token: Address, owner: Address, amount: bigint, config: ProtocolConfiguration, fetcher: typeof fetch, result: ScenarioResult): Promise<CygldPermit> {
   result.executionStage = "native-permit-read";
   let context = await fetchTokenPermit(token, owner, fetcher);
   if (context.allowance.status === "success" && BigInt(context.allowance.value) >= amount) {
-    await approval(page, token, owner, config.contracts.helpers as Address, 0n, config.chainId, fetcher, result);
+    await approval(page, token, owner, config.contracts.helpers as Address, 0n, config.chainId, fetcher, result, walletRpcTargets(config));
     result.executionStage = "native-permit-read";
     context = await fetchTokenPermit(token, owner, fetcher);
   }
@@ -232,7 +232,7 @@ async function nativePermit(page: Page, token: Address, owner: Address, amount: 
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 1200);
   const typed = tokenPermitTypedData(owner, config.contracts.helpers as Address, amount, deadline, selected.domain, selected.nonce);
   result.executionStage = "authorization-signature";
-  const signature = await requestWallet(page, { method: "eth_signTypedData_v4", params: [owner, serializeTypedData(typed)] }, false, result) as Hex;
+  const signature = await requestWallet(page, { method: "eth_signTypedData_v4", params: [owner, serializeTypedData(typed)] }, false, result, walletRpcTargets(config)) as Hex;
   return signedTokenPermit(amount, deadline, signature);
 }
 async function permit2(page: Page, inputs: { token: Address; amount: bigint }[], owner: Address, config: ProtocolConfiguration, fetcher: typeof fetch, result: ScenarioResult, single = false) {
@@ -242,7 +242,7 @@ async function permit2(page: Page, inputs: { token: Address; amount: bigint }[],
   const resetAllowanceToken = protocolConfigurationValues(config).tokenAddresses.USDT;
   // Keep exact test grants and reuse ordinary allowance/reset selection.
   for (const input of approvals) for (const amount of tokenPurchaseApprovalAmounts(input.token, input.allowance, input.amount, resetAllowanceToken))
-    await approval(page, input.token, owner, spender, amount, config.chainId, fetcher, result);
+    await approval(page, input.token, owner, spender, amount, config.chainId, fetcher, result, walletRpcTargets(config, spender));
   result.executionStage = "permit2-read";
   const observation = await fetchPermit2Context({ mode: "nonce", owner }, fetcher);
   const nonce = BigInt(observation.result.nonce), deadline = BigInt(Math.floor(Date.now() / 1000) + 1200);
@@ -255,7 +255,7 @@ async function permit2(page: Page, inputs: { token: Address; amount: bigint }[],
       { name: "nonce", type: "uint256" }, { name: "deadline", type: "uint256" }] };
   result.executionStage = "authorization-signature";
   const signature = await requestWallet(page, { method: "eth_signTypedData_v4", params: [owner, serializeTypedData({ domain, types, primaryType,
-    message: { permitted, spender: config.contracts.helpers as Address, nonce, deadline } })] }, false, result) as Hex;
+    message: { permitted, spender: config.contracts.helpers as Address, nonce, deadline } })] }, false, result, walletRpcTargets(config, spender)) as Hex;
   return { permit: { permitted: inputs, nonce, deadline }, signature };
 }
 
@@ -390,7 +390,7 @@ export async function executeScenario(observation: QuoteObservation, page: Page,
   const data = encodeFunctionData({ abi: HELPERS_EXECUTION_ABI, functionName: operation, args: args as never });
   result.executionStage = "execution-submission";
   const hash = await requestWallet(page, { method: "eth_sendTransaction", params: [{ from: owner, to: config.contracts.helpers,
-    chainId: toHex(config.chainId), data, value: toHex(nativeValue ?? 0n), gas: toHex(gas * 12n / 10n) }] }, false, result) as Hex;
+    chainId: toHex(config.chainId), data, value: toHex(nativeValue ?? 0n), gas: toHex(gas * 12n / 10n) }] }, false, result, walletRpcTargets(config)) as Hex;
   result.transactionHash = hash; // Retain submission evidence before any receipt read.
   result.executionStage = "execution-confirmation";
   const receipt = await waitReceipt(hash, fetcher, result, page);
