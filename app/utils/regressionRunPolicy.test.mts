@@ -141,46 +141,33 @@ test('actual running quote checkpoint distinguishes one completed failure from t
   } finally { rmSync(output, { recursive: true, force: true }); }
 });
 
-test('actual execution CLI propagates selected policy to both wallet children and retains their exact progress', () => {
-  const output = mkdtempSync(join(tmpdir(), 'cybergold-wallet-policy-')), fixture = join(output, 'fixture.mjs');
+test('owned execution CLI propagates policy to its qualifier and retains native progress', () => {
+  const output = mkdtempSync(join(tmpdir(), 'cybergold-owned-policy-')), fixture = join(output, 'fixture.mjs');
   const source = (path: string) => fileURLToPath(new URL(path, import.meta.url));
   writeFileSync(fixture, `
-import { mock } from 'node:test';
-import * as matrix from ${JSON.stringify(source('../../tests/trading/matrix.ts'))};
-mock.module(${JSON.stringify(source('../../tests/trading/matrix.ts'))}, { namedExports: {
-  ...matrix, readValuation:async()=>({id:'frozen-wallet-policy'}), buildMatrix:()=>matrix.activeMatrixTemplates(),
-} });
 import childProcess from 'node:child_process';
-import { syncBuiltinESMExports } from 'node:module';
-import { EventEmitter } from 'node:events';
-import { writeFileSync } from 'node:fs';
-import { resultFor } from ${JSON.stringify(source('../../tests/trading/regression.ts'))};
-const selected = [];
-globalThis.fetch = async url => new URL(url).pathname === '/en' ? new Response('')
-  : Response.json(new URL(url).pathname === '/api/protocol/config' ? ${JSON.stringify(protocolConfigurationFixture)} : {});
-childProcess.spawn = (_executable,args,options) => {
-  selected.push(options.env.TRADE_REGRESSION_RUN_POLICY);
-  const child = new EventEmitter(); child.kill=()=>true;
-  const setup=args[0]==='scripts/cache-metamask-wallet.mjs';
-  if (!setup) {
-    const scenarios=matrix.activeMatrixTemplates().map((scenario,i)=>({...resultFor(scenario,'execution'), id:'ui-'+scenario.id,
-      executionAttempted:false, transactionDisposition:'not-submitted', ...(i===0?{status:'fail',code:'fresh-business-error'}:{})}));
-    writeFileSync(options.env.TRADE_REGRESSION_UI_OUTPUT,JSON.stringify({suite:'sequential',scenarios,
-      progress:{completedScenarioIds:[scenarios[0].id]},diagnosticStop:{scenarioId:scenarios[0].id,role:'winner'}}));
-    writeFileSync(${JSON.stringify(join(output, 'children.json'))},JSON.stringify(selected));
-  }
-  process.nextTick(()=>child.emit('exit',setup?0:1,null)); return child;
-}; syncBuiltinESMExports();
-`);
-  const child = spawnSync(process.execPath, ['--experimental-test-module-mocks', '--import', fixture,
-    'scripts/run-trade-regression.mjs', '--target', 'sandbox', '--mode', 'sandbox-execution', '--run-policy', 'diagnostic',
-    '--base-url', 'https://fixture.invalid', '--output-dir', output], { cwd: new URL('../../', import.meta.url),
-    env: { ...process.env, TRADE_REGRESSION_RUN_POLICY: 'full' }, encoding: 'utf8', timeout: 10_000 });
+import {syncBuiltinESMExports} from 'node:module';import {EventEmitter} from 'node:events';
+import {writeFileSync} from 'node:fs';import {activeMatrixTemplates} from ${JSON.stringify(source('../../tests/trading/matrix.ts'))};
+import {resultFor} from ${JSON.stringify(source('../../tests/trading/regression.ts'))};
+globalThis.fetch=()=>{throw Error('unexpected-public-fetch')};
+childProcess.spawn=(executable,args,options)=>{
+ const output=args[args.indexOf('--output-dir')+1];const child=new EventEmitter();child.kill=()=>true;
+ writeFileSync(output+'/children.json',JSON.stringify([executable,options.env.TRADE_REGRESSION_RUN_POLICY]));
+ const scenarios=activeMatrixTemplates().map((scenario,i)=>({...resultFor(scenario,'execution'),id:'ui-'+scenario.id,
+  executionAttempted:false,transactionDisposition:'not-submitted',...(i===0?{status:'fail',code:'fresh-business-error'}:{})}));
+ writeFileSync(output+'/regression-ui.json',JSON.stringify({suite:'sequential',scenarios,
+  progress:{completedScenarioIds:[scenarios[0].id]},diagnosticStop:{scenarioId:scenarios[0].id,role:'winner'}}));
+ process.nextTick(()=>child.emit('exit',1,null));return child;
+};syncBuiltinESMExports();`);
+  const child = spawnSync(process.execPath, ['--import', fixture, 'scripts/run-trade-regression.mjs', '--target', 'mainnet',
+    '--mode', 'fork-execution', '--run-policy', 'diagnostic', '--output-dir', output], { cwd: new URL('../../', import.meta.url),
+    env: { ...process.env, TRADE_REGRESSION_RUN_POLICY: 'full', BACKEND_IMAGE: 'inert-image', CONTRACTS_JSON: 'inert-contracts',
+      FUNDING_JSON: 'inert-funding', MAINNET_RPC_URL: 'http://inert-upstream.invalid' }, encoding: 'utf8', timeout: 10_000 });
   try {
     assert.equal(child.status, 1, child.stderr);
-    assert.deepEqual(JSON.parse(readFileSync(join(output, 'children.json'), 'utf8')), ['diagnostic', 'diagnostic']);
+    assert.deepEqual(JSON.parse(readFileSync(join(output, 'children.json'), 'utf8')), ['python3', 'diagnostic']);
     const report = JSON.parse(readFileSync(join(output, 'report.json'), 'utf8'));
-    assert.equal(report.runPolicy, 'diagnostic'); assert.equal(report.suite, 'sequential'); assert.equal(report.scenarios.length, 24);
+    assert.equal(report.runPolicy, 'diagnostic'); assert.equal(report.scenarios.length, 24);
     assert.deepEqual(report.progress, { completedScenarioIds: [report.scenarios[0].id] });
     assert.deepEqual(report.diagnosticStop, { scenarioId: report.scenarios[0].id, role: 'winner' });
     assert.ok(report.scenarios.slice(1).every((row: ScenarioResult) => row.code === 'not-exercised' && row.providers === undefined));

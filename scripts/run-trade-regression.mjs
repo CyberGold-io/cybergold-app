@@ -10,7 +10,7 @@ import { executionCoverage } from "../tests/trading/providerEvidence.ts";
 import { activeMatrixTemplates, buildMatrix, readValuation, matrixCountsFor, matrixTemplates } from "../tests/trading/matrix.ts";
 import { observeBrowserQuotes } from "../tests/trading/browserQuotes.ts";
 import { enrichResultQuality } from "../tests/trading/quoteQuality.ts";
-import { qualificationBackendRevision, readWalletSetupDiagnostic, readWalletTestDiagnostics, safeCommandResult, safeRunnerError } from "../tests/trading/runnerDiagnostics.ts";
+import { qualificationBackendRevision, readWalletTestDiagnostics, safeCommandResult, safeRunnerError } from "../tests/trading/runnerDiagnostics.ts";
 import { regressionPolicy, regressionStatuses, regressionOutcome, unexpectedFailure } from "../tests/trading/runPolicy.ts";
 
 const { values } = parseArgs({ options: { target: { type: "string" }, mode: { type: "string", default: "quotes" },
@@ -19,7 +19,7 @@ const { values } = parseArgs({ options: { target: { type: "string" }, mode: { ty
 const runPolicy = regressionPolicy(values["run-policy"] ?? process.env.TRADE_REGRESSION_RUN_POLICY);
 if (!values.target) throw new Error("--target is required");
 if (!["sandbox", "mainnet"].includes(values.target)) throw new Error("--target must be sandbox or mainnet");
-if (!["quotes", "sandbox-execution", "fork-execution"].includes(values.mode)) throw new Error("--mode must be quotes, sandbox-execution or fork-execution");
+if (!["quotes", "fork-execution"].includes(values.mode)) throw new Error("--mode must be quotes or fork-execution; Sandbox wallet execution uses Ops-owned disposable forks");
 if (!values["output-dir"]) throw new Error("--output-dir is required");
 const output = resolve(values["output-dir"]);
 await mkdir(output, { recursive: true });
@@ -28,7 +28,6 @@ const legacyDiagnostic = diagnosticId && tradeScenarios.find(s => s.id === diagn
 let inventory = legacyDiagnostic ? [legacyDiagnostic]
   : diagnosticId ? matrixTemplates().filter(scenario => scenario.id === diagnosticId) : activeMatrixTemplates();
 const report = { schema: "cybergold.trade-regression.v1", runId: randomUUID(), target: values.target, mode: values.mode, runPolicy,
-  ...(values.mode === 'sandbox-execution' ? { suite: 'sequential' } : {}),
   startedAt: new Date().toISOString(), matrix: matrixCountsFor(inventory, diagnosticId ? 1 : 2), progress: { completedScenarioIds: [] },
   runnerOutcome: "pass", runnerDiagnostics: { stage: "origin" }, scenarios: [] };
 
@@ -183,32 +182,6 @@ try {
           report.scenarios.push(quoteFailure(scenario, error));
       }
       report.observations.correlationAvailable = report.scenarios.some(row => row.refs?.requestId);
-    } else {
-      // This specific command signs only the dedicated Sandbox fork. Mainnet
-      // transactions are outside the owner's authorization; fork mode above
-      // creates its own disposable chain through the established qualifier.
-      if (values.target !== "sandbox" || config.chainId === 1) throw new Error("sandbox-execution-target-required");
-      const env = { TRADE_REGRESSION_MATRIX: matrixPath, TRADE_REGRESSION_RUN_POLICY: runPolicy, ...(values["diagnostic-scenario"] ? { TRADE_REGRESSION_DIAGNOSTIC_SCENARIO: values["diagnostic-scenario"] } : {}), PLAYWRIGHT_BASE_URL: origin, PLAYWRIGHT_EXTERNAL_SERVER: "1", NEXT_PUBLIC_CHAIN_ID: String(config.chainId), NEXT_PUBLIC_CHAIN_NAME: "CyberGold Sandbox",
-        TRADE_REGRESSION_OUTPUT: resolve(output, "regression-execution.json"), TRADE_REGRESSION_UI_OUTPUT: resolve(output, "regression-ui.json"),
-        TRADE_REGRESSION_WALLET_SETUP_OUTPUT: resolve(output, "wallet-setup.json"),
-        TRADE_REGRESSION_UI_FIXTURE_OUTPUT: resolve(output, "wallet-fixture-ui.json"),
-        TRADE_REGRESSION_INDEPENDENT_FIXTURE_OUTPUT: resolve(output, "wallet-fixture-independent.json"),
-        TRADE_REGRESSION_FAUCET_REQUEST_ID: report.runId, TRADE_REGRESSION_MODE: "sandbox-execution", TRADE_REGRESSION_TARGET: "sandbox" };
-      report.runnerDiagnostics.stage = "wallet-cache";
-      const setupResult = await command(process.execPath, ["scripts/cache-metamask-wallet.mjs", "--extension-only"], env);
-      report.runnerDiagnostics = { ...report.runnerDiagnostics, ...setupResult };
-      const walletSetup = await readWalletSetupDiagnostic(env.TRADE_REGRESSION_WALLET_SETUP_OUTPUT);
-      if (walletSetup) report.runnerDiagnostics.walletSetup = walletSetup;
-      if (setupResult.exitCode !== 0) {
-        report.runnerOutcome = "fail"; report.runnerCode = "wallet-setup-failed";
-        report.scenarios = unobservedRows("wallet-setup-unavailable");
-      } else {
-        report.runnerDiagnostics = { stage: "wallet-tests", ...(walletSetup ? { walletSetup } : {}) };
-        const childResult = await command(process.execPath, ["node_modules/@playwright/test/cli.js", "test", "--config", "playwright.regression.config.ts"], env);
-        report.runnerDiagnostics = { ...report.runnerDiagnostics, ...childResult };
-        const available = await walletResults();
-        if (available && childResult.exitCode !== 0) { report.runnerOutcome = "fail"; report.runnerCode = "wallet-tests-failed"; }
-      }
     }
   }
 } catch (error) {
