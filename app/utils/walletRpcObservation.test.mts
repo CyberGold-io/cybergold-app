@@ -301,3 +301,54 @@ test("override presence distinguishes address-map objects from absent, null and 
   assert.equal(observe.snapshot()!.methods.eth_call!.finished, cases.length);
   observe.stop();
 });
+
+test("pending numeric block references retain their supplied lossless quantity through snapshots and stop", () => {
+  const { context, observe, request } = fixture();
+  const maximum = "0x" + "F".repeat(64);
+  const batch = request(undefined, { postDataJSON: () => [
+    { method: "eth_call", params: [{}, "0x1921D5F"] },
+    { method: "eth_call", params: [{}, { blockNumber: "0xAB", requireCanonical: true }] },
+    { method: "eth_call", params: [{}, { blockNumber: "0x0" }] },
+    { method: "eth_call", params: [{}, { blockNumber: maximum }] },
+  ] });
+  context.emit("request", batch);
+  const snapshot = observe.snapshot()!;
+  assert.equal(snapshot.pendingHttpRequests, 1);
+  assert.equal(snapshot.methods.eth_call!.pending, 4);
+  assert.deepEqual(snapshot.pendingEthCalls.map(call => call.blockTagCategory), ["number", "number", "number", "number"]);
+  assert.deepEqual(snapshot.pendingEthCalls.map(call => call.blockNumber), ["0x1921d5f", "0xab", "0x0", maximum.toLowerCase()]);
+  assert.equal(snapshot.pendingEthCalls[1].requireCanonical, true);
+  snapshot.pendingEthCalls[0].blockNumber = "0x0";
+  assert.equal(observe.snapshot()!.pendingEthCalls[0].blockNumber, "0x1921d5f");
+  observe.stop();
+  const frozen = observe.snapshot()!;
+  frozen.pendingEthCalls[1].blockNumber = "0xdeadbeef";
+  context.emit("requestfinished", batch);
+  assert.equal(observe.snapshot()!.pendingEthCalls[1].blockNumber, "0xab");
+  assert.equal(observe.snapshot()!.methods.eth_call!.pending, 4);
+});
+
+test("hashes, named tags and invalid or oversized references never invent a numeric block", () => {
+  const { context, observe, request } = fixture();
+  const hash = "0x" + "a".repeat(64), oversized = "0x" + "1".repeat(65);
+  const cases: [unknown, string][] = [
+    [hash, "hash"], [{ blockHash: hash, blockNumber: "0x42" }, "hash"],
+    ["latest", "latest"], ["pending", "pending"], [undefined, "omitted"],
+    [oversized, "number"], [{ blockNumber: oversized }, "number"],
+    [{ blockNumber: "0x01" }, "other"], [123, "other"],
+  ];
+  for (const [block, category] of cases) {
+    const value = request("eth_call", { postDataJSON: () => ({ method: "eth_call", params: [{}, block] }) });
+    context.emit("request", value);
+    const snapshot = observe.snapshot()!;
+    assert.equal(snapshot.pendingEthCalls[0].blockTagCategory, category);
+    assert.equal(snapshot.pendingEthCalls[0].blockNumber, undefined);
+    assert.equal(snapshot.methods.eth_call!.pending, 1);
+    assert.ok(!JSON.stringify(snapshot).includes(hash));
+    assert.ok(!JSON.stringify(snapshot).includes(oversized));
+    context.emit("requestfinished", value);
+  }
+  assert.equal(observe.snapshot()!.methods.eth_call!.started, cases.length);
+  assert.equal(observe.snapshot()!.methods.eth_call!.finished, cases.length);
+  observe.stop();
+});

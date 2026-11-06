@@ -11,7 +11,7 @@ type TargetCategory = "core" | "helpers" | "permit2" | "multicall" | "token" | "
 type BlockTagCategory = "omitted" | "latest" | "pending" | "earliest" | "safe" | "finalized" | "number" | "hash" | "other";
 export type WalletRpcTargets = Partial<Record<"core" | "helpers" | "permit2" | "multicall", string | null>> & { tokens?: readonly string[] };
 export type PendingEthCall = { transportOrdinal: number; batchIndex: number; batchSize: number; selector?: string;
-  targetCategory: TargetCategory; blockTagCategory: BlockTagCategory; requireCanonical?: boolean;
+  targetCategory: TargetCategory; blockTagCategory: BlockTagCategory; blockNumber?: string; requireCanonical?: boolean;
   stateOverridePresent: boolean; startedMs: number; pendingMs: number };
 export type WalletRpcObservation = { elapsedMs: number; pendingHttpRequests: number;
   pendingEthCalls: PendingEthCall[]; pendingEthCallsTruncated: boolean; methods: Partial<Record<Method,
@@ -27,7 +27,7 @@ export function walletRpcTargets(configuration: ProtocolConfiguration, permit2?:
 }
 
 function callDescriptor(call: unknown, targets: WalletRpcTargets) {
-  const result: Pick<PendingEthCall, "selector" | "targetCategory" | "blockTagCategory" | "requireCanonical" | "stateOverridePresent"> = {
+  const result: Pick<PendingEthCall, "selector" | "targetCategory" | "blockTagCategory" | "blockNumber" | "requireCanonical" | "stateOverridePresent"> = {
     targetCategory: "other", blockTagCategory: "omitted", stateOverridePresent: false,
   };
   try {
@@ -40,11 +40,17 @@ function callDescriptor(call: unknown, targets: WalletRpcTargets) {
     if (typeof block === "string") {
       if (["latest", "pending", "earliest", "safe", "finalized"].includes(block)) result.blockTagCategory = block as BlockTagCategory;
       else if (/^0x[0-9a-fA-F]{64}$/.test(block)) result.blockTagCategory = "hash";
-      else if (/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(block)) result.blockTagCategory = "number";
+      else if (/^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(block)) {
+        result.blockTagCategory = "number";
+        if (block.length <= 66) result.blockNumber = block.toLowerCase();
+      }
     } else if (block && typeof block === "object") {
       const { blockHash, blockNumber, requireCanonical } = block as { blockHash?: unknown; blockNumber?: unknown; requireCanonical?: unknown };
       if (typeof blockHash === "string" && /^0x[0-9a-fA-F]{64}$/.test(blockHash)) result.blockTagCategory = "hash";
-      else if (typeof blockNumber === "string" && /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(blockNumber)) result.blockTagCategory = "number";
+      else if (typeof blockNumber === "string" && /^0x(?:0|[1-9a-fA-F][0-9a-fA-F]*)$/.test(blockNumber)) {
+        result.blockTagCategory = "number";
+        if (blockNumber.length <= 66) result.blockNumber = blockNumber.toLowerCase();
+      }
       if (typeof requireCanonical === "boolean") result.requireCanonical = requireCanonical;
     }
     const transaction = params[0];

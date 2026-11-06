@@ -435,9 +435,12 @@ optional `requireCanonical` boolean and `stateOverridePresent`. Selectors use on
 the first four bytes of `data` (or `input` when `data` is absent), without
 validating or retaining the remaining calldata. The override flag distinguishes
 a provided non-null map object, including an empty map, from absent or malformed
-values. Block references
-retain only their category, with no block hash or quantity. Target categories use
-already available public configuration; a missing mapping stays `other`.
+values. An actually supplied numeric reference also retains optional
+`blockNumber` as a normalized hex quantity of at most 256 bits. It is never
+inferred from a later head; hash references retain only their category, with no
+block hash. Existing 64-hex-digit scalar hash classification is preserved.
+Target categories use already available public configuration; a missing mapping
+stays `other`.
 `pendingEthCallsTruncated` marks omitted pending details while method and HTTP
 counts remain complete for the observed window.
 
