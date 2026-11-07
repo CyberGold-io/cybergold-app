@@ -4,11 +4,51 @@ doc_type: test-guide
 status: active
 owner: app-maintainer
 created: 2026-07-11
-last_reviewed: 2026-10-19
+last_reviewed: 2026-11-07
 canonical_for: App Playwright and Synpress end-to-end test operation
 ---
 
-# MetaMask E2E Tests
+# App browser regression tests
+
+## Regular server regression profiles
+
+The regular `sandbox-execution` and `sandbox-independent-execution` profile IDs
+select synthetic browser regression tests. Both use the same retained ordinary
+UI cases in `market-swaps.spec.ts`, `execution-tolerance.spec.ts`,
+`swap-confirmation-feedback.spec.ts` and `wallet-batch.spec.ts`. Each case keeps
+Playwright's fresh browser context. The suite names are operator groupings;
+they do not describe evolving chain state or an economic reset baseline.
+
+```bash
+node scripts/run-synthetic-trade-regression.mjs \
+  --suite sequential --output-dir out/synthetic-sequential
+node scripts/run-synthetic-trade-regression.mjs \
+  --suite independent --output-dir out/synthetic-independent
+```
+
+The runner copies frontend/test source to a writable temporary directory,
+links installed dependencies, and builds/starts its own local Next.js frontend.
+Only the checked-in `tests/fixtures/app.env` supplies application settings.
+Existing in-page EIP1193 providers return synthetic signatures and transaction
+hashes; browser routes supply quotes, preparation, balances and receipts.
+There is no wallet extension, funding, chain node, actual signature or submitted
+transaction. The server runner runs with Docker networking disabled; local
+Next.js and browser communication stays within that container.
+
+`report.json` labels `mode: synthetic`, `evidenceKind: mocked-ui` and
+`transactionEvidence: synthetic-hashes-mocked-receipts`. It checkpoints actual
+source-case IDs, outcomes, durations and counts. A passing case proves only its
+mocked UI assertions; it proves no mined transaction, inventory change, real
+settlement, live quote latency or 24-scenario economic matrix coverage. The
+separate `sandbox-quotes` profile continues observing actual read-only quotes.
+Ordinary Playwright assertion details remain in the private
+`synthetic-ui-tests.log`; the structured report excludes raw error/provider data.
+
+The explicit native wallet qualifier described below is separate from these
+regular profiles. Its setup and transaction machinery is not invoked by the
+synthetic runner.
+
+## Explicit MetaMask qualification
 
 This directory contains the Synpress + Playwright MetaMask flow for CyberGold.
 
@@ -147,9 +187,10 @@ independent diagnostic cases; the legacy 20 producer inventory is not a second
 operating matrix. Controlled browser fixtures with synthetic providers/receipts
 are UI integration evidence, not qualification of actual provider settlement.
 
-### Independent Sandbox scenarios and the sequential suite
+### Explicit native isolation outside the regular profiles
 
-Both Sandbox execution suites use the same UI matrix and settlement assertions.
+The explicit native isolation machinery retains its UI matrix and settlement assertions.
+The regular server profiles above do not select this machinery.
 Their host orchestrator captures the complete Sandbox Anvil
 state overlay and loads it over the same original immutable fork base. This
 preserves Sandbox changes that do not change its block header, without later
@@ -216,13 +257,14 @@ cleanup outcome even after failures. Successful runs also record wallet
 transaction receipts. Hosted execution and GitHub required merge checks
 are separate workstreams; this command introduces no required CI job.
 
-### Deployed regression runner
+### Read-only quote matrix and explicit native capability inventory
 
 [matrix.ts](./trading/matrix.ts) retains the complete capability definitions: four
 counterasset choices (PAXG, USDC, native ETH, basket), two directions, two amount
 modes and three nominal dollar tiers ($1/$100/$10,000), totaling 48 definitions.
-Its shared active selector chooses exact-input journeys for ordinary quote,
-wallet, private independent and fork matrices. This means **24 primary UI
+Its shared active selector chooses exact-input journeys for ordinary quote
+and explicitly selected native wallet/fork matrices. The synthetic regular
+profiles report their actual source cases instead. The matrix defines **24 primary UI
 journeys, 48 Core/Market assessment slots and up to 48 trade executions**,
 comprising 24 UI winners and 24 retained alternates when qualified. Setup, approvals,
 supplementary tests and diagnostic repetitions have separate counts.
