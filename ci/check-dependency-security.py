@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import tomllib
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -59,9 +60,30 @@ def install_scanner() -> Path:
         not destination.exists()
         or hashlib.sha256(destination.read_bytes()).hexdigest() != expected
     ):
-        url = f"https://github.com/google/osv-scanner/releases/download/v{SCANNER_VERSION}/osv-scanner_{target}"
-        with urllib.request.urlopen(url, timeout=60) as response:
-            data = response.read()
+        filename = f"osv-scanner_{target}"
+        url = f"https://github.com/google/osv-scanner/releases/download/v{SCANNER_VERSION}/{filename}"
+        try:
+            with urllib.request.urlopen(url, timeout=60) as response:
+                data = response.read()
+        except urllib.error.HTTPError as error:
+            if not 500 <= error.code <= 599:
+                raise
+            release_url = f"https://api.github.com/repos/google/osv-scanner/releases/tags/v{SCANNER_VERSION}"
+            with urllib.request.urlopen(release_url, timeout=60) as response:
+                release = json.load(response)
+            asset = next(
+                (asset for asset in release["assets"] if asset["name"] == filename),
+                None,
+            )
+            if asset is None:
+                raise ValueError(
+                    f"OSV-Scanner {SCANNER_VERSION} release asset not found: {filename}"
+                )
+            request = urllib.request.Request(
+                asset["url"], headers={"Accept": "application/octet-stream"}
+            )
+            with urllib.request.urlopen(request, timeout=60) as response:
+                data = response.read()
         if hashlib.sha256(data).hexdigest() != expected:
             raise ValueError(
                 f"OSV-Scanner {SCANNER_VERSION} download checksum mismatch"

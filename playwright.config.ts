@@ -88,21 +88,6 @@ const fallbackBrowserProject = {
   },
 };
 
-const metamaskProject = !isWindows
-  ? [
-      {
-        name: "metamask",
-        testMatch: "**/metamask/**/*.spec.ts",
-        use: {
-          ...devices["Desktop Chrome"],
-          browserName: "chromium" as const,
-          channel: "chromium" as const,
-          headless: false,
-        },
-      },
-    ]
-  : [];
-
 export default defineConfig({
   testDir: "./tests",
   testIgnore: ["**/deferred-exact-out/**"],
@@ -125,6 +110,5 @@ export default defineConfig({
   },
   projects: [
     ...(browserProjects.length > 0 ? browserProjects : [fallbackBrowserProject]),
-    ...metamaskProject,
   ],
 });

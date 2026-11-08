@@ -10,6 +10,7 @@ import { applySlippageFloor, DEFAULT_SLIPPAGE_BPS } from "@/app/utils/swapPolicy
 import { useUniversalExactInputExecution } from "./shared/useUniversalExactInputExecution";
 import { useEconomicQuote } from "./quotes/useEconomicQuote";
 import type { FlowNetworkFeeEstimateHandlers, SubmitBasketFlowParams } from "./shared/types";
+import type { TradeQuoteResult } from "@/app/utils/tradeQuote";
 
 export function useIssueFromBasketExactInFlow({ enabled, amountsIn, basketComponents,
   slippageBps=DEFAULT_SLIPPAGE_BPS,onNetworkFeeEstimate,onNetworkFeeEstimateLoadingChange }:
@@ -25,13 +26,21 @@ export function useIssueFromBasketExactInFlow({ enabled, amountsIn, basketCompon
     if(!quote||!canSubmit)throw new Error("IssueFromBasketExactIn is not ready");
     return submitUniversal(quote,params);
   },[quote,canSubmit,submitUniversal]);
+  const captureUniversalReady = universal.captureReady;
+  const captureSubmission=useCallback(()=>{
+    const captured=captureUniversalReady();
+    if(!captured||BigInt(captured.quotedOutput)<=0n)return undefined;
+    const acceptedBounds={inputs:structuredClone(captured.inputs),minimumOutput:String(applySlippageFloor(BigInt(captured.quotedOutput),slippageBps))};
+    return {selectedTrade:undefined as TradeQuoteResult|undefined,universalQuote:captured,
+      submit:(params:SubmitBasketFlowParams)=>submitUniversal(captured,params,acceptedBounds)};
+  },[captureUniversalReady,slippageBps,submitUniversal]);
   return {...universal,quote,universalQuote:quote,netCygldOut:quote?BigInt(quote.quotedOutput):undefined,
     minimumOutputAmount:quote?applySlippageFloor(BigInt(quote.quotedOutput),slippageBps):undefined,
     maximumInputAmounts:quote?.inputs.map(row=>BigInt(row.amount)),amountsInUsed:quote?.inputs.map(row=>BigInt(row.amount)),
     permitted:quote?.inputs.map(row=>({token:row.currency as `0x${string}`,amount:BigInt(row.amount)}))??[],
     fees:quote?{protocolFeeCygld:BigInt(quote.fees.coreProtocolFeeCygld),helperFeeCygld:BigInt(quote.fees.coreHelpersFeeCygld),marketFeeCygld:BigInt(quote.fees.marketFeeCygld)}:undefined,
     estimatedRetainedInputCharges:quote?.estimatedRetainedInputCharges,quoteStatus,
-    refresh:universal.refresh,refreshing:universal.isFetching,
+    refresh:universal.refresh,refreshing:universal.isFetching,captureSubmission,stopSearch:universal.stopSearch,
     refreshError:universal.refreshError?quoteErrorMessage(universal.refreshError,t):undefined,
     quoteError:quoteStatus==="failed"?quoteErrorMessage(universal.error??new Error("Quote unavailable"),t):undefined,canSubmit,submit};
 }

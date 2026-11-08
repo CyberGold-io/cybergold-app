@@ -50,15 +50,17 @@ export type ScenarioResult = Pick<Scenario, "id" | "family" | "inputMode" | "ass
   code?: string; reason?: QuotePreviewError["code"] | SandboxFundingError["reason"] | UiObservationPhase | "unsupported" | "no-qualified-plan" | "quote-observation-unavailable" | "predecessor-submission-unknown"; refs?: DiagnosticReferences; transactionHash?: string;
   quoteDiagnostics?: QuoteDiagnostics; selectedPlan?: import("./selectedPlan.ts").SelectedPlan;
   constraint?: QuoteConstraint;
-  context?: { chainId: number; blockNumber: string; blockHash: string }; bounds?: Record<string, string | string[]>;
+  context?: { chainId: number; blockNumber: string | null; blockHash: string | null }; bounds?: Record<string, string | string[]>;
   receipt?: Record<string, string | string[] | { asset: string; amount: string }[]>; authorization?: string[];
   executionStage?: ExecutionStage; errorClass?: string; errorCode?: string; walletRequestErrorCode?: number; approvalTransactionHashes?: string[];
   lastApproval?: { assetAddress: string; spenderAddress: string; amountRaw: string }; walletRequest?: WalletRequestDiagnostic;
   uiQuote?: UiQuoteSnapshot; wallet?: UiWalletEvidence;
   uiConfirmation?: import('./runnerDiagnostics.ts').UiConfirmationDiagnostic;
+  uiReadiness?: import('./uiQuotePreparation.ts').UiReadinessDiagnostic;
   quoteTerms?: QualityTerms; executionTerms?: QualityTerms; quoteQuality?: QualityMeasurement; executionQuality?: QualityMeasurement;
 };
 export type RegressionReport = { schema: "cybergold.trade-regression.v1"; runId: string; target: "sandbox" | "mainnet";
+  fundingPlan?: import('./runnerFunding.ts').RunnerFundingPlan;
   suite?: 'sequential' | 'independent'; isolation?: import('./privateSandbox.ts').SandboxIsolation;
   mode: "quotes" | "sandbox-execution" | "fork-execution"; startedAt: string; finishedAt?: string;
   observations?: { chainId?: number; forkGeneration?: string | null; correlationAvailable?: boolean };

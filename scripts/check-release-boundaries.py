@@ -58,7 +58,7 @@ for expected in (
     "BRANCH_POLICY_CREATED: ${{ github.event.created }}",
     "BRANCH_POLICY_DELETED: ${{ github.event.deleted }}",
     'X-GitHub-Api-Version: 2022-11-28',
-    '"/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls?per_page=100"',
+    "node scripts/fetch-branch-policy-pull-requests.mjs",
     '"/repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}"',
     "for attempt in 1 2 3 4 5; do",
     "sleep \"$((attempt * 2))\"",

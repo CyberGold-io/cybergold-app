@@ -54,7 +54,13 @@ async function heldSuite(suite: "ui" | "independent", stop: "network-add" | "fau
   writeFileSync(matrix, JSON.stringify({ valuation: { id: "synthetic-checkpoint-only",
     prices: Object.fromEntries(protocolConfigurationFixture.tokens.flatMap(token => token.type === "erc20"
       ? [[token.address.toLowerCase(), { numerator: "1", denominator: String(10n ** BigInt(token.decimals)) }]] : [])) },
-    scenarios: suite === "ui" ? activeMatrixTemplates() : [tradeScenarios[0]] }));
+    scenarios: suite === "ui" ? activeMatrixTemplates().map(scenario => ({ ...scenario,
+      amountRaw: String(10n ** 18n), displayAmount: "1", valuationId: "synthetic-checkpoint-only",
+      ...(scenario.asset === "BASKET" ? {
+        basketAssets: protocolConfigurationFixture.tokens.flatMap(token => token.type === "erc20" && ["PAXG", "XAUT"].includes(token.symbol) ? [token.address] : []),
+        basketAmounts: protocolConfigurationFixture.tokens.flatMap(token => token.type === "erc20" && ["PAXG", "XAUT"].includes(token.symbol) ? [String(10n ** BigInt(token.decimals))] : []),
+      } : {}),
+    })) : [tradeScenarios[0]] }));
   const source = fileURLToPath(new URL(`../../tests/metamask/${suite === "ui" ? "fixed-api-roundtrips" : "regression-execution"}.spec.ts`, import.meta.url));
   const stubTest = `
 const state = globalThis.__bodyFixture;

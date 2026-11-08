@@ -1,6 +1,5 @@
-import { errors, type Page } from "@playwright/test";
 import { expect, test } from "./testWithMetaMask";
-import { addLocalNetwork, connectWallet, notification, walletRequestButton, requestConnection, switchLocalNetwork } from "./wallet-ui";
+import { addLocalNetwork, connectWallet, notification, requestConnection, switchLocalNetwork } from "./wallet-ui";
 import { ensureBasketInputEditable, getMainInput, getSwapButton, openFeeDetails, readWalletBalances, selectToken, showAllSellTokens } from "./token-flows/helpers";
 import { readFile, writeFile, rename } from "node:fs/promises";
 import { type Address, type Hex } from "viem";
@@ -9,7 +8,7 @@ import { checkpointExecutionStage, originFetch, readJson, requireInvariant, resu
 import { observeUiReceipt } from "../trading/uiReceipt";
 import { assertCapturedTradeInput } from "../trading/planAssertions";
 import { armUiQuoteCapture, capturedUiQuote, displayedUiAmount, quoteAssets } from "../trading/uiQuoteCapture";
-import { setupPurchase } from "../trading/setupPurchase";
+import { runnerFundingPlan, observeRunnerCygld, observeRunnerPaxg, type RunnerFundingPlan } from "../trading/runnerFunding";
 import { assertWalletEconomics, positiveDisplayedAmount, walletAmounts, walletEvidence } from "../trading/uiEconomics";
 import { expectWalletBalanceDisplay } from "../trading/uiWalletDisplay";
 import { observeUiGas, ownedReceiptGas } from "../trading/uiGas";
@@ -23,58 +22,17 @@ import { installSelectionCapture, selectionCaptures, captureSelection, captureBa
 import { installQuoteObservation, quoteObservations } from "../trading/quoteObservation";
 import { safeDiagnosticReferences } from "../../app/utils/diagnosticReferences";
 import { installUiSwapObservation, uiSwapObservation } from "../trading/uiSwapObservation";
-import { confirmedTransactionText, createUiQuoteDiagnostics, isUiCompletionDeadlineError, uiCompletionAssertion, uiObservationFailure, uiPreparationAssertion, uiSetupFailure, uiSwapTerminalFailure } from "../trading/uiDiagnostics";
+import { createUiQuoteDiagnostics, isUiCompletionDeadlineError, uiObservationFailure, uiPreparationAssertion, uiSetupFailure, uiSwapTerminalFailure } from "../trading/uiDiagnostics";
 import { enrichResultQuality } from "../trading/quoteQuality";
 import { safeWalletClickError, type UiConfirmationDiagnostic } from "../trading/runnerDiagnostics";
 import { readWalletUiState } from "../trading/walletUiState";
+import { observeWalletRpc } from "../trading/walletRpcObservation";
 import { privateSandboxPhase, privateSandboxScenarios, privateSandboxSelection, sandboxIsolation, scenarioIsolation, type SandboxIsolation } from "../trading/privateSandbox";
 import { cleanupOwnedWalletRequest, closeOwnedWalletContext, isWalletRequestCleanupError, walletRequestContextClosedError } from "../trading/walletRequestLifecycle";
 import { hasUiReceiptOutcome, observeUiReceiptUntilDeadline, recoverUiTransaction, uiWalletRequestSettled } from "../trading/uiTransactionRecovery";
 import { waitForUiSwapReady } from "../trading/uiQuotePreparation";
 import { regressionPolicy, unexpectedFailure } from "../trading/runPolicy";
-
-async function approveUntilMined(page: Page, submitted: () => boolean, observe: () => Promise<void> = async () => {},
-  nativeProgress?: (event: { selection?: Pick<UiConfirmationDiagnostic, "notificationSelection" | "notificationViewCount">;
-    click?: "attempted" | "completed"; error?: unknown; view?: Page }) => void) {
-  const record = (event: Parameters<NonNullable<typeof nativeProgress>>[0]) => {
-    try { nativeProgress?.(event); } catch { /* Optional evidence cannot change a native action. */ }
-  };
-  const success = confirmedTransactionText(page);
-  const failure = page.getByText(/^Transaction failed$/i);
-  await uiCompletionAssertion(() => expect.poll(async () => {
-    await observe();
-    if (await failure.isVisible()) throw new Error((await page.locator("[data-sonner-toast]").allTextContents()).join(" | "));
-    if (await success.isVisible()) return true;
-    // A temporary confirmation read failure exposes the product's existing
-    // receipt-only recovery. Exercise it within this same completion window;
-    // never click Swap again or create another wallet request.
-    const recheck = page.getByRole("button", { name: /^Check confirmation$/i });
-    if (await recheck.isVisible() && await recheck.isEnabled()) {
-      await recheck.click({ timeout: 1000 }).catch(error => {
-        if (!(error instanceof errors.TimeoutError)) throw error;
-      });
-      return false;
-    }
-    const step = await (await getSwapButton(page)).innerText();
-    if (!/^MetaMask \d+ of \d+:/.test(step)) return false;
-    const popup = await notification(page, selection => record({ selection }), walletRequestButton);
-    if (popup) {
-      // Selection and click use the same native request control.
-      const confirm = walletRequestButton(popup);
-      // A native request can navigate or close between polls. Let one click
-      // check visibility/enabled state atomically, then re-read the App result.
-      try {
-        record({ click: "attempted" });
-        await confirm.click({ timeout: 1000 });
-        record({ click: "completed" });
-      } catch (error) {
-        record({ error, view: popup });
-        if (!(error instanceof errors.TimeoutError) && !popup.isClosed()) throw error;
-      }
-    }
-    return false;
-  }, { timeout: 90000, intervals: [250, 500, 1000] }).toBe(true), submitted);
-}
+import { approveUntilMined } from "../trading/uiCompletion";
 
 // Run with the disposable local protocol/backend fixture described in the E2E
 // guide. MetaMask signs only against the fixture's independently owned Anvil.
@@ -102,6 +60,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   const setupQuoteEvidence: Pick<ScenarioResult, "refs" | "reason" | "quoteDiagnostics"> = {};
   let config: ProtocolConfiguration;
   let valuation: Awaited<ReturnType<typeof readValuation>> | undefined;
+  let fundingPlan: RunnerFundingPlan | undefined;
   const runPolicy = regressionPolicy(process.env.TRADE_REGRESSION_RUN_POLICY);
   const progress = { completedScenarioIds: [] as string[] };
   let diagnosticStop: { scenarioId: string; role: "winner" | "alternate" } | undefined;
@@ -123,7 +82,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     if (config) for (const row of [...results, ...fixtures]) enrichResultQuality(row, valuation, config);
     const path = process.env.TRADE_REGRESSION_UI_OUTPUT;
     await writeFile(path + ".tmp", JSON.stringify({ schema: "cybergold.trade-regression.v1", suite: privatePhase ? 'independent' : 'sequential', runPolicy, progress, diagnosticStop,
-      ...(isolation ? { isolation } : {}), matrix: matrixCountsFor(scenarios), coverage: executionCoverage(results), valuation, scenarios: results, fixtures }, null, 2) + "\n");
+      ...(isolation ? { isolation } : {}), matrix: matrixCountsFor(scenarios), coverage: executionCoverage(results), valuation, fundingPlan, scenarios: results, fixtures }, null, 2) + "\n");
     await rename(path + ".tmp", path);
   }
   async function checkpoint(stage: ExecutionStage) {
@@ -139,7 +98,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     const current = activeResult();
     const quoteEvidence = current ?? (!setupComplete ? setupQuoteEvidence : undefined);
     if (path === "/api/rpc") genericRequests.push(request.url());
-    if (quoteEvidence && !activeSwapAttempt && (path === "/api/economic-quotes" || path.startsWith("/api/quotes/"))) {
+    if (quoteEvidence && !activeSwapAttempt && (path === "/api/economic-quotes" || path === "/api/economic-quotes/stream" || path.startsWith("/api/quotes/"))) {
       try {
         if (activeQuoteDiagnostics?.request(path, request.postDataJSON(), request.headers()["x-cybergold-attempt-id"]))
           Object.assign(quoteEvidence, activeQuoteDiagnostics.snapshot());
@@ -179,12 +138,17 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   await checkpoint("setup-accounts");
   const accounts = await page.evaluate(() => (window as unknown as { ethereum: { request: (input: unknown) => Promise<string[]> } }).ethereum.request({ method: "eth_accounts" }));
   const owner = accounts[0] as Address;
-  await checkpoint("setup-funding");
-  await fundSandboxWallet(owner, fetcher);
   const gasObservation = observeUiGas(page, owner);
-  const manifest = process.env.TRADE_REGRESSION_MATRIX && privatePhase !== 'prepare' ? JSON.parse(await readFile(process.env.TRADE_REGRESSION_MATRIX, "utf8")) : undefined;
+  const frozenManifest = process.env.TRADE_REGRESSION_FROZEN_MATRIX
+    ?? (privatePhase !== "prepare" ? process.env.TRADE_REGRESSION_MATRIX : undefined);
+  const manifest = frozenManifest ? JSON.parse(await readFile(frozenManifest, "utf8")) : undefined;
   valuation = manifest?.valuation ?? await readValuation(config, await readJson<ProtocolFacts>(fetcher, "/api/protocol/facts"), fetcher);
   scenarios.splice(0, scenarios.length, ...privateSandboxScenarios(manifest?.scenarios ?? buildMatrix(config, valuation!), privatePhase, process.env.TRADE_REGRESSION_PRIVATE_SCENARIO));
+  const startup = !privatePhase || privatePhase === "prepare"
+    ? runnerFundingPlan(config, valuation!, scenarios, privatePhase ? "independent" : "sequential") : undefined;
+  fundingPlan = startup?.plan ?? manifest?.fundingPlan;
+  await checkpoint("setup-funding");
+  await fundSandboxWallet(owner, fetcher);
   results.splice(0, results.length, ...scenarios.map(scenario => ({ ...resultFor(scenario, "execution"), id: `ui-${scenario.id}`, requestedStrategy: "auto" as const, executionAttempted: false, transactionDisposition: "not-submitted" as const,
     ...(isolation && privatePhase !== 'prepare' ? { isolation: scenarioIsolation(isolation, privatePhase === 'alternate' ? 'alternate' : 'winner') } : {}) })));
 
@@ -215,7 +179,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     await checkpoint("ui-prepare-details");
     await openFeeDetails(page);
     await checkpoint("ui-prepare-swap");
-    await waitForUiSwapReady(page, config, scenario, () => activeQuoteDiagnostics?.snapshot());
+    await waitForUiSwapReady(page, config, scenario, () => activeQuoteDiagnostics?.snapshot(), value => {
+      const current = activeResult(); if (current) current.uiReadiness = value;
+    });
   }
   async function releaseUiRequest(result: ScenarioResult) {
     if (helpersHash) result.transactionHash = helpersHash;
@@ -291,7 +257,15 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     // Later hash/receipt recovery consumes this same window, not a fresh one.
     activeConfirmationDeadline = performance.now() + 90_000;
     let observing = true, readingUi = false;
-    try { await approveUntilMined(page, () => Boolean(helpersHash), async () => {
+    let walletRpc: ReturnType<typeof observeWalletRpc>;
+    try { walletRpc = observeWalletRpc(page.context(), rpcUrl); }
+    catch { /* Optional transport observations cannot change native confirmation. */ }
+    const snapshotRpc = () => {
+      try { const value = walletRpc?.snapshot(); if (value) confirmation.rpc = value; }
+      catch { /* Optional transport observations cannot replace the wallet outcome. */ }
+    };
+    try { await approveUntilMined(page, () => Boolean(helpersHash), async (phase = "before-action") => {
+      snapshotRpc();
       let terminalFailure: ReturnType<typeof uiSwapTerminalFailure>;
       try {
         const observed = await uiSwapObservation(page, activeSwapAttempt);
@@ -307,7 +281,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
           // Preserve observed settlement even if the toast/card check later fails.
           if (observed.outcome === "succeeded" && observed.transactionHash && activeResult())
             activeResult()!.transactionDisposition = "confirmed";
-          if (observed.transactionHash && currentResult && !hasUiReceiptOutcome(currentResult)) {
+          // After native action, capture local progress without delaying visible UI
+          // completion behind another optional receipt HTTP observation.
+          if (phase === "before-action" && observed.transactionHash && currentResult && !hasUiReceiptOutcome(currentResult)) {
             const remaining = Math.max(0, Math.floor((activeConfirmationDeadline ?? 0) - performance.now()));
             await recoverUiTransaction(currentResult, activeSwapAttempt, observed, fetcher,
               remaining > 0 ? AbortSignal.timeout(remaining) : AbortSignal.abort());
@@ -315,10 +291,11 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
           terminalFailure = uiSwapTerminalFailure(observed);
         }
       } catch { /* Optional observation cannot interrupt the native flow. */ }
-      // Preserve this bound terminal failure outside the optional read catch.
-      // Its hash/outcome does not establish independent receipt economics.
-      if (terminalFailure) throw terminalFailure;
+      // Return this bound terminal failure outside the optional read catch.
+      // The completion helper preserves its identity; optional read errors do not fail the UI.
+      return terminalFailure;
     }, event => {
+      snapshotRpc();
       confirmation.elapsedMs = Math.max(0, Math.round(performance.now() - confirmationStarted));
       if (event.selection) Object.assign(confirmation, event.selection);
       if (event.click === "attempted") confirmation.clickAttempts++;
@@ -330,7 +307,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
           if (observing && state) confirmation.uiState = state;
         }).catch(() => {}).finally(() => { readingUi = false; });
       }
-    }); } catch (error) {
+    }, activeConfirmationDeadline); } catch (error) {
       // Finish this original native request before the next case can select
       // another prompt. A late hash is retained; Swap is never clicked again.
       const deadlineExpired = isUiCompletionDeadlineError(error);
@@ -339,6 +316,8 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
       throw error;
     } finally {
       observing = false;
+      snapshotRpc();
+      try { walletRpc?.stop(); } catch { /* Detaching observations cannot change confirmation. */ }
       confirmation.elapsedMs = Math.max(0, Math.round(performance.now() - confirmationStarted));
     }
     if (captureError) throw captureError;
@@ -366,7 +345,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
   if (!privatePhase || privatePhase === 'prepare') {
   // Exercise wallet cancellation with funded collateral. ETH route readiness
   // belongs to its matrix cases, rather than every scenario's shared setup.
-  const rejectionPurchase = setupPurchase(config, valuation!, "0.25", "fixture-wallet-rejection");
+  const rejectionPurchase = startup!.rejection;
   try { activeQuoteDiagnostics = createUiQuoteDiagnostics(rejectionPurchase, config); } catch { /* Optional evidence cannot change setup. */ }
   await prepare("PAXG", "CYGLD", rejectionPurchase.displayAmount);
   const beforeRejected = await readWalletBalances(page, ["cygld"]);
@@ -386,7 +365,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
 
   // A real setup trade gives redemption cases inventory even when later issue
   // quotes are unavailable. It is separate evidence, never a matrix pass.
-  const bootstrap = setupPurchase(config, valuation!, "5", "fixture-cygld-bootstrap");
+  const bootstrap = startup!.bootstrap;
   fixtures.push({ ...resultFor(bootstrap, "execution"), requestedStrategy: "auto" });
   activeFixtureIndex = 0; helpersHash = undefined; activeSwapAttempt = undefined;
   try { activeQuoteDiagnostics = createUiQuoteDiagnostics(bootstrap, config); } catch { /* Optional evidence cannot change setup. */ }
@@ -396,6 +375,7 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     await prepare("PAXG", "CYGLD", bootstrap.displayAmount);
     observationPhase = "ui-balances"; await checkpoint(observationPhase);
     const walletBefore = await fetchWalletBalances(owner, undefined, fetcher, "swap-preflight");
+    if (fundingPlan) try { observeRunnerPaxg(fundingPlan, walletBefore); } catch { /* Optional funding evidence. */ }
     fixtures[0].code = "execution-not-completed"; await persist();
     const uiQuote = await submit(quoteAssets(bootstrap, config, []), bootstrap.inputMode);
     observationPhase = "ui-hash"; await checkpoint(observationPhase);
@@ -426,6 +406,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     if (fixtures[0].executionAttempted) try { await finishUiRequest(fixtures[0], error); }
     catch (failure) { fixtures[0].durationMs = Math.round(performance.now() - bootstrapStarted); await persist(); throw failure; }
   }
+  if (fundingPlan && fixtures[0].wallet?.outputAfter[0] !== undefined) try {
+    observeRunnerCygld(fundingPlan, fixtures[0].wallet.outputAfter[0], fixtures[0].wallet.outputDelta[0]);
+  } catch { /* Optional observed shortfall never changes the setup outcome. */ }
   fixtures[0].durationMs = Math.round(performance.now() - bootstrapStarted); await persist();
   activeFixtureIndex = undefined; activeQuoteDiagnostics = undefined; activeSwapAttempt = undefined;
   if (runPolicy === "diagnostic" && unexpectedFailure(fixtures[0])) expect(fixtures[0].status).toBe("pass");
@@ -433,9 +416,9 @@ test("funded MetaMask token and basket roundtrips use fixed Python APIs", async 
     // All compared cases use this post-funding/bootstrap state and these same
     // frozen sizing inputs. Only the host that owns the fork takes its snapshot.
     requireInvariant(fixtures[0].status === 'pass', 'private-sandbox-bootstrap-failed');
-    valuation = await readValuation(config, await readJson<ProtocolFacts>(fetcher, '/api/protocol/facts'), fetcher);
-    const preparedScenarios = buildMatrix(config, valuation);
-    const prepared = { matrix: matrixCountsFor(preparedScenarios), valuation, scenarios: preparedScenarios, walletAddress: owner };
+    // Freeze the sizing identity before the ordinary setup purchase; changing
+    // prices afterwards must not shrink the inventory requirement or cases.
+    const prepared = { matrix: matrixCountsFor(scenarios), valuation, scenarios, fundingPlan, walletAddress: owner };
     if (!process.env.TRADE_REGRESSION_MATRIX) throw new Error('private-sandbox-matrix-output-unavailable');
     await writeFile(process.env.TRADE_REGRESSION_MATRIX, JSON.stringify(prepared, null, 2) + '\n', { mode: 0o600 });
     results.splice(0);

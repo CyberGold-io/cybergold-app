@@ -85,7 +85,7 @@ test('failed 503 quote preserves only its bounded public code and status in chec
 
 test('Docker controls reset only owned databases, migrate before API startup, and use metrics for readiness', async () => {
   const commands: { args: string[]; input?: string }[] = [], paths: string[] = [], envFiles: string[] = [];
-  let block = { ...base }, snapshot = 0, port = 19000, quoteFailure = false;
+  let block = { ...base }, snapshot = 0, port = 19000, quoteFailure = false, latest = false;
   const configuration: OwnedQuoterResourceConfiguration = { baselineImage: 'baseline-fixture', candidateImage: 'candidate-fixture',
     forkUrl: 'http://owned-fork.invalid', backendForkUrl: 'http://owned-backend-fork.invalid', chainId: 1,
     core: item.outputCurrency, helpers: '0x'+'3'.repeat(40), routingAdapter: '0x'+'4'.repeat(40),
@@ -105,7 +105,9 @@ test('Docker controls reset only owned databases, migrate before API startup, an
     if (quoteFailure) return Response.json({ code: 'quote-no-route', error: 'private-provider-material' }, { status: 503,
       headers: { 'x-cybergold-owned-quote-metrics': JSON.stringify({ searchMs: 15000, totalMs: 15001, selectionReason: 'timeout',
         ownedCandidatesStarted: 2, ownedCandidatesCompleted: 0, privateProvider: 'private-provider-material' }) } });
-    return Response.json({ inputs: body.inputs, quotedOutput: '123', context: { blockNumber: '100', blockHash: base.hash },
+    if (path.endsWith('/api/economic-estimates')) return Response.json({ estimate: { strategy: 'universal', amount: '123',
+      context: { blockNumber: null, blockHash: null } }, models: [] });
+    return Response.json({ inputs: body.inputs, quotedOutput: '123', context: latest ? { blockNumber: null, blockHash: null } : { blockNumber: '100', blockHash: base.hash },
       plan: { privateCalldata: 'do-not-report' }, secret: 'do-not-report',
       metrics: path.endsWith('/api/economic-quotes') ? { timeToFirstWholePlanMs: 5, searchMs: 8, totalMs: 9 }
         : { firstQualifiedMs: 5 } });
@@ -141,6 +143,7 @@ test('Docker controls reset only owned databases, migrate before API startup, an
     assert.ok(migration < api);
     const apiRuns = commands.filter(row => row.args.includes('-p'));
     assert.equal(apiRuns.length, 2);
+    assert.ok(apiRuns.every(row => !row.args.includes('--reference-seconds')), 'producer-default reports must launch without a forced reference cutoff');
     assert.ok(apiRuns.every(row => row.args[row.args.indexOf('-p')+1] === '127.0.0.1::3000'));
     assert.equal(commands.filter(row => row.args[0] === 'inspect').length, 2);
     assert.ok(paths.includes('http://127.0.0.1:19001/metrics'));
@@ -149,6 +152,16 @@ test('Docker controls reset only owned databases, migrate before API startup, an
     assert.ok(paths.some(path => path.startsWith('http://127.0.0.1:19002/api/')));
     assert.ok(paths.some(path => path.endsWith('/metrics')));
     assert.ok(!paths.some(path => path.endsWith('/api/protocol/facts') || path.endsWith('/api/protocol/config')));
+    quoteFailure = false; latest = true;
+    const candidateAttempt = { ...attempt, variant: 'candidate' as const };
+    const unanchored = await resources.quote(candidateAttempt, true);
+    assert.equal(unanchored.blockNumber, null, 'a latest simulation cannot be reported as block zero');
+    assert.equal(unanchored.blockHash, null);
+    const accuracy = await resources.accuracy(candidateAttempt);
+    assert.equal(accuracy.estimate.status, 'available'); assert.equal(accuracy.estimate.strategy, 'universal');
+    assert.equal(accuracy.estimate.blockHash, undefined);
+    assert.equal(accuracy.reference.completion, 'producer-default');
+    assert.equal(accuracy.reference.initialSeconds, undefined); assert.equal(accuracy.reference.extensionSeconds, undefined);
   } finally { await resources.close(); }
   assert.ok(commands.filter(row => row.args[0] === 'rm').every(row => row.args.some(arg => arg.startsWith('cybergold-quoter-'))));
   await assert.rejects(readFile(envFiles[0], 'utf8'), { code: 'ENOENT' });

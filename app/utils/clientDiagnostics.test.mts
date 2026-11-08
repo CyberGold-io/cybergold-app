@@ -86,6 +86,52 @@ test("quote outcomes are deduplicated and a new quote gets a new correlation ID"
   quotes.observe(context, "idle"); assert.equal(quotes.id, undefined);
 });
 
+test("quote result enrichment and repeated loading retain the original two-second intent clock", t => {
+  let now = 0; t.mock.method(performance, "now", () => now);
+  const events: ClientDiagnostic[] = [], quotes = createQuoteDiagnostics(event => events.push(event));
+  const input = { direction: "issue", route: "token", inputMode: "exact-in", chainId: 31338, side: "buy", amount: "500" } as const;
+  quotes.observe({ ...input, assetCount: 0 }, "loading", undefined, undefined, "input-500");
+  now = 1000;
+  quotes.observe({ ...input, assetCount: 2 }, "loading", undefined, undefined, "input-500");
+  now = 2000;
+  const attemptId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e";
+  quotes.observe({ ...input, assetCount: 2, strategy: "universal", inputMaximum: "473", outputMinimum: "800", blockNumber: "100" },
+    "success", undefined, { attemptId }, "input-500");
+  assert.equal(events.length, 1); assert.equal(events[0].durationMs, 2000); assert.equal(events[0].attemptId, attemptId);
+});
+
+test("a genuine input change while loading starts a new clock and result metadata cannot reset it", t => {
+  let now = 0; t.mock.method(performance, "now", () => now);
+  const events: ClientDiagnostic[] = [], quotes = createQuoteDiagnostics(event => events.push(event));
+  const context = { direction: "issue", route: "token", inputMode: "exact-in", amount: "500" } as const;
+  quotes.observe(context, "loading", undefined, undefined, "input-500");
+  const first = quotes.id;
+  now = 500;
+  quotes.observe({ ...context, amount: "400" }, "loading", undefined, undefined, "input-400");
+  assert.notEqual(quotes.id, first);
+  now = 700;
+  quotes.observe({ ...context, amount: "400", assetCount: 2 }, "loading", undefined, undefined, "input-400");
+  now = 1000;
+  quotes.observe({ ...context, amount: "400", strategy: "universal", outputMinimum: "700" }, "success", undefined, undefined, "input-400");
+  assert.equal(events.length, 1); assert.equal(events[0].durationMs, 500);
+});
+
+test("explicit Refresh restarts the same intent clock while its prior accepted tuple stays ready", t => {
+  let now = 0; t.mock.method(performance, "now", () => now);
+  const events: ClientDiagnostic[] = [], quotes = createQuoteDiagnostics(event => events.push(event));
+  const input = { direction: "issue", route: "token", inputMode: "exact-in", amount: "500" } as const;
+  const first = "e9eb96b2-8ecf-429d-9e08-244f43257e8e", second = "eb3e691b-346d-4782-b93e-3cc674250007";
+  const selected = { ...input, strategy: "universal" as const, outputMinimum: "800" };
+  quotes.observe(input, "loading", undefined, undefined, "same-input");
+  now = 2000; quotes.observe(selected, "success", undefined, { attemptId: first }, "same-input");
+  assert.equal(events[0].durationMs, 2000);
+  now = 5000; quotes.restart("same-input");
+  quotes.observe(selected, "success", undefined, { attemptId: first }, "same-input");
+  assert.equal(events.length, 1, "a retained unchanged tuple is not a new quote outcome");
+  now = 5700; quotes.observe(selected, "success", undefined, { attemptId: second }, "same-input");
+  assert.equal(events.length, 2); assert.equal(events[1].durationMs, 700); assert.equal(events[1].attemptId, second);
+});
+
 test("wallet stages and submitted receipt outcomes share one attempt and never serialize errors", () => {
   const events: ClientDiagnostic[] = [];
   const hash = `0x${"a".repeat(64)}`;
@@ -105,7 +151,7 @@ test("wallet stages and submitted receipt outcomes share one attempt and never s
   assert.equal(diagnosticReason(cycle), "unknown");
 });
 
-test("diagnostic failures cannot prevent submission or create retries", async () => {
+test("diagnostic failures cannot prevent submission or create retries", async t => {
   let calls = 0;
   const fetcher = (async (url, init) => { calls++;
     assert.equal(url, "/api/diagnostics"); assert.equal(init?.credentials, "omit");
@@ -113,8 +159,10 @@ test("diagnostic failures cannot prevent submission or create retries", async ()
   assert.doesNotThrow(() => reportClientDiagnostic({ operation: "quote" }, fetcher));
   assert.doesNotThrow(() => reportClientDiagnostic({}, (() => { throw new Error("unavailable"); }) as typeof fetch));
   const swap = createSwapDiagnostics({}, undefined, () => { throw new Error("logger unavailable"); });
-  assert.doesNotThrow(() => { swap.walletStep("approval"); swap.submitted("hash"); swap.confirmed(); swap.failed({ code: 4001 }); });
+  assert.doesNotThrow(() => { swap.walletStep("approval"); swap.signatureFulfilled(); swap.submitted("hash"); swap.confirmed(); swap.failed({ code: 4001 }); });
   await new Promise(resolve => setImmediate(resolve)); assert.equal(calls, 1);
+  t.mock.method(performance, "now", () => { throw new Error("optional clock unavailable"); });
+  assert.doesNotThrow(() => createQuoteDiagnostics().restart("same-intent"));
 });
 
 test("a submitted wallet bundle remains submitted without inventing a transaction hash", () => {

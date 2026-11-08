@@ -22,6 +22,18 @@ type NumberFormatOptions = {
 };
 
 const NUMERIC_PART_TYPES = new Set(["integer", "fraction", "decimal", "group"]);
+const decimalSeparators = new Map<string, string>();
+const numberFormatters = new Map<string, Intl.NumberFormat>();
+
+function numberFormatter(locale: string, options?: Intl.NumberFormatOptions) {
+  const key = JSON.stringify([locale, options]);
+  let formatter = numberFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.NumberFormat(locale, options);
+    numberFormatters.set(key, formatter);
+  }
+  return formatter;
+}
 
 function stripLeadingIntegerZeros(value: string) {
   const stripped = value.replace(/^0+(?=\d)/, "");
@@ -29,12 +41,16 @@ function stripLeadingIntegerZeros(value: string) {
 }
 
 export function getLocaleDecimalSeparator(locale: string) {
+  const cached = decimalSeparators.get(locale);
+  if (cached !== undefined) return cached;
   try {
-    return (
-      new Intl.NumberFormat(locale)
+    const separator = (
+      numberFormatter(locale)
         .formatToParts(1.1)
         .find((part) => part.type === "decimal")?.value ?? DEFAULT_DECIMAL_SEPARATOR
     );
+    decimalSeparators.set(locale, separator);
+    return separator;
   } catch {
     return DEFAULT_DECIMAL_SEPARATOR;
   }
@@ -130,7 +146,7 @@ function formatIntlWithCustomGrouping(
   locale = "en",
   options?: Intl.NumberFormatOptions
 ) {
-  const formatter = new Intl.NumberFormat(locale, options);
+  const formatter = numberFormatter(locale, options);
   const parts = formatter.formatToParts(value);
 
   const firstNumericPartIndex = parts.findIndex((part) => NUMERIC_PART_TYPES.has(part.type));
@@ -264,7 +280,7 @@ export const formatGoldAmountForDisplay = (
       fractionDigits = 3;
     }
 
-    return `${new Intl.NumberFormat(locale, {
+    return `${numberFormatter(locale, {
       minimumFractionDigits: fractionDigits,
       maximumFractionDigits: fractionDigits,
     }).format(amountOzt)} troy oz`;
@@ -285,7 +301,7 @@ export const formatGoldAmountForDisplay = (
     maxFractionDigits = 2;
   }
 
-  return formatGoldQualifiedLabel(`${new Intl.NumberFormat(locale, {
+  return formatGoldQualifiedLabel(`${numberFormatter(locale, {
     minimumFractionDigits: 2,
     maximumFractionDigits: maxFractionDigits,
   }).format(value)} ${displayUnit}`, locale);

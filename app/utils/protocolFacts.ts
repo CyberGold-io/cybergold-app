@@ -57,7 +57,8 @@ export function issuanceModelFromFacts(facts?: ProtocolFacts, fallback?: Protoco
     },
   };
   if (!fallback) return observed;
-  const observedBlock = BigInt(observed.context.blockNumber), fallbackBlock = BigInt(fallback.context.blockNumber);
-  return observedBlock > fallbackBlock || (observedBlock === fallbackBlock &&
-    Date.parse(observed.context.observedAt) >= Date.parse(fallback.context.observedAt)) ? observed : fallback;
+  const observedBlock = observed.context.blockNumber, fallbackBlock = fallback.context.blockNumber;
+  if (observedBlock !== null && fallbackBlock !== null && BigInt(observedBlock) !== BigInt(fallbackBlock))
+    return BigInt(observedBlock) > BigInt(fallbackBlock) ? observed : fallback;
+  return Date.parse(observed.context.observedAt) >= Date.parse(fallback.context.observedAt) ? observed : fallback;
 }

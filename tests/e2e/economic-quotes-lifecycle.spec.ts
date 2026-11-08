@@ -9,7 +9,7 @@ test('economic quote lifecycle: elapsed time, heads, focus and tolerance keep th
   let head = { ...context };
   await page.route('**/api/transaction/wait/head', route => route.fulfill({ json: { ...head, blockTimestamp: '2000000000' } }));
   page.on('request', request => {
-    if (new URL(request.url()).pathname === '/api/economic-quotes') economicRequests.push(request.postDataJSON());
+    if (new URL(request.url()).pathname === '/api/economic-quotes/stream') economicRequests.push(request.postDataJSON());
     if (new URL(request.url()).pathname === '/api/tx-preparations') preparationRequests.push(request.postDataJSON());
   });
   await page.goto('/en'); await page.locator('#sell-amount').fill('1');
@@ -35,7 +35,7 @@ test('economic quote lifecycle: elapsed time, heads, focus and tolerance keep th
   await expect(page.locator('#buy-amount')).toHaveText('0.999');
 });
 
-test('economic quote lifecycle: returning to an amount restores its measured output; a failed Refresh keeps it visible', async ({ page }) => {
+test('economic quote lifecycle: returning to an amount reacquires the Backend selection; a failed Refresh keeps it visible', async ({ page }) => {
   await installMarket(page);
   const requests: { amount: string; refresh: boolean }[] = [];
   await page.route('**/api/economic-quotes', async route => {
@@ -50,11 +50,12 @@ test('economic quote lifecycle: returning to an amount restores its measured out
   await page.goto('/en'); await page.locator('#sell-amount').fill('1');
   await expect(page.locator('#buy-amount')).toHaveText('0.25');
   await page.locator('#sell-amount').fill('2'); await expect(page.locator('#buy-amount')).toHaveText('0.5');
-  expect(requests).toHaveLength(2);
+  await expect.poll(() => requests.length).toBe(2);
+  await expect(page.locator('[data-trade-refresh]')).toBeEnabled();
   await page.locator('#sell-amount').fill('1'); await expect(page.locator('#buy-amount')).toHaveText('0.25');
-  expect(requests).toHaveLength(2);
+  expect(requests).toHaveLength(3);
   await page.locator('[data-trade-refresh]').click();
-  await expect.poll(() => requests.length).toBe(3);
+  await expect.poll(() => requests.length).toBe(4);
   await expect(page.getByRole('alert').filter({ hasText: 'Refresh failed. Showing the previous quote.' })).toBeVisible();
   await expect(page.locator('#buy-amount')).toHaveText('0.25');
   expect(requests.at(-1)).toEqual({ amount: '1000000000000000000', refresh: true });

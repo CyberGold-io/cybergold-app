@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { zeroAddress } from "viem";
-import { uiQuoteReady } from "../../tests/trading/uiQuotePreparation.ts";
-import { createUiQuoteDiagnostics } from "../../tests/trading/uiDiagnostics.ts";
+import { uiQuoteReady, uiQuoteReadiness, uiReadinessFailure } from "../../tests/trading/uiQuotePreparation.ts";
+import { createUiQuoteDiagnostics, uiPreparationAssertion } from "../../tests/trading/uiDiagnostics.ts";
+import { QuotePreviewError } from "./quoteErrors.ts";
+import { diagnosticReferences } from "./diagnosticReferences.ts";
 import { tokenRequest } from "../../tests/trading/regression.ts";
 import { tradeScenarios, type Scenario } from "../../tests/trading/scenarios.ts";
 import { protocolConfigurationFixture as config, tokenAddresses } from "../../tests/fixtures/protocol-configuration.ts";
@@ -42,3 +44,37 @@ for (const asset of ["PAXG", "USDC", "ETH", "BASKET"] as const) for (const side 
     assert.notEqual(value.plan.minimumOutput, "77");
   });
 }
+
+test("readiness evidence identifies the original failed predicate without changing it", () => {
+  const scenario = { ...tradeScenarios.find(row => row.asset === "USDC" && row.side === "buy" && row.inputMode === "exact-in")!, amountRaw: "100" };
+  const observed: QuoteObservation = { path: "/api/economic-quotes/stream", request: { intent: 0,
+    inputs: [{ currency: tokenAddresses.USDC, amount: "100" }], outputCurrency: config.contracts.core! }, status: 200,
+    requestId: "request", backendRevision: "revision", frames: [{ type: "qualified", value: { inputs: [{ currency: tokenAddresses.USDC, amount: "100" }],
+      quotedOutput: "10", plan: { body: {}, conversions: {}, allocations: [] }, context: { chainId: 31338, blockHash: null, observedAt: "now" } } }] };
+  const missingQuote = uiQuoteReadiness([], scenario, config, true);
+  assert.equal(missingQuote.quoteReady, false); assert.equal(missingQuote.swapEnabled, true);
+  assert.equal(uiReadinessFailure(missingQuote), "ui-quote-observation-not-ready");
+  const disabledButton = uiQuoteReadiness([observed], scenario, config, false);
+  assert.equal(disabledButton.quoteReady, true); assert.equal(disabledButton.swapEnabled, false);
+  assert.equal(uiReadinessFailure(disabledButton), "ui-swap-not-enabled");
+  assert.equal(disabledButton.matchingObservations, 1); assert.equal(disabledButton.latest?.qualifiedFrames, 1);
+  assert.equal(disabledButton.latest?.requestId, "request");
+  assert.equal(uiQuoteReady([observed], scenario, config, false), false);
+  assert.equal(uiQuoteReady([observed], scenario, config, true), true);
+});
+
+test("readiness timeout reports the last failed quote predicate and preserves an original reserve refusal", async () => {
+  const timedOutAssertion = async () => { throw { matcherResult: { actual: false } }; };
+  let latest = { quoteReady: false, swapEnabled: false };
+  const failedPredicate = () => uiReadinessFailure(latest);
+  assert.equal(uiReadinessFailure(undefined), "ui-readiness-not-observed");
+  await assert.rejects(uiPreparationAssertion(failedPredicate, timedOutAssertion),
+    error => (error as { code: string }).code === "ui-quote-observation-not-ready");
+  latest = { quoteReady: true, swapEnabled: false };
+  await assert.rejects(uiPreparationAssertion(failedPredicate, timedOutAssertion),
+    error => (error as { code: string }).code === "ui-swap-not-enabled");
+  const requestId = "76e288ac-e314-4b3c-8769-680b509ae023";
+  await assert.rejects(uiPreparationAssertion(failedPredicate, timedOutAssertion,
+    () => ({ refs: { requestId }, reason: "insufficient-reserve-balance", quoteDiagnostics: undefined })),
+  error => error instanceof QuotePreviewError && error.code === "insufficient-reserve-balance" && diagnosticReferences(error).requestId === requestId);
+});

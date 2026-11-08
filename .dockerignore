@@ -8,6 +8,7 @@
 **/.env
 **/.env.*
 **/*.env
+!tests/fixtures/app.env
 .npmrc
 **/.npmrc
 

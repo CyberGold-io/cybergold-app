@@ -4,11 +4,51 @@ doc_type: test-guide
 status: active
 owner: app-maintainer
 created: 2026-07-11
-last_reviewed: 2026-10-19
+last_reviewed: 2026-11-07
 canonical_for: App Playwright and Synpress end-to-end test operation
 ---
 
-# MetaMask E2E Tests
+# App browser regression tests
+
+## Regular server regression profiles
+
+The regular `sandbox-execution` and `sandbox-independent-execution` profile IDs
+select synthetic browser regression tests. Both use the same retained ordinary
+UI cases in `market-swaps.spec.ts`, `execution-tolerance.spec.ts`,
+`swap-confirmation-feedback.spec.ts` and `wallet-batch.spec.ts`. Each case keeps
+Playwright's fresh browser context. The suite names are operator groupings;
+they do not describe evolving chain state or an economic reset baseline.
+
+```bash
+node scripts/run-synthetic-trade-regression.mjs \
+  --suite sequential --output-dir out/synthetic-sequential
+node scripts/run-synthetic-trade-regression.mjs \
+  --suite independent --output-dir out/synthetic-independent
+```
+
+The runner copies frontend/test source to a writable temporary directory,
+links installed dependencies, and builds/starts its own local Next.js frontend.
+Only the checked-in `tests/fixtures/app.env` supplies application settings.
+Existing in-page EIP1193 providers return synthetic signatures and transaction
+hashes; browser routes supply quotes, preparation, balances and receipts.
+There is no wallet extension, funding, chain node, actual signature or submitted
+transaction. The server runner runs with Docker networking disabled; local
+Next.js and browser communication stays within that container.
+
+`report.json` labels `mode: synthetic`, `evidenceKind: mocked-ui` and
+`transactionEvidence: synthetic-hashes-mocked-receipts`. It checkpoints actual
+source-case IDs, outcomes, durations and counts. A passing case proves only its
+mocked UI assertions; it proves no mined transaction, inventory change, real
+settlement, live quote latency or 24-scenario economic matrix coverage. The
+separate `sandbox-quotes` profile continues observing actual read-only quotes.
+Ordinary Playwright assertion details remain in the private
+`synthetic-ui-tests.log`; the structured report excludes raw error/provider data.
+
+The explicit native wallet qualifier described below is separate from these
+regular profiles. Its setup and transaction machinery is not invoked by the
+synthetic runner.
+
+## Explicit MetaMask qualification
 
 This directory contains the Synpress + Playwright MetaMask flow for CyberGold.
 
@@ -91,15 +131,14 @@ a new test-only wallet; no protocol funding, deployed backend or transaction
 signature is needed. Fixed product API outages are explicit `503` browser
 fixtures, and every scenario asserts that no App `/api/rpc` request is made.
 
-Start a local App with `tests/fixtures/app.env` (chain `31337`) and provide the
-same disposable Synpress wallet variables used when building the cache. Use a
-local origin only. With that server running, select just this file:
+The owned qualifier can select just this file while creating its private App,
+Backend and disposable node. It supplies the wallet and network itself:
 
 ```bash
-PLAYWRIGHT_BASE_URL=http://127.0.0.1:3098 PLAYWRIGHT_EXTERNAL_SERVER=1 \
-NEXT_PUBLIC_CHAIN_ID=31337 \
-npm exec -- playwright test tests/metamask/wallet-session.spec.ts \
-  --project=metamask --trace=off --retries=0
+npm run test:e2e:metamask -- \
+  --backend-image "$BACKEND_IMAGE" --contracts-json "$CONTRACTS_JSON" \
+  --funding-json "$FUNDING_JSON" --test-file wallet-session.spec.ts \
+  --output-dir out/owned-wallet-session
 ```
 
 The test-only prompt driver uses MetaMask's current confirmation test IDs rather
@@ -148,10 +187,11 @@ independent diagnostic cases; the legacy 20 producer inventory is not a second
 operating matrix. Controlled browser fixtures with synthetic providers/receipts
 are UI integration evidence, not qualification of actual provider settlement.
 
-### Independent Sandbox scenarios and the sequential suite
+### Explicit native isolation outside the regular profiles
 
-The private Sandbox suite uses the same UI matrix and settlement assertions as
-the sequential suite. Its host orchestrator captures the complete Sandbox Anvil
+The explicit native isolation machinery retains its UI matrix and settlement assertions.
+The regular server profiles above do not select this machinery.
+Their host orchestrator captures the complete Sandbox Anvil
 state overlay and loads it over the same original immutable fork base. This
 preserves Sandbox changes that do not change its block header, without later
 lazy reads from the mutable Sandbox. The dedicated test wallet inherits its
@@ -167,7 +207,9 @@ before other scenarios can start. All six active native ETH scenarios remain in
 the matrix, with both directions and three nominal sizes. The twelve both-mode
 ETH definitions remain available with the complete retained capability inventory.
 
-Before every winner or alternate attempt, the host restores that prepared owned
+The sequential suite performs setup and its complete matrix once on one owned
+fork, preserving evolving state between cases. It does not claim per-case reset.
+For the independent suite, before every winner or alternate attempt the host restores that prepared owned
 snapshot, recreates the private PostgreSQL database and Backend process, and
 restarts the private frontend with an empty runtime cache. This is an explicit
 **cold cache baseline**; it does not copy live shared caches. Each attempt starts
@@ -215,13 +257,14 @@ cleanup outcome even after failures. Successful runs also record wallet
 transaction receipts. Hosted execution and GitHub required merge checks
 are separate workstreams; this command introduces no required CI job.
 
-### Deployed regression runner
+### Read-only quote matrix and explicit native capability inventory
 
 [matrix.ts](./trading/matrix.ts) retains the complete capability definitions: four
 counterasset choices (PAXG, USDC, native ETH, basket), two directions, two amount
 modes and three nominal dollar tiers ($1/$100/$10,000), totaling 48 definitions.
-Its shared active selector chooses exact-input journeys for ordinary quote,
-wallet, private independent and fork matrices. This means **24 primary UI
+Its shared active selector chooses exact-input journeys for ordinary quote
+and explicitly selected native wallet/fork matrices. The synthetic regular
+profiles report their actual source cases instead. The matrix defines **24 primary UI
 journeys, 48 Core/Market assessment slots and up to 48 trade executions**,
 comprising 24 UI winners and 24 retained alternates when qualified. Setup, approvals,
 supplementary tests and diagnostic repetitions have separate counts.
@@ -289,18 +332,16 @@ Missing routes/capabilities are explicit unavailable results, never passing
 execution coverage. `quotedOperation` describes quote construction; only
 `layer: execution` with a mined `actualOperation` establishes execution.
 
-Sandbox signing is separate and serial. Supply a dedicated disposable Sandbox
-wallet through the runner's private environment (`SYNPRESS_WALLET_SEED_PHRASE`,
-`SYNPRESS_WALLET_PASSWORD`, `NEXT_PUBLIC_WALLET_RPC_URL`) and invoke
-`--target sandbox --mode sandbox-execution`. That mode never signs chain 1.
-The runner funds that dedicated wallet through the existing public faucet after
-each fork refresh, using the batch request identity. Ambiguous
-funding results reuse that identity; the runner never resets the shared fork.
-Do not reuse a wallet that has held real assets. Mainnet execution uses
-`--target mainnet --mode fork-execution` on a host with Python, Docker and
-Foundry; provide `BACKEND_IMAGE`, `CONTRACTS_JSON`, `FUNDING_JSON` and the existing
-private tooling `MAINNET_RPC_URL`. This delegates to the canonical qualifier,
-which creates its own chain. An arbitrary origin is never relabeled a fork.
+Sandbox execution is owned by Ops' disposable-fork profiles. Sequential execution
+uses one fork with evolving state; independent attempts restore their owned
+baseline. Setup funding, bootstrap and transactions stay on those owned nodes.
+The App CLI accepts public read-only `quotes` and owned `fork-execution`; its
+former `sandbox-execution` path and public faucet setup are retired.
+`--target mainnet --mode fork-execution` delegates to the existing local qualifier
+on a host with Python, Docker and Foundry; provide `BACKEND_IMAGE`, `CONTRACTS_JSON`,
+`FUNDING_JSON` and the private read-only tooling `MAINNET_RPC_URL`.
+That local qualifier starts from its declared upstream; it is distinct from Ops'
+copy of the currently deployed Sandbox overlay.
 
 The stable output is `report.json`, schema `cybergold.trade-regression.v1`, with
 per-case pass/fail/unavailable/skipped status, size/valuation identity, provider summaries, separate alternate execution, layer/family/mode, safe references,
@@ -330,8 +371,8 @@ The existing scalar `inputRefund` keeps its input-token meaning. These extra
 event rows do not establish all-asset wallet reconciliation or total value:
 selected input/output bounds and wallet checks retain their existing scope.
 
-Funding behavior is unchanged. The existing faucet and fixed 5-CYGLD bootstrap
-are not assumed sufficient for every $10,000 case. Ordinary funding, balance,
+The owned host provisions PAXG from the frozen matrix funding plan before the
+ordinary bootstrap. It never funds or bootstraps the public Sandbox. Ordinary funding, balance,
 capacity and setup failures remain visible; no test silently resizes a size or
 increases a quota. Full settlement qualification needs a declared sufficiently
 funded disposable fixture and actual receipts before claiming coverage.
@@ -346,6 +387,26 @@ On Linux you may also need:
 ```bash
 sudo env "PATH=$PATH" npx playwright install-deps chromium
 ```
+
+## Owned wallet execution
+
+The default Playwright configuration registers browser smoke tests only. Wallet
+specs are internal children of owned qualifiers; the checked-in raw signing
+configuration is retired. Ops generates its private execution configuration for
+its owned Sandbox fork. The local command below creates a fresh owned Anvil,
+private App/Backend and disposable wallet, and includes every native wallet test
+file. It does not reuse a caller-selected public App or wallet RPC.
+
+```bash
+npm run test:e2e:metamask -- \
+  --backend-image "$BACKEND_IMAGE" --contracts-json "$CONTRACTS_JSON" \
+  --funding-json "$FUNDING_JSON" --output-dir out/owned-wallet-tests
+```
+
+Supply the qualifier's existing read-only upstream through its private tooling
+environment. `--test-file` selects a focused file explicitly. The older wallet
+cache instructions below describe the child fixture; running the command above
+creates and cleans that fixture itself.
 
 ## Running the Tests
 
@@ -386,7 +447,7 @@ This uses `wallet-setup/metamask.setup.ts` to:
 ### 3. Run the MetaMask test
 
 ```bash
-npm run test:e2e:metamask
+npm run test:e2e:metamask -- --backend-image "$BACKEND_IMAGE" --contracts-json "$CONTRACTS_JSON" --funding-json "$FUNDING_JSON"
 ```
 
 For the most reliable MetaMask automation, run from a native Linux checkout:
@@ -394,7 +455,7 @@ For the most reliable MetaMask automation, run from a native Linux checkout:
 ```bash
 npm install
 npm exec --package=playwright@1.60.0 -- playwright install chromium
-npm run test:e2e:metamask
+npm run test:e2e:metamask -- --backend-image "$BACKEND_IMAGE" --contracts-json "$CONTRACTS_JSON" --funding-json "$FUNDING_JSON"
 ```
 
 ## When to Rebuild the Cache
@@ -495,5 +556,5 @@ The test commands are the same on macOS:
 
 ```bash
 npm run test:e2e:metamask:cache -- --force --debug
-npm run test:e2e:metamask
+npm run test:e2e:metamask -- --backend-image "$BACKEND_IMAGE" --contracts-json "$CONTRACTS_JSON" --funding-json "$FUNDING_JSON"
 ```

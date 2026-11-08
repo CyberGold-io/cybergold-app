@@ -2,17 +2,18 @@ import "server-only";
 import type { paths } from "@/app/contracts/backend/http";
 import { serverEnv } from "./environment.ts";
 import { safeDiagnosticReferences } from "../utils/diagnosticReferences.ts";
+import { backendTransportObservation } from "./backend-transport-observation.ts";
 
 export type PublicBackendPath = Exclude<keyof paths, `/api/internal/${string}` | "/api/rpc">;
-const RESPONSE_HEADERS = ["content-type", "cache-control", "retry-after", "x-cybergold-faucet-request-id", "x-accel-buffering", "x-cybergold-market-fallback", "x-cybergold-request-id", "x-cybergold-attempt-id", "x-cybergold-backend-revision"];
+const RESPONSE_HEADERS = ["content-type", "cache-control", "retry-after", "x-cybergold-faucet-request-id", "x-accel-buffering", "x-cybergold-market-fallback", "x-cybergold-request-id", "x-cybergold-attempt-id", "x-cybergold-backend-revision", "server-timing"];
 
-function transportFailure(path: PublicBackendPath, error: unknown, elapsedMs: number, attemptId?: string) {
+function transportFailure(path: PublicBackendPath, error: unknown, elapsedMs: number, attemptId?: string, flowId?: string) {
   const timedOut = error instanceof Error && error.name === "TimeoutError";
   const requestId = crypto.randomUUID(), correlationId = requestId;
   const references = { requestId, correlationId, ...(attemptId ? { attemptId } : {}) };
   const headers = { "Cache-Control": "no-store", "X-CyberGold-Request-Id": requestId,
     ...(attemptId ? { "X-CyberGold-Attempt-Id": attemptId } : {}) };
-  try { console.error("[backend-api] request failed", { ...references, operation: path, stage: "backend-http",
+  try { console.error("[backend-api] request failed", { ...references, flowId, operation: path, stage: "backend-http",
     elapsedMs, failureType: timedOut ? "provider-timeout" : "transport-error",
     ...(path === "/api/faucet" ? { code: timedOut ? "TIMEOUT" : "BAD_GATEWAY", httpStatus: timedOut ? 504 : 502 } : {}) }); }
   catch { /* Reporting cannot alter the product response. */ }
@@ -103,7 +104,7 @@ function transportFailure(path: PublicBackendPath, error: unknown, elapsedMs: nu
   if (path === "/api/quotes/uniswap") {
     return Response.json({ error: "Uniswap quotes are temporarily unavailable." }, { status: 503, headers });
   }
-  if (path === "/api/economic-quotes" || path === "/api/tx-preparations" || path === "/api/quotes/universal-exact-input" || path === "/api/quotes/intent/stream" || path === "/api/quotes/market/stream" || path === "/api/quotes/market" || path === "/api/quotes/trade/stream") {
+  if (path === "/api/economic-quotes" || path === "/api/economic-quotes/stream" || path === "/api/tx-preparations" || path === "/api/quotes/universal-exact-input" || path === "/api/quotes/intent/stream" || path === "/api/quotes/market/stream" || path === "/api/quotes/market" || path === "/api/quotes/trade/stream") {
     return Response.json({ code: timedOut ? "quote-timeout" : "quote-service-unavailable",
       error: timedOut ? "Quote service request timed out." : "Quote service connection failed.", ...references }, { status: 503, headers });
   }
@@ -139,6 +140,7 @@ export function backendRoute(path: PublicBackendPath, fetchImpl: typeof fetch = 
   return async (request: Request): Promise<Response> => {
     const started = performance.now();
     const { attemptId } = safeDiagnosticReferences({ attemptId: request.headers.get("X-CyberGold-Attempt-Id") });
+    const observation = backendTransportObservation(path, request.method, request.signal, attemptId);
     try {
       const url = new URL(path, serverEnv.CYBERGOLD_BACKEND_URL);
       url.search = new URL(request.url).search;
@@ -163,17 +165,29 @@ export function backendRoute(path: PublicBackendPath, fetchImpl: typeof fetch = 
         init.duplex = "half";
       }
       // In particular, never retry an alias nonce, Safe action or faucet write.
+      observation.dispatch();
       const response = await fetchImpl(url, init);
+      observation.headers(response);
       const responseHeaders = new Headers();
       for (const name of RESPONSE_HEADERS) {
         const value = response.headers.get(name);
         if (value !== null) responseHeaders.set(name, value);
       }
-      return new Response(request.method === "HEAD" || response.status === 204 || response.status === 304
-        ? null : (path === "/api/quotes/routes/stream" || path === "/api/quotes/intent/stream" || path === "/api/quotes/market/stream" || path === "/api/quotes/trade/stream") ? response.body : await response.arrayBuffer(), { status: response.status, headers: responseHeaders });
+      const streaming = path === "/api/economic-quotes/stream" || path === "/api/quotes/routes/stream" || path === "/api/quotes/intent/stream" || path === "/api/quotes/market/stream" || path === "/api/quotes/trade/stream";
+      if (streaming) responseHeaders.set("X-Accel-Buffering", "no");
+      let body: BodyInit | null = null;
+      if (request.method !== "HEAD" && response.status !== 204 && response.status !== 304) {
+        if (streaming) body = response.body ? observation.stream(response.body) : null;
+        else { body = await response.arrayBuffer(); observation.buffered(body); }
+      }
+      const downstream = new Response(body, { status: response.status, headers: responseHeaders });
+      observation.handoff();
+      if (!streaming || !body) observation.finish("completed");
+      return downstream;
     } catch (error) {
+      observation.finish(request.signal.aborted ? "cancelled" : "failed");
       if (request.signal.aborted) throw error;
-      return transportFailure(path, error, Math.round(performance.now() - started), attemptId);
+      return transportFailure(path, error, Math.round(performance.now() - started), attemptId, observation.flowId);
     }
   };
 }

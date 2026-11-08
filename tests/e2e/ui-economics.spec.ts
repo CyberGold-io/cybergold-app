@@ -56,7 +56,7 @@ test("MetaMask matrix preparation accepts the real UI universal quote without op
   await getMainInput(page, "sell").fill("1");
   const scenario = { ...tradeScenarios.find(row => row.id === "core-issue-usdc-exact-in")!, amountRaw: "1000000" };
   await waitForUiSwapReady(page, config, scenario);
-  expect((await quoteObservations(page)).some(row => row.path === "/api/economic-quotes" && row.terminal?.type === "complete")).toBe(true);
+  expect((await quoteObservations(page)).some(row => row.path === "/api/economic-quotes/stream" && row.terminal?.type === "complete")).toBe(true);
   expect((await quoteObservations(page)).some(row => row.path === "/api/quotes/trade/stream")).toBe(false);
   await expect(await getSwapButton(page)).toBeEnabled();
 });

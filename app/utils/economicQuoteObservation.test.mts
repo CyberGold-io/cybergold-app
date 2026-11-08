@@ -4,7 +4,7 @@ import { encodeFunctionData, zeroHash, type Address } from 'viem';
 import { protocolConfigurationFixture as config, tokenAddresses } from '../../tests/fixtures/protocol-configuration.ts';
 import { HISTORICAL_HELPERS_EXECUTION_ABI } from '../../tests/fixtures/helpers-execution-legacy.ts';
 import { browserQuoteMatcher } from '../../tests/trading/browserQuoteObservation.ts';
-import { installQuoteObservation, type QuoteObservation } from '../../tests/trading/quoteObservation.ts';
+import { economicObservationValue, quoteObservationIncumbent, installQuoteObservation, type QuoteObservation } from '../../tests/trading/quoteObservation.ts';
 import { applyEconomicQuote, observeScenario, resultFor } from '../../tests/trading/regression.ts';
 import { captureSelection, installSelectionCapture } from '../../tests/trading/providerEvidence.ts';
 import { assertMatrixIntent, type MatrixScenario } from '../../tests/trading/matrix.ts';
@@ -89,6 +89,109 @@ test('economic browser observations use original requests and keep unsigned prep
   assert.equal(uiQuoteReady(rows, scenario, config, true), true);
   assert.equal('deadline' in rows[0].request, false);
   assert.equal('minimumOutput' in selected.plan, false);
+});
+
+test('a canonical economic qualified frame satisfies browser readiness before terminal completion and retains its original request', async () => {
+  const selected=quote(),observations:QuoteObservation[]=[];
+  let writer!:ReadableStreamDefaultController<Uint8Array>;
+  const response=new Response(new ReadableStream<Uint8Array>({start(controller){writer=controller;}}),{headers:{'content-type':'application/x-ndjson'}});
+  const scope={location:{href:'https://fixture.invalid/en'},fetch:async()=>response} as unknown as NonNullable<Parameters<typeof installQuoteObservation>[0]>;
+  installQuoteObservation(scope);
+  await scope.fetch('/api/economic-quotes/stream',{method:'POST',body:JSON.stringify(selected.request)});
+  writer.enqueue(new TextEncoder().encode(JSON.stringify({type:'qualified',value:selected})+'\n'));
+  await new Promise(resolve=>setTimeout(resolve,0));
+  observations.push(...scope.__cybergoldTradeObservations!);
+  assert.equal(observations.length,1);assert.equal(observations[0].terminal,undefined);
+  assert.equal(browserQuoteMatcher(scenario,config,'0',[])(observations[0]),true);
+  assert.equal(uiQuoteReady(observations,scenario,config,true),true);
+  assert.deepEqual(economicObservationValue(observations[0]),selected);
+  assert.deepEqual(privateSandboxSelection(observations,scenario as MatrixScenario,config)?.economicQuote,selected);
+  writer.enqueue(new TextEncoder().encode(JSON.stringify({type:'invalidated',context:selected.context})+'\n'+JSON.stringify({type:'error',code:'quote-unavailable'})+'\n'));
+  writer.close();await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(economicObservationValue(observations[0]),undefined);assert.equal(uiQuoteReady(observations,scenario,config,true),false);
+});
+
+test('an ordinary refinement error retains qualified evidence until matching invalidation clears it',()=>{
+  const selected=quote(),observed:QuoteObservation={path:'/api/economic-quotes/stream',request:selected.request,status:200,
+    frames:[{type:'qualified',value:selected}],terminal:{type:'error',code:'rpc-timeout'}};
+  assert.deepEqual(economicObservationValue(observed),selected);assert.equal(uiQuoteReady([observed],scenario,config,true),true);
+  observed.frames!.push({type:'invalidated',context:selected.context});
+  assert.equal(economicObservationValue(observed),undefined);assert.equal(privateSandboxSelection([observed],scenario as MatrixScenario,config),undefined);
+});
+
+for (const distinct of [false, true]) test(`Refresh retains prior until a ${distinct ? 'distinct' : 'same-context'} replacement is qualified and invalidated`,()=>{
+  const prior=quote(),replacement=quote();
+  if(distinct)replacement.context={...replacement.context,blockHash:'0x'+'bb'.repeat(32)};
+  const rows:QuoteObservation[]=[{path:'/api/economic-quotes',request:prior.request,status:200,terminal:{type:'complete',value:prior}},
+    {path:'/api/economic-quotes/stream',request:{...prior.request,refresh:true},status:200,terminal:{type:'error',code:'rpc-timeout'}}];
+  assert.equal(uiQuoteReady(rows,scenario,config,true),true);
+  assert.deepEqual(quoteObservationIncumbent(rows)?.value,prior);
+  assert.deepEqual(privateSandboxSelection(rows,scenario as MatrixScenario,config)?.economicQuote,prior);
+  rows[1].frames=[{type:'qualified',value:replacement},{type:'invalidated',context:replacement.context}];
+  assert.equal(uiQuoteReady(rows,scenario,config,true),false);
+  assert.equal(quoteObservationIncumbent(rows),undefined);
+  assert.equal(privateSandboxSelection(rows,scenario as MatrixScenario,config),undefined);
+});
+
+test('same-stream invalidation can recover with a fresh qualified selection and authoritative terminal metadata',()=>{
+  const selected=quote(),replacement=quote(),completed=quote();
+  replacement.quotedOutput='110';replacement.context={...replacement.context,blockHash:'0x'+'cc'.repeat(32)};
+  completed.quotedOutput='109';completed.context={...replacement.context};
+  completed.fees={...completed.fees,marketFeeCygld:'7'};
+  const observed:QuoteObservation={path:'/api/economic-quotes/stream',request:selected.request,status:200,
+    frames:[{type:'qualified',value:selected},{type:'invalidated',context:selected.context}]};
+  assert.equal(uiQuoteReady([observed],scenario,config,true),false);
+  observed.frames!.push({type:'qualified',value:replacement});
+  assert.equal(uiQuoteReady([observed],scenario,config,true),true);
+  assert.deepEqual(economicObservationValue(observed),replacement);
+  assert.deepEqual(privateSandboxSelection([observed],scenario as MatrixScenario,config)?.economicQuote,replacement);
+  observed.terminal={type:'complete',value:completed};
+  assert.equal(uiQuoteReady([observed],scenario,config,true),true);
+  assert.deepEqual(economicObservationValue(observed),completed);
+  assert.deepEqual(privateSandboxSelection([observed],scenario as MatrixScenario,config)?.economicQuote,completed);
+});
+
+test('unrelated invalidation does not clear a replacement, while a late superseded stream cannot displace the active owner',()=>{
+  const stale=quote(),current=quote();
+  current.quotedOutput='111';current.context={...current.context,blockHash:'0x'+'dd'.repeat(32)};
+  const older:QuoteObservation={path:'/api/economic-quotes/stream',request:stale.request,status:200,frames:[]};
+  const newer:QuoteObservation={path:'/api/economic-quotes/stream',request:current.request,status:200,
+    frames:[{type:'qualified',value:current},{type:'invalidated',context:stale.context}]};
+  const rows=[older,newer];
+  assert.deepEqual(quoteObservationIncumbent(rows)?.value,current);
+  older.frames!.push({type:'qualified',value:stale});older.terminal={type:'complete',value:stale};
+  assert.deepEqual(quoteObservationIncumbent(rows)?.value,current);
+  assert.equal(uiQuoteReady(rows,scenario,config,true),true);
+});
+
+test('early-qualified and retained-Refresh reporting belongs only to the economic producer contract',()=>{
+  const selected=quote();
+  const legacy:QuoteObservation={path:'/api/quotes/universal-exact-input',request:selected.request,status:200,
+    terminal:{type:'complete',value:selected}};
+  assert.equal(uiQuoteReady([legacy],scenario,config,true),true);
+  assert.equal(uiQuoteReady([legacy,{...legacy,terminal:undefined}],scenario,config,true),false);
+  const generic:QuoteObservation={...legacy,path:'/api/quotes/trade/stream',terminal:undefined,frames:[{type:'qualified',value:selected}],interrupted:true};
+  assert.equal(quoteObservationIncumbent([generic]),undefined);
+  assert.equal(economicObservationValue(generic),undefined);
+  const economic:QuoteObservation={...generic,path:'/api/economic-quotes/stream'};
+  assert.deepEqual(quoteObservationIncumbent([economic])?.value,selected);
+  const provisional=structuredClone(selected);provisional.quotedOutput='999';
+  assert.deepEqual(quoteObservationIncumbent([economic,{...generic,frames:[{type:'qualified',value:provisional}]}])?.value,selected);
+  assert.equal(uiQuoteReady([economic,{...economic,frames:[],interrupted:undefined}],scenario,config,true),true);
+});
+
+test('an actual economic qualified response followed by EOF retains canonical evidence',async()=>{
+  const selected=quote();
+  const scope={location:{href:'https://fixture.invalid/en'},fetch:async()=>new Response(
+    JSON.stringify({type:'qualified',value:selected})+'\n',{headers:{'content-type':'application/x-ndjson'}})} as unknown as NonNullable<Parameters<typeof installQuoteObservation>[0]>;
+  installQuoteObservation(scope);
+  await scope.fetch('/api/economic-quotes/stream',{method:'POST',body:JSON.stringify(selected.request)});
+  await new Promise(resolve=>setImmediate(resolve));
+  const rows=scope.__cybergoldTradeObservations!;
+  assert.equal(rows[0].terminal,undefined);assert.equal(rows[0].interrupted,true);
+  assert.deepEqual(quoteObservationIncumbent(rows)?.value,selected);
+  assert.equal(uiQuoteReady(rows,scenario,config,true),true);
+  assert.deepEqual(privateSandboxSelection(rows,scenario as MatrixScenario,config)?.economicQuote,selected);
 });
 
 test('economic reporting preserves budget versus lower funding without inventing execution bounds', () => {

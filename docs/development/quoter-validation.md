@@ -4,25 +4,38 @@ doc_type: development-guide
 status: active
 owner: app-maintainer
 created: 2026-10-26
-last_reviewed: 2026-10-27
+last_reviewed: 2026-11-03
 canonical_for: App Quoter benchmark loop and measurement report semantics
 ---
 
 # Quoter validation measurements
 
-The existing public quote, Sandbox execution and owned-local-fork profiles remain
-the environment/fixture owners. `tests/trading/quoterBenchmark.ts` adds the serial
+Public quote checks remain read-only. Sandbox execution profiles now create
+owned copies of the deployed Sandbox; the sequential suite evolves one copy
+while independent roles restore their private baseline. Owned-local-fork
+qualifiers remain the local environment/fixture owners. `tests/trading/quoterBenchmark.ts` adds the serial
 paired measurement loop; it does not reset a deployed service, start another
 worker, or alter the standard 24-journey operating matrix.
+
+The App's former public `sandbox-execution` CLI branch is retired. The wallet
+npm command delegates to the existing owned qualifier and includes the full
+native wallet file inventory. Default Playwright discovery registers only
+browser smoke tests; owned orchestrators generate the wallet configuration.
+No new ownership flag, URL heuristic or admission gate is introduced. These
+changes affect test launchers, leaving product quote and execution behavior
+unchanged. Source/image qualification records the selected native files and
+uses an owned generated config for offline wallet discovery.
 
 ## Current local App workflow
 
 Active scalar and basket exact-input views request wallet-free Economic Quotes
-through `POST /api/economic-quotes`. Their display key contains economic inputs,
+through `POST /api/economic-quotes/stream`; JSON consumers retain
+`POST /api/economic-quotes`. Their display key contains economic inputs,
 chain, deployment/configuration and fork generation. It contains no head,
 recipient, execution deadline or tolerance. A successful browser observation is
-retained across ordinary remounts; time, head arrival, focus and reconnect do
-not trigger another quote search for that unchanged request.
+retained across ordinary remounts when it funds the requested budget. A smaller
+funded cached tuple starts one ordinary optimization on a budget revisit.
+Time, head arrival, focus and reconnect do not poll that unchanged request.
 
 The Backend's shared PostgreSQL record lets another browser/API process retrieve
 the same complete historical observation, including its original block/context.
@@ -34,8 +47,10 @@ response for another amount remains attached to that amount's query key.
 
 The Fast Estimator's canonical interface is `POST /api/economic-estimates`, using
 the existing scalar model request/packet. It is one Backend estimator; the App
-does not add a competing amount formula. A matching measured quote takes
-precedence over its advisory estimate. Current tolerance changes recompute only
+can also derive advisory arithmetic from cached measured quantities. These
+estimates never become an executable tuple. Every qualified quote takes
+precedence immediately, including one below an earlier upper estimate; no
+replay-completion threshold holds it private. Current tolerance changes recompute only
 displayed execution guards from that measured output, without searching again.
 
 On Swap, `POST /api/tx-preparations` replays the selected semantic plan at current
@@ -56,11 +71,20 @@ consumption and output in its own currencies; it is not a new lower-funded
 whole plan or a mined settlement receipt. Compare per-conversion and receipt
 measurements in their own raw units.
 
-The Backend retains its current first-result/detailed passes, eight scalar
-configurations, five-second comparison window and first-usable extension of up
-to ten seconds. The onchain Uniswap Quoter is retired from production pricing;
+The finite-completion candidate lets producer work finish without a default
+five-second comparison or fifteen-second whole-search cutoff. Ready tuples
+remain usable while refinement runs. The App stream/facade adds no search
+deadline; caller cancellation is independent of supplier/control RPC bounds.
+Older measurements below retain their original bounded-profile scope.
+The onchain Uniswap Quoter is retired from production pricing;
 the SDK Bridge performs arithmetic and Universal Router remains execution
 infrastructure. This document records local implementation, not deployment.
+
+The fixed stream facade emits `X-Accel-Buffering: no` for its own downstream
+proxy hop, even when that control is absent from the Backend response. Nginx
+[consumes and hides these controls by default](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_hide_header),
+so the Backend header alone need not reach the App. This requests unbuffered
+forwarding; it does not establish public flush timing or explain a measured delay.
 
 `focusedUsdtCases(configuration)` supplies separate exact raw-input cases for
 0.01, 0.02, 0.04, 0.06, 0.08 and 0.10 USDT. It uses configured token addresses
@@ -138,6 +162,53 @@ manifest amount. `qualification.json` records the original, planned and applied
 amounts. This corrects the demonstrated 10,000 USDC fixture shortfall after its
 first 101 USDC of spending; it adds no balance buffer, admission check or live
 top-up, and leaves the public funding manifest and product checks unchanged.
+
+### Matrix-derived runner inventory setup
+
+The runner-funding follow-up starts from App Dev `98b0cd5` and changes only
+test fixtures and diagnostics. Freeze the existing valuation and exact-input
+matrix **before** the ordinary inventory purchase. Both suites nominate the
+largest single frozen CYGLD redemption budget as their **initial** buffer.
+Sequential execution still provisions the sum of planned PAXG debits; independent
+reset attempts use their maximum. The initial CYGLD buffer does not subtract
+prospective issue credits or promise to fund every future sale. The one PAXG
+exact-input bootstrap is sized indicatively for that buffer. Its actual
+receipt and remaining inventory shortfall are observations, not a guaranteed
+output or an additional setup-success condition. Normal capacity, reserve,
+liquidity and wallet-funding errors keep their original outcomes. No retry,
+CYGLD mint, reserve repair or test amount reduction is introduced.
+
+`scripts/plan-runner-funding.mts` prepares the wallet-free config/facts/valuation
+and frozen manifest, including `fundingPlan`. Its explicit `--wallet-address`
+flag adds the first dedicated account derived from the existing private runner
+seed to that manifest; no signing material is written or logged. The host can
+run this finite planning phase, provision collateral, then start the ordinary
+runner with the same manifest. No child acknowledgement wait is added.
+For the existing owned local fork
+qualifier's full matrix, PAXG funding waits until that plan is available, then
+uses its existing holder-to-dedicated-wallet transfer once. The amount is the
+larger of the original manifest allocation and bootstrap PAXG plus planned
+PAXG case spending, including the matching PAXG component of basket purchases,
+also covering the cancelled rejection's balance requirement
+without counting it as spent collateral. The same frozen manifest reaches the browser; the
+independent prepare phase no longer revalues cases after the bootstrap.
+Focused selections that omit the matrix keep their existing funding behavior.
+
+An owner-controlled private baseline can pass a prepared manifest through
+`TRADE_REGRESSION_FROZEN_MATRIX`; `TRADE_REGRESSION_MATRIX` remains its prepared
+output path. This lets its existing owner provision real PAXG collateral before
+the ordinary purchase without a circular wallet-dependent valuation. The public
+Sandbox faucet still accepts only address/requestId and supplies its configured
+allocation. The runner reports its derived requirement; it cannot request a
+larger grant through that API. Additional dedicated-wallet provisioning belongs
+to the existing authorized fixture/host boundary, never the Protocol account.
+
+Native reports retain `fundingPlan` with valuation identity, sum/max policy,
+individual raw case budgets, PAXG requirement and available/acquired/shortfall
+observations when present. Existing UI readiness predicates and deadlines stay
+unchanged. A timeout identifies missing quote observation separately from a
+disabled Swap button; unavailable readiness evidence stays explicit, and a
+matched typed Backend refusal takes precedence over the timeout label.
 
 At cleanup, `*-failures.jsonl` retains the closed projection of failed operation,
 quote and wallet-diagnostic events from each whole owned-container log. It does
@@ -273,16 +344,20 @@ For Market estimates, route source contexts take priority over an older packet
 context. All route sources must agree to identify a comparison state because the
 estimator does not identify its winning route; mixed sources remain unknown.
 
-The reference uses the existing scheduler with a **30-second initial window and
-the ordinary 10-second extension**. A constant private header enables this only
-inside the mounted owned fixture; production APIs/settings are unchanged. Normal
-requests keep five plus ten seconds, including requests following a reference
-failure. Reports retain reference output/funding, configured search coverage,
+The reference now uses the producer's default completion lifecycle, recorded as
+`completion: producer-default`, rather than claiming a fixed 30+10-second
+window. The owned fixture retains an explicit `--reference-seconds` option for
+controlled bounded historical experiments; the private header alone no longer
+creates that cutoff. Whole-quote measurement requests use explicit caller
+cancellation without a separate 60-second quote timer. Setup, control RPC and
+cleanup keep their existing independent bounds. Reports retain reference output/funding, configured search coverage,
 actual candidates started/completed and qualified callback updates. The result
 is the best observed within that coverage, not a global optimum. Reference state
 and quote writes stay in the isolated secondary database, and reference RPC work
 cannot warm a later primary-latency request because the complete latency cohort
-runs first.
+runs first. Latest-simulation quote contexts with null block coordinates remain
+measurable, but same-state error/gap claims are recorded as unknown rather than
+inventing a block number or comparing absent hashes.
 
 Accuracy duration, availability, failures, whole-trade estimate error and
 reference gap are separate fields. A failed accuracy request does not invalidate

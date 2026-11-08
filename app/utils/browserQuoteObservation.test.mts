@@ -7,12 +7,23 @@ import { tradeScenarios, type Scenario } from "../../tests/trading/scenarios.ts"
 import { protocolConfigurationFixture as config, tokenAddresses } from "../../tests/fixtures/protocol-configuration.ts";
 import type { QuoteObservation } from "../../tests/trading/quoteObservation.ts";
 import type { UniversalExactInputQuote, UniversalExactInputRequest } from "./universalExactInput.ts";
-import { installQuoteObservation } from "../../tests/trading/quoteObservation.ts";
+import { installQuoteObservation, quoteObservationIncumbent } from "../../tests/trading/quoteObservation.ts";
 
 const assets = [tokenAddresses.PAXG, tokenAddresses.XAUT];
 const observation = (request: Record<string, unknown>, path = "/api/quotes/universal-exact-input"): QuoteObservation => ({ path, request, status: 200 });
 const scenarioFor = (asset: Scenario["asset"], side: Scenario["side"], inputMode: Scenario["inputMode"] = "exact-in") =>
   tradeScenarios.find(row => row.asset === asset && row.side === side && row.inputMode === inputMode && row.requestedStrategy === "core")!;
+
+test("latest quote observations clear a disproved selected replacement without resurrecting a prior tuple", () => {
+  const prior = { quotedOutput: "8", context: { chainId: 1, blockHash: null, blockNumber: null, observedAt: "2026-11-03T00:00:00Z" } };
+  const fresh = { quotedOutput: "9", context: { ...prior.context, observedAt: "2026-11-03T00:00:01Z" } };
+  const rows: QuoteObservation[] = [
+    { path: "/api/economic-quotes/stream", request: {}, status: 200, frames: [{ type: "qualified", value: prior }] },
+    { path: "/api/economic-quotes/stream", request: {}, status: 200,
+      frames: [{ type: "qualified", value: fresh }, { type: "invalidated", context: fresh.context }] },
+  ];
+  assert.equal(quoteObservationIncumbent(rows), undefined);
+});
 
 for (const asset of ["PAXG", "USDC", "ETH"] as const) for (const side of ["buy", "sell"] as const) {
   test(`browser observer matches actual ${asset} ${side} exact-input wire terms and excludes obsolete/wrong intents`, () => {

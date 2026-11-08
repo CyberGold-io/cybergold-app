@@ -13,7 +13,7 @@ import { basketFacts, configuredToken, ScenarioUnavailableError, tradeScenarios,
 import { applyEconomicQuote, applyUniversalExactInputQuote, failureResult, requireInvariant, resultFor, validateBasket, validateTrade, type ScenarioResult } from "./regression.ts";
 import type { EconomicQuote, EconomicRequest } from "../../app/utils/economicQuotes.ts";
 import { browserQuoteMatcher } from "./browserQuoteObservation.ts";
-import { installQuoteObservation, quoteObservations, type QuoteObservation } from "./quoteObservation.ts";
+import { isEconomicQuoteObservation, quoteObservationIncumbent, installQuoteObservation, quoteObservations, type QuoteObservation } from "./quoteObservation.ts";
 import { observedBasketProviderEvidence, providerSummaries, planDigest, type ProviderQuote } from "./providerEvidence.ts";
 import { activeScenarios, type MatrixScenario, type ValuationSnapshot } from "./matrix.ts";
 import { basketQualityTerms, tradeQualityTerms, enrichResultQuality } from "./quoteQuality.ts";
@@ -66,20 +66,26 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
         const before = (await quoteObservations(page)).length;
         await input.fill(scenario.displayAmount);
         let observation: QuoteObservation | undefined;
+        let ready: unknown;
         await expect.poll(async () => {
           const matching = (await quoteObservations(page)).slice(before).filter(matches);
           const latest = matching.at(-1);
           // A completed matching quote still supplies the checked bounds. An
           // obsolete error or intentional input cancellation cannot preempt
           // its replacement while the existing terminal deadline continues.
-          observation = matching.find(row => row.terminal?.type === "complete")
+          const accepted = quoteObservationIncumbent(matching);
+          ready = accepted?.value;
+          observation = (matching.some(isEconomicQuoteObservation) ? accepted?.observation
+            : matching.find(row => row.terminal?.type === 'complete'))
             ?? (latest?.terminal || latest?.interrupted && !latest.aborted ? latest : undefined);
           const observed = observation ?? latest;
           if (observed) result.refs = { ...result.refs, ...safeDiagnosticReferences({ requestId: observed.requestId }) };
           return Boolean(observation);
         }, { timeout: 75_000 }).toBe(true).catch(() => { throw new ScenarioUnavailableError("quote-stream-interrupted"); });
-        if (!observation?.terminal) throw new ScenarioUnavailableError("quote-stream-interrupted");
-        const observed = observation!, request = observed.request, terminal = observed.terminal!;
+        if (!observation) throw new ScenarioUnavailableError("quote-stream-interrupted");
+        const observed = observation!, request = observed.request;
+        const terminal=ready?{type:'complete',value:ready}:observed.terminal!;
+        if(!terminal)throw new ScenarioUnavailableError("quote-stream-interrupted");
         result.refs = safeDiagnosticReferences({ ...diagnosticReferences(terminal), requestId: observed.requestId });
         if (scenario.size && scenario.inputMode !== "exact-in") result.providers = scenario.asset === "BASKET"
           ? observedBasketProviderEvidence([observed], scenario as MatrixScenario, config.contracts.core ?? undefined)
@@ -89,7 +95,7 @@ export async function observeBrowserQuotes(origin: string, config: ProtocolConfi
         if (observed.status < 200 || observed.status >= 300) throw new QuotePreviewError("quote-service-unavailable", "quote-service-unavailable", result.refs);
         if (scenario.inputMode === "exact-in") {
           const value = terminal.value as UniversalExactInputQuote | EconomicQuote;
-          if (observed.path === "/api/economic-quotes") applyEconomicQuote(result, value as EconomicQuote, request as EconomicRequest);
+          if (["/api/economic-quotes","/api/economic-quotes/stream"].includes(observed.path)) applyEconomicQuote(result, value as EconomicQuote, request as EconomicRequest);
           else applyUniversalExactInputQuote(result, value as UniversalExactInputQuote, (request as UniversalExactInputRequest).inputs);
           result.refs = { ...diagnosticReferences(value), ...result.refs };
           result.deployment = { core: config.contracts.core as `0x${string}`, helpers: value.deployment.helpers as `0x${string}`, adapter: value.deployment.adapter as `0x${string}` };

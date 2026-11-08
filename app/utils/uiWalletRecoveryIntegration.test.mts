@@ -98,9 +98,10 @@ function fixture(mode: "reject" | "late-hash" | "revert" | "confirmed-display-fa
     gasObservation: { begin() {} }, selectionCaptures: async () => [{ attemptId: swap.id, quote: {} }],
     assertMatrixIntent() {}, captureSelection: () => ({ primary: {} }), captureBasketSelection: () => ({}),
     capturedUiQuote: async () => ({ input: [], output: [] }), safeWalletClickError: () => ({}), readWalletUiState: async () => undefined,
-    approveUntilMined: async (_page: Page, _submitted: () => boolean, observe: () => Promise<void>) => {
+    approveUntilMined: async (_page: Page, _submitted: () => boolean, observe: () => Promise<Error | undefined>) => {
       approvalObservers++;
-      await observe(); throw new Error("original UI completion deadline");
+      const terminalFailure = await observe(); if (terminalFailure) throw terminalFailure;
+      throw new Error("original UI completion deadline");
     },
     fetcher: (async (url: string | URL | Request) => {
       receipts++; assert.equal(String(url), `/api/transaction/receipt?hash=${hash}`);

@@ -4,7 +4,7 @@ import { choose, context, install } from "./fixtures/token-quotes";
 import { intentFixture } from "./fixtures/quote-intent";
 
 for (const width of [1280, 390]) {
-  test(`${width}px fees retain grey previous values during edits and keep an independent gas estimate`, async ({ page }) => {
+  test(`${width}px fees show grey current-budget estimates during edits and keep an independent gas estimate`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
     await install(page);
     // Human-scale prices keep the visual proof useful; these are synthetic
@@ -21,6 +21,14 @@ for (const width of [1280, 390]) {
         activeLiquidityRaw: String(10n ** 24n), tick: 0,
         token0BalanceRaw: "2000000000000", token1BalanceRaw: "1000000000000000000000", fee: request.fee,
       } });
+    });
+    await page.route("**/api/economic-estimates", route => {
+      const input = route.request().postDataJSON();
+      return route.fulfill({ json: { namespace: "trade", intent: input, models: [], estimate: {
+        strategy: "universal", source: "cached-lower", amount: input.amount, referenceInput: input.amount,
+        basis: "funded-input-approximation", fullBudget: true, context,
+        fees: { coreProtocolFeeCygld: String(BigInt(input.amount) / 1000n), coreHelpersFeeCygld: "0", marketFeeCygld: "0" },
+      } } });
     });
     let hold = false, started = false, release!: () => void;
     const pending = new Promise<void>(resolve => { release = resolve; });
@@ -49,20 +57,23 @@ for (const width of [1280, 390]) {
     await expect(protocol).toContainText("CYGLD (~ $");
     await expect(gas).toContainText("ETH");
     await expect(fees).toHaveAttribute("aria-busy", "false");
-    const previousGas = await gas.innerText();
     const previousProtocol = await protocol.innerText();
+    const total = fees.locator('[data-trade-display="feeTotal"]'), previousTotal = await total.innerText();
     const completeColor = await protocol.evaluate(element => getComputedStyle(element).color);
     const before = await fees.boundingBox();
 
     hold = true;
     await sell.fill("2");
     await expect(fees).toHaveAttribute("aria-busy", "true");
-    await expect(protocol).toHaveText(previousProtocol);
-    await expect(gas).toHaveText(previousGas);
+    await expect(protocol).toHaveText("0.002 CYGLD (~ $0.40)");
+    await expect(protocol).not.toHaveText(previousProtocol);
+    await expect(total).not.toHaveText(previousTotal, { useInnerText: true });
+    await expect(page.getByTestId("quote-estimate-description")).toHaveClass("sr-only");
+    await expect(gas).toContainText("ETH");
     await expect(fees.getByText("Updating…", { exact: true })).toHaveCount(0);
     expect(await protocol.evaluate(element => getComputedStyle(element).color)).not.toBe(completeColor);
     await expect.poll(() => started).toBe(true);
-    await expect(protocol).toHaveText(previousProtocol);
+    await expect(protocol).toHaveText("0.002 CYGLD (~ $0.40)");
     expect((await fees.boundingBox())?.height).toBe(before?.height);
     await page.screenshot({ path: `out/audit/swap-grey-fees-${width}.png`, fullPage: true });
     release();

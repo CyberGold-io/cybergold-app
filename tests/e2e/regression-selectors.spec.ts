@@ -14,7 +14,7 @@ async function checkEconomicObservation(page: Page, scenario: Scenario, basketAm
   const matches = browserQuoteMatcher(scenario, protocolConfigurationFixture, basketAmount, assets);
   await expect.poll(async () => (await quoteObservations(page)).some(row => matches(row) && row.terminal?.type === "complete")).toBe(true);
   const observation = (await quoteObservations(page)).find(row => matches(row) && row.terminal?.type === "complete")!;
-  expect(observation.path).toBe("/api/economic-quotes");
+  expect(observation.path).toBe("/api/economic-quotes/stream");
   const result = resultFor(scenario, "browser");
   applyEconomicQuote(result, observation.terminal!.value as EconomicQuote, observation.request as EconomicRequest);
   expect(result.quotedOperation).toBe("executeExactInput");

@@ -178,7 +178,11 @@ export function createMetaMaskRequestBatch(client: WalletClient, owner: Address,
       const isSignature = request.method === "eth_signTypedData_v4" && request.params === requests[completed]?.params;
       if (isSignature) tracker?.requestNext("signature", "Permit signature");
       const response = await originalRequest.call(selectedProvider, request);
-      if (isSignature) completed += 1;
+      if (isSignature) {
+        completed += 1;
+        try { void Promise.resolve(tracker?.signatureFulfilled?.()).catch(() => {}); }
+        catch { /* Optional observation cannot stop or replay the SDK group. */ }
+      }
       return response;
     };
     selectedProvider.request = observedRequest;

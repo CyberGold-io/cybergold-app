@@ -4,9 +4,10 @@ import type { ProtocolDeployment } from "./protocolConfiguration";
 import type { UniversalExactInputQuote } from "./universalExactInput.ts";
 import { fetchQuoteStream } from "./quoteStream.ts";
 import { receiveMarketQuoteModel, receiveQuoteModel, receiveTradeBudgetRange } from "./quoteModelStore.ts";
-import { diagnosticReferences, type DiagnosticReferences } from "./diagnosticReferences.ts";
+import { diagnosticAttemptId, diagnosticReferences, retainDiagnosticReferences, safeDiagnosticReferences, type DiagnosticReferences } from "./diagnosticReferences.ts";
 import { isEconomicQuote, type EconomicQuote } from "./economicQuotes.ts";
 import { applySlippageFloor } from "./swapPolicy.ts";
+import { backendHttpMetadata, recordBackendHttpObservation, type BackendHttpObservation } from "./httpObservation.ts";
 
 export type TradeQuoteRequest = components["schemas"]["TradeQuoteRequest"];
 export type TradeQuote = components["schemas"]["TradeQuote"];
@@ -48,7 +49,8 @@ export function tradeAdapter(value: ActiveTradeQuote): Address | undefined {
 
 /** Capture the accepted complete plan before any wallet or other asynchronous work. */
 export function captureTradeQuote<Value extends ActiveTradeQuote>(value: TradeQuoteResult<Value>): TradeQuoteResult<Value> {
-  return { ...value, value: structuredClone(value.value), diagnostics: value.diagnostics && { ...value.diagnostics }, deployment: value.deployment && { ...value.deployment } };
+  const captured = structuredClone(value.value); retainDiagnosticReferences(captured, diagnosticReferences(value.value));
+  return { ...value, value: captured, diagnostics: value.diagnostics && { ...value.diagnostics }, deployment: value.deployment && { ...value.deployment } };
 }
 
 /** Refresh observations without replacing the selected economic tuple. */
@@ -90,17 +92,36 @@ export async function fetchTradeQuote(request: TradeQuoteRequest, signal: AbortS
 }
 
 export async function fetchTradeModel(request: TradeModelRequest, signal?: AbortSignal,
-  fetchImpl: typeof fetch = fetch): Promise<TradeQuoteModelPacket> {
-  const response = await fetchImpl("/api/economic-estimates", { method: "POST", cache: "no-store", signal,
-    headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) });
-  if (!response.ok) throw new Error("Trading estimates are temporarily unavailable.");
-  return response.json();
+  fetchImpl: typeof fetch = fetch, existingAttemptId?: string): Promise<TradeQuoteModelPacket> {
+  const started = performance.now();
+  const metadata = safeDiagnosticReferences({ attemptId: existingAttemptId ?? diagnosticAttemptId() });
+  let headersAt: number | undefined, response: Response | undefined;
+  const observe = (value: unknown, outcome: BackendHttpObservation["outcome"]) => {
+    const completed = performance.now();
+    recordBackendHttpObservation(value, { operation: "economic-estimates", outcome, ...metadata,
+      ...(response ? { ...backendHttpMetadata(response.headers), httpStatus: response.status } : {}),
+      elapsedMs: completed - started,
+      ...(headersAt !== undefined ? { headersMs: headersAt - started, bodyMs: completed - headersAt } : {}) });
+  };
+  try {
+    response = await fetchImpl("/api/economic-estimates", { method: "POST", cache: "no-store", signal,
+      headers: { "Content-Type": "application/json", ...(metadata.attemptId ? { "X-CyberGold-Attempt-Id": metadata.attemptId } : {}) },
+      body: JSON.stringify(request) });
+    headersAt = performance.now();
+    Object.assign(metadata, safeDiagnosticReferences({ requestId: response.headers.get("X-CyberGold-Request-Id") }));
+    if (!response.ok) throw new Error("Trading estimates are temporarily unavailable.");
+    const value: TradeQuoteModelPacket = await response.json();
+    observe(value, "succeeded"); return value;
+  } catch (error) {
+    observe(error, signal?.aborted ? "cancelled" : "failed"); throw error;
+  }
 }
 
 export function economicTradeQuote(quote: EconomicQuote, request: Omit<TradeQuoteRequest, "deadline" | "retainedPlan">): EconomicTradeQuote {
   const intent = { side: request.side, mode: request.mode, counterToken: request.counterToken,
     native: request.native, amount: request.amount, slippageBps: request.slippageBps };
-  return { ...quote, quotedInput: quote.quotedInput ?? quote.inputs[0].amount, inputMaximum: quote.inputMaximum ?? quote.inputs[0].amount,
+  const value: EconomicTradeQuote = { ...quote, quotedInput: quote.quotedInput ?? quote.inputs[0].amount, inputMaximum: quote.inputMaximum ?? quote.inputs[0].amount,
     side: request.side, mode: "exact-in", tokenIn: quote.inputs[0].currency,
     tokenOut: quote.request.outputCurrency, providerRequest: intent };
+  retainDiagnosticReferences(value, diagnosticReferences(quote)); return value;
 }

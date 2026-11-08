@@ -119,3 +119,18 @@ test("formatNumberWithCustomGrouping formats token-like amounts", () => {
     "12 345,678"
   );
 });
+
+test("warm locale/currency/precision formatting reuses Intl objects without changing strings", () => {
+  const Original = Intl.NumberFormat; let allocations = 0;
+  Intl.NumberFormat = new Proxy(Original, { construct(target, args) { allocations++; return Reflect.construct(target, args); } });
+  try {
+    const render = () => [normalizeDecimalInput("12345,678", "de-CH"), formatNumberWithSpaces("0.00012", "de-CH"),
+      formatCurrencyWithCustomGrouping(12345.678, "de-CH", "CHF", { maximumFractionDigits: 2 }),
+      formatGoldAmountForDisplay(.000321507, "de-CH", "imperial"), formatGoldAmountForDisplay(100, "de-CH", "metric")];
+    const first = render(); allocations = 0;
+    for (let i = 0; i < 20; i++) assert.deepEqual(render(), first);
+    assert.equal(allocations, 0);
+    assert.notEqual(formatCurrencyWithCustomGrouping(12.345, "de-CH", "EUR", { maximumFractionDigits: 3 }), first[2]);
+    assert.equal(getLocaleDecimalSeparator("invalid_locale"), ".", "existing invalid-locale fallback remains available");
+  } finally { Intl.NumberFormat = Original; }
+});

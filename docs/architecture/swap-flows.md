@@ -4,7 +4,7 @@ doc_type: architecture
 status: active
 owner: app-maintainer
 created: 2026-07-11
-last_reviewed: 2026-10-19
+last_reviewed: 2026-11-08
 canonical_for: App preview and execution orchestration
 ---
 
@@ -22,6 +22,60 @@ The Backend alone selects among supported Core and Market plans. The App
 submits exact-in user intent and executes the complete returned plan without
 locally ranking providers or resizing inputs to favor one. The direct-basket
 API currently supports Core only; this change adds no Market basket provider.
+
+Reusable whole-quote history belongs to the Backend and is shared across
+browsers and users. Each new App request owner asks for the Backend-selected
+stream. TanStack Query supplies request/promise status only; inactive quote
+slots have zero retention. The App neither initializes a new owner from an
+old quote nor scans, retargets, ranks or extrapolates neighboring whole quotes.
+This also applies to the deferred exact-out adapter's request slots.
+
+Fast scalar hints come from Backend-produced `/api/economic-estimates` packets
+and their optional budget ranges. The Backend supplies the output and fees,
+including `cached-upper` and `cached-lower` arithmetic. An explicit Backend
+`fullBudget` instruction keeps that estimate visible over its stored, partially
+funded fallback while optimization runs. A fully funded quote, an explicit
+observed input limit, any fresh selected quote, or attempt settlement ends that
+overlay. This only compares returned funding with the entered budget; the App
+does not rank or extrapolate output. Hints cannot enable execution or become
+accepted bounds. An early Swap still captures the actual stored tuple.
+Every qualified and terminal selection replaces the complete tuple together,
+including funding, fees, context, limitation evidence and route origins.
+Identical terminal snapshots do not need a second display publication.
+
+Only the current owner's accepted tuple remains available during its Refresh,
+transport failure or preparation. Input changes create an empty owner; matching
+canonical invalidation clears the displayed quote without restoring a prior
+observation. An early Swap captures the latest complete tuple synchronously,
+stops that owner's refinement and keeps the captured funding/output/bounds
+through unsigned preparation. Refused preparation does not restart that stopped
+search; a new input or explicit Refresh can start work. The App and fixed Next
+stream facade add no whole-search time window.
+
+The existing estimate description and pending presentation remain. Only the
+estimated scalar receive number has a subtle three-second opacity pulse.
+A different validated receive amount gets one cycle of the same pulse;
+metadata-only or same-formatted-amount updates do not restart it. Validated
+amounts stay steady while optimization continues. Reduced-motion preferences
+disable both forms. Labels, spending and fees keep their existing presentation.
+
+Reload snapshots retain input drafts, selected assets, preferences and static
+presentation. They do not restore quote outputs, quote fees, minimum outputs,
+consumption, retention disclosures or readiness. Basket snapshots retain the
+editable driver amount, while derived amounts wait for Backend facts/models or
+quotes. Numeric display retention is limited to its current owner and clears
+on a changed key or invalidation.
+
+Exact-in advisory model keys include configuration, generation and input, but
+no block head. A head change alone does not restart that model request or the
+executable quote stream. Legacy exact-out model keys retain their existing
+head scope. Hidden/unmounted views cancel their owned work independently. A completed owner
+keeps its current observation on hide/show; interrupted work resumes once. A
+new owner still acquires the Backend selection.
+Latest execution simulations may have null block coordinates. Those remain
+unknown in diagnostics and measurements, rather than becoming block zero or
+requiring another header read. Disproof associates an unanchored observation
+with its producer observation time, without imposing an age limit.
 
 The App treats generated Core/Helpers ABIs and the current Helpers interface as
 executable authority. Each flow previews first, displays gross/net results and
@@ -49,6 +103,26 @@ selected Core/market family and raw integer bounds. A failure may expose a
 copyable reference alongside the localized product message. Error/provider text,
 signatures, calldata and private URLs are excluded. Submitted-but-unconfirmed
 transactions retain their hash and are rechecked without resubmission.
+
+Page-local quote timing events are also written as structured browser-console
+JSON under `cybergold:quote-latency`. One browser monotonic clock observes native
+input, fetch dispatch, headers, first bytes, parsed selected frames and committed
+display. Selected-frame records retain only diagnostic references, raw input
+amounts, quoted output, producer timing metrics, stored/search origin and observed limitation evidence;
+they exclude plans, addresses, URLs and wallet data. The first validated display
+and the first confirmed full-budget display are separate milestones, so an early
+limited quote does not end the full-budget clock. Optional browser long-task
+entries identify main-thread blocking intervals, with an explicit observation
+support record. They do not identify the responsible function or exclusive CPU
+time. Optional resource timing records retain only the browser's numeric fetch,
+DNS, connection, request and response timestamps and recognized HTTP protocol for
+the same-origin economic stream. They may arrive after completion or abort;
+zero or absent phases do not establish an instantaneous operation. Resource
+entries have no request UUID and require an unambiguous dispatch-clock join.
+Producer metrics retain their producer's clock, including historical metrics on
+stored observations; they are not the current HTTP request duration.
+Console capture adds no telemetry request or persistent App history; these
+best-effort observations do not change quote readiness, timers or cancellation.
 
 Issuance binds the current ordered Core input assets. Redemption has no
 healthy/recovery mode split: every Core preview returns one complete canonical

@@ -147,28 +147,28 @@ await check('independent native requests select the same visible control used fo
 await check('UI confirmation polls select and click the same native control', async () => {
   let submitted = false;
   const f = fixture([{ name: 'blank' }, { name: 'active', path: 'home.html#confirm', controls: confirm }], () => { submitted = true; });
-  const source = readFileSync(new URL('../../tests/metamask/fixed-api-roundtrips.spec.ts', import.meta.url), 'utf8');
+  const source = readFileSync(new URL('../../tests/trading/uiCompletion.ts', import.meta.url), 'utf8');
   const parsed = ts.createSourceFile('fixed-api-roundtrips.spec.ts', source, ts.ScriptTarget.Latest, true);
   const declaration = parsed.statements.find(statement => ts.isFunctionDeclaration(statement) && statement.name?.text === 'approveUntilMined');
   assert.ok(declaration && ts.isFunctionDeclaration(declaration));
-  const javascript = ts.transpile(declaration.getText(parsed), { target: ts.ScriptTarget.ES2022 });
+  const javascript = ts.transpile(declaration.getText(parsed).replace(/^export\s+/, ''), { target: ts.ScriptTarget.ES2022 });
   const approve = vm.runInNewContext(javascript + '; approveUntilMined', {
-    errors, notification: helper.notification, walletRequestButton: buttonFor,
+    performance, errors, notification: helper.notification, walletRequestButton: buttonFor,
     confirmedTransactionText: () => ({ isVisible: async () => submitted }),
     getSwapButton: async () => ({ innerText: async () => 'MetaMask 1 of 1:' }),
     uiCompletionAssertion: async (action: () => Promise<void>) => action(),
     expect: { poll: (callback: () => Promise<boolean>, options: { timeout: number; intervals: number[] }) => {
-      assert.equal(options.timeout, 90000); assert.equal(Array.from(options.intervals).join(','), '250,500,1000');
+      assert.ok(options.timeout > 89_000 && options.timeout <= 90_000); assert.equal(Array.from(options.intervals).join(','), '250,500,1000');
       return { toBe: async (expected: boolean) => {
         let value = false;
         for (let turn = 0; turn < 2 && !value; turn++) value = await callback();
         assert.equal(value, expected);
       } };
     } },
-  }) as (page: Page, submitted: () => boolean) => Promise<void>;
+  }) as (page: Page, submitted: () => boolean, observe: undefined, progress: undefined, deadline: number) => Promise<void>;
   const page = f.page as unknown as { getByText: () => { isVisible: () => Promise<boolean> } };
   page.getByText = () => ({ isVisible: async () => false });
   (page as unknown as { getByRole: () => unknown }).getByRole = () => ({ isVisible: async () => false });
-  await approve(f.page, () => submitted);
+  await approve(f.page, () => submitted, undefined, undefined, performance.now() + 90_000);
   assert.deepEqual(f.actions, ['focus:active', 'click:active']);
 });

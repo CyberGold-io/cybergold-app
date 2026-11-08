@@ -60,22 +60,40 @@ export async function installEconomicApiFixtures(page: Page) {
     await route.fulfill({ json: result });
   };
   await originalRoute('**/api/tx-preparations', prepare);
-  page.route = (pattern, handler, options) => originalRoute(pattern, async (route, request) => {
+  page.route = async (pattern, handler, options) => {
+    // New progressive-specific controls supply their own real NDJSON response.
+    if (typeof pattern === 'string' && pattern.endsWith('/economic-quotes/stream')) return originalRoute(pattern, handler, options);
+    const wrapped: Parameters<Page['route']>[1] = async (route, request) => {
     const path = new URL(request.url()).pathname;
-    if (path !== '/api/economic-quotes') return handler(route, request);
+    const streaming = path === '/api/economic-quotes/stream';
+    if (path !== '/api/economic-quotes' && !streaming) return handler(route, request);
     const economic = request.postDataJSON() as EconomicRequest;
+    const fixtureRequest = new Proxy(request, { get(target,key) {
+      if (key === 'url' && streaming) return () => target.url().replace('/api/economic-quotes/stream','/api/economic-quotes');
+      const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;
+    } });
     const adapted = new Proxy(route, { get(target, key) {
+      if (key === 'request') return () => fixtureRequest;
       if (key === 'fulfill') return async (response: Parameters<Route['fulfill']>[0]) => {
-        const value = response?.json ?? (typeof response?.body === 'string' ? (() => { try { return JSON.parse(response.body); } catch { return undefined; } })() : undefined);
+        let value = response?.json ?? (typeof response?.body === 'string' ? (() => { try { return JSON.parse(response.body); } catch { return undefined; } })() : undefined);
         if ((!response?.status || response.status < 400) && value?.strategy === 'universal' && typeof value.plan?.body === 'string') {
           const quote = economicFixture(value, economic);
           fixtures.set(selectionKey(quote), structuredClone(value));
-          await target.fulfill({ ...response, json: quote, body: undefined }); return;
+          value=quote;
         }
-        await target.fulfill(response);
+        if ((!response?.status || response.status < 400) && streaming && value?.request) {
+          await target.fulfill({ ...response, contentType:'application/x-ndjson', json:undefined,
+            body:JSON.stringify({type:'qualified',value})+'\n'+JSON.stringify({type:'complete',value})+'\n' });return;
+        }
+        await target.fulfill(value ? {...response,json:value,body:undefined} : response);
       };
       const value = Reflect.get(target, key); return typeof value === 'function' ? value.bind(target) : value;
     } });
-    return handler(adapted, request);
-  }, options);
+    return handler(adapted, fixtureRequest);
+    };
+    const registrations=[await originalRoute(pattern,wrapped,options)];
+    if (typeof pattern==='string' && pattern.endsWith('/api/economic-quotes')) registrations.push(await originalRoute(pattern+'/stream',wrapped,options));
+    const dispose=async()=>{for(const registration of registrations)await registration?.dispose();};
+    return {dispose,[Symbol.asyncDispose]:dispose};
+  };
 }

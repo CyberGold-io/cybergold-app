@@ -63,6 +63,10 @@ for (const nextStatus of ["success", "reverted"] as const) {
     await install(page);
     await installSigningWallet(page);
     await page.addInitScript(installUiSwapObservation as () => void);
+    const diagnostics: Record<string, unknown>[] = [];
+    page.on("request", request => {
+      if (new URL(request.url()).pathname === "/api/diagnostics") diagnostics.push(request.postDataJSON());
+    });
     let receiptAvailable = false;
     let receiptReads = 0;
     await page.route("**/api/account/core-permit*", route => route.fulfill({ json: {
@@ -109,6 +113,19 @@ for (const nextStatus of ["success", "reverted"] as const) {
     const pending = await uiSwapObservation(page);
     expect(pending).toMatchObject({ outcome: "unconfirmed", transactionHash: hash });
     expect(pending?.attemptId).toBeTruthy();
+    await expect.poll(() => diagnostics.filter(row => row.attemptId === pending?.attemptId
+      && row.operation === "wallet" && row.outcome === "succeeded").length).toBe(1);
+    const ownDiagnostics = diagnostics.filter(row => row.attemptId === pending?.attemptId);
+    const signatureCompleted = ownDiagnostics.filter(row => row.operation === "wallet" && row.outcome === "succeeded");
+    expect(signatureCompleted).toHaveLength(1);
+    expect(signatureCompleted[0]).toMatchObject({ stage: "authorization", walletStep: "signature", attemptId: pending?.attemptId });
+    const fulfilledIndex = ownDiagnostics.indexOf(signatureCompleted[0]);
+    const requestedIndex = ownDiagnostics.findIndex(row => row.operation === "wallet" && row.outcome === "requested" && row.walletStep === "signature");
+    expect(requestedIndex).toBeGreaterThanOrEqual(0);
+    expect(fulfilledIndex).toBeGreaterThan(requestedIndex);
+    expect(fulfilledIndex).toBeLessThan(ownDiagnostics.findIndex(row => row.operation === "swap" && row.outcome === "submitted"));
+    expect(ownDiagnostics.some(row => row.operation === "swap" && row.outcome === "succeeded")).toBe(false);
+    expect(JSON.stringify(ownDiagnostics)).not.toContain("01".repeat(64));
     await expect(amount).toHaveValue("");
     if (nextStatus === "success") await page.screenshot({ path: "out/audit/followups-submitted-transaction.png", fullPage: true });
     const readsBefore = receiptReads;

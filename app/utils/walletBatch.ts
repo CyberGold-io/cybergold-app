@@ -7,7 +7,11 @@ import type { HelpersExecutionOperation } from "./helpersExecutionGas.ts";
 export type WalletAtomicStatus = "supported" | "ready" | "unsupported" | "unavailable";
 export type WalletBatchCall = { to: Address; data: Hex; value?: bigint };
 export type WalletTypedData = TypedDataDefinition<TypedData, string> & { account: Address };
-export type WalletBatchTracker = { requestNext: (kind: "approval" | "signature" | "transaction", label: string) => void };
+export type WalletBatchTracker = {
+  requestNext: (kind: "approval" | "signature" | "transaction", label: string) => void;
+  /** Optional observation of an existing fulfilled request, without its signature. */
+  signatureFulfilled?: () => void;
+};
 export type WalletReceiptLog = { address: Address; data: Hex; topics: readonly Hex[] };
 export type WalletBatchConfirmation = { transactionHash?: Hex; logs?: readonly WalletReceiptLog[] };
 export type WalletBatchSubmission = {

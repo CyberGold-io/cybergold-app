@@ -23,6 +23,7 @@ export type WalletConfirmationKind =
 export type WalletConfirmationTracker = {
   setTotal: (total: number) => void;
   requestNext: (kind: WalletConfirmationKind, label: string) => void;
+  signatureFulfilled?: () => void;
 };
 
 export type TokenPermissions = {

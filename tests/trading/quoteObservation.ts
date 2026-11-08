@@ -7,6 +7,42 @@ export type QuoteObservation = {
 };
 type ObservationWindow = Window & typeof globalThis & { __cybergoldTradeObservations?: QuoteObservation[] };
 
+export const isEconomicQuoteObservation = (observation: QuoteObservation) =>
+  ['/api/economic-quotes', '/api/economic-quotes/stream'].includes(observation.path);
+
+/** Resolve the economic App incumbent across original request/Refresh observations. */
+export function quoteObservationIncumbent(observations: readonly QuoteObservation[]):
+  { observation: QuoteObservation; value: unknown } | undefined {
+  type Incumbent = { observation: QuoteObservation; value: unknown };
+  let incumbent: Incumbent | undefined;
+  const sameContext = (value: unknown, context: unknown) => {
+    const left = (value as {context?: {chainId?: number; blockHash?: string | null; observedAt?: string}} | undefined)?.context;
+    const right = context as {chainId?: number; blockHash?: string | null; observedAt?: string} | undefined;
+    if (!left || !right || left.chainId !== right.chainId) return false;
+    if (typeof left.blockHash === 'string' && typeof right.blockHash === 'string')
+      return left.blockHash.toLowerCase() === right.blockHash.toLowerCase();
+    return left.blockHash === null && right.blockHash === null && typeof left.observedAt === 'string'
+      && left.observedAt === right.observedAt;
+  };
+  for (const observation of observations) {
+    if (!isEconomicQuoteObservation(observation)) continue;
+    for (const frame of observation.frames ?? []) {
+      if (frame.type === 'qualified') incumbent = { observation, value: frame.value };
+      if (frame.type === 'invalidated' && sameContext(incumbent?.value, frame.context)) incumbent = undefined;
+    }
+    // Match production: a disproof clears the selected tuple, later qualified
+    // frames can recover, and the producer's current terminal tuple is final.
+    if (observation.terminal?.type === 'complete')
+      incumbent = { observation, value: observation.terminal.value };
+  }
+  return incumbent;
+}
+
+/** A ready economic frame is usable before completion or after refinement failure. */
+export function economicObservationValue(observation: QuoteObservation): unknown {
+  return quoteObservationIncumbent([observation])?.value;
+}
+
 /** Observe the original fetch without changing its request or returned response.
  * The App cancels its stream reader after a terminal frame, so DevTools cannot
  * reliably retrieve that response body. A clone sees the same emitted frames.
@@ -19,7 +55,7 @@ export function installQuoteObservation(scope: ObservationWindow = window) {
     const [input, init] = args;
     const path = new URL(typeof input === "string" || input instanceof URL ? String(input) : input.url, scope.location.href).pathname;
     if (!["/api/quotes/trade/stream", "/api/quotes/basket-preview", "/api/quotes/universal-exact-input",
-      "/api/economic-quotes", "/api/tx-preparations"].includes(path)) return operation;
+      "/api/economic-quotes", "/api/economic-quotes/stream", "/api/tx-preparations"].includes(path)) return operation;
     // These App producers submit JSON with RequestInit.body. Other fetches are
     // left untouched, including wallet signatures and transaction submission.
     // Unsigned preparation responses stay in this test-owned browser memory;
@@ -43,7 +79,7 @@ export function installQuoteObservation(scope: ObservationWindow = window) {
     observation.backendRevision = response.headers.get("X-CyberGold-Backend-Revision") ?? undefined;
     const clone = response.clone();
     void (async () => {
-      if (path !== "/api/quotes/trade/stream" || !response.ok) {
+      if (!["/api/quotes/trade/stream","/api/economic-quotes/stream"].includes(path) || !response.ok) {
         const value = await clone.json();
         observation.terminal = response.ok ? { type: "complete", value } : { type: "error", ...value };
         return;

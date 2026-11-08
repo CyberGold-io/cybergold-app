@@ -383,6 +383,23 @@
   font-weight: 400;
 }
 
+@keyframes quote-estimate-opacity {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.72; }
+}
+
+.quote-estimate-pulse,
+.quote-update-pulse {
+  animation: quote-estimate-opacity 3s ease-in-out;
+}
+
+.quote-estimate-pulse { animation-iteration-count: infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  .quote-estimate-pulse,
+  .quote-update-pulse { animation: none; }
+}
+
 @keyframes editable-caret-blink {
   0%,
   45% {
