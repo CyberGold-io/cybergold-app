@@ -114,7 +114,14 @@ and the first confirmed full-budget display are separate milestones, so an early
 limited quote does not end the full-budget clock. Optional browser long-task
 entries identify main-thread blocking intervals, with an explicit observation
 support record. They do not identify the responsible function or exclusive CPU
-time. Console capture adds no telemetry request or persistent App history; these
+time. Optional resource timing records retain only the browser's numeric fetch,
+DNS, connection, request and response timestamps and recognized HTTP protocol for
+the same-origin economic stream. They may arrive after completion or abort;
+zero or absent phases do not establish an instantaneous operation. Resource
+entries have no request UUID and require an unambiguous dispatch-clock join.
+Producer metrics retain their producer's clock, including historical metrics on
+stored observations; they are not the current HTTP request duration.
+Console capture adds no telemetry request or persistent App history; these
 best-effort observations do not change quote readiness, timers or cancellation.
 
 Issuance binds the current ordered Core input assets. Redemption has no

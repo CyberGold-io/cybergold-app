@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createQuoteDisplayTiming, createQuoteStreamTiming, emitQuoteLatency, observeQuoteLongTasks, QUOTE_LATENCY_EVENT, type QuoteLatencyEvent } from "./quoteLatency.ts";
+import { createQuoteDisplayTiming, createQuoteStreamTiming, emitQuoteLatency, observeQuoteLongTasks, observeQuoteResources, QUOTE_LATENCY_EVENT, type QuoteLatencyEvent } from "./quoteLatency.ts";
 import { fetchQuoteStream } from "./quoteStream.ts";
 import { retainDiagnosticReferences } from "./diagnosticReferences.ts";
 
@@ -153,6 +153,63 @@ test("missing or failing long-task observer remains optional coverage, not an op
     } });
     assert.doesNotThrow(() => observeQuoteLongTasks()());
     assert.deepEqual(observer.events.map(event => [event.phase, event.supported]), [["long-task-coverage", false], ["long-task-coverage", false]]);
+  } finally { if (previous) Object.defineProperty(globalThis, "PerformanceObserver", previous); else Reflect.deleteProperty(globalThis, "PerformanceObserver"); observer.restore(); }
+});
+
+test("resource observation retains raw same-origin fetch timing zeros without URLs or identity guesses", t => {
+  const observer = local(), previous = Object.getOwnPropertyDescriptor(globalThis, "PerformanceObserver");
+  let callback!: (list: { getEntries(): unknown[] }) => void, options: unknown, disconnected = 0;
+  t.mock.method(performance, "now", () => 900);
+  Object.defineProperty(observer.scope, "location", { value: { origin: "https://sandbox.cybergold.io" } });
+  class PassiveObserver {
+    static supportedEntryTypes = ["resource"];
+    constructor(receive: typeof callback) { callback = receive; }
+    observe(value: unknown) { options = value; }
+    disconnect() { disconnected++; }
+  }
+  Object.defineProperty(globalThis, "PerformanceObserver", { configurable: true, value: PassiveObserver });
+  const resource = { entryType: "resource", initiatorType: "fetch", name: "https://sandbox.cybergold.io/api/economic-quotes/stream?private-query",
+    startTime: 100, fetchStart: 101, domainLookupStart: 0, domainLookupEnd: 0, connectStart: 0, connectEnd: 0,
+    secureConnectionStart: 0, requestStart: 110, responseStart: 130, responseEnd: 180, duration: 80, nextHopProtocol: "h2",
+    serverTiming: [{ description: "private-server-text" }], requestId: "private-identity" };
+  try {
+    const stop = observeQuoteResources();
+    assert.deepEqual(options, { type: "resource", buffered: true });
+    callback({ getEntries: () => [
+      { ...resource, name: "invalid-url" },
+      { ...resource, name: "https://other.example/api/economic-quotes/stream" },
+      { ...resource, name: "https://sandbox.cybergold.io/api/other" },
+      { ...resource, initiatorType: "img" }, resource,
+      { ...resource, domainLookupEnd: NaN, nextHopProtocol: "private-protocol" },
+    ] });
+    assert.equal(observer.events[0].supported, true);
+    assert.deepEqual(observer.events[1], { phase: "resource-timing", atMs: 900, elapsedMs: 80, origin: "browser",
+      resourceTiming: { startTime: 100, fetchStart: 101, domainLookupStart: 0, domainLookupEnd: 0, connectStart: 0, connectEnd: 0,
+        secureConnectionStart: 0, requestStart: 110, responseStart: 130, responseEnd: 180, duration: 80 }, nextHopProtocol: "h2" });
+    assert.equal(observer.events.length, 3);
+    assert.equal(observer.events[2].resourceTiming?.domainLookupEnd, undefined);
+    assert.equal(observer.events[2].nextHopProtocol, undefined);
+    assert.equal(JSON.stringify([observer.events, observer.logs]).includes("private-"), false);
+    assert.equal(observer.events[1].attemptId, undefined);
+    stop(); assert.equal(disconnected, 1);
+  } finally { if (previous) Object.defineProperty(globalThis, "PerformanceObserver", previous); else Reflect.deleteProperty(globalThis, "PerformanceObserver"); observer.restore(); }
+});
+
+test("unavailable resource observation and setup errors remain optional coverage with cleanup", () => {
+  const observer = local(), previous = Object.getOwnPropertyDescriptor(globalThis, "PerformanceObserver");
+  let disconnected = 0;
+  Object.defineProperty(observer.scope, "location", { value: { origin: "https://sandbox.cybergold.io" } });
+  try {
+    Object.defineProperty(globalThis, "PerformanceObserver", { configurable: true, value: undefined });
+    assert.doesNotThrow(() => observeQuoteResources()());
+    Object.defineProperty(globalThis, "PerformanceObserver", { configurable: true, value: class {
+      static supportedEntryTypes = ["resource"];
+      observe() { throw new Error("observer unavailable"); }
+      disconnect() { disconnected++; }
+    } });
+    assert.doesNotThrow(() => observeQuoteResources()());
+    assert.deepEqual(observer.events.map(event => [event.phase, event.supported]), [["resource-timing-coverage", false], ["resource-timing-coverage", false]]);
+    assert.ok(disconnected >= 1);
   } finally { if (previous) Object.defineProperty(globalThis, "PerformanceObserver", previous); else Reflect.deleteProperty(globalThis, "PerformanceObserver"); observer.restore(); }
 });
 

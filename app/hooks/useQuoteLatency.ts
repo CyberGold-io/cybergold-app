@@ -1,7 +1,7 @@
 "use client";
 
 import { useLayoutEffect, useRef } from "react";
-import { createQuoteDisplayTiming, observeQuoteLongTasks } from "../utils/quoteLatency";
+import { createQuoteDisplayTiming, observeQuoteLongTasks, observeQuoteResources } from "../utils/quoteLatency";
 import type { DiagnosticReferences } from "../utils/diagnosticReferences";
 
 /** Observe native edits before the existing React input/debounce handlers. */
@@ -10,6 +10,7 @@ export function useQuoteLatency(visible: boolean, references?: DiagnosticReferen
   if (clock.current === null) clock.current = createQuoteDisplayTiming();
   useLayoutEffect(() => {
     const stopObservation = observeQuoteLongTasks();
+    const stopResources = observeQuoteResources();
     const input = (event: Event) => {
       if (event.target instanceof HTMLInputElement && event.target.matches("[data-trade-display], [data-trade-basket-input]")) clock.current?.input();
     };
@@ -17,7 +18,7 @@ export function useQuoteLatency(visible: boolean, references?: DiagnosticReferen
       if (event.target instanceof Element && event.target.closest("[data-trade-refresh]")) clock.current?.input(true);
     };
     document.addEventListener("input", input, true); document.addEventListener("click", click, true);
-    return () => { document.removeEventListener("input", input, true); document.removeEventListener("click", click, true); stopObservation(); };
+    return () => { document.removeEventListener("input", input, true); document.removeEventListener("click", click, true); stopObservation(); stopResources(); };
   }, []);
   // Layout effects run after the displayed DOM has committed, before paint.
   useLayoutEffect(() => { clock.current?.display(visible, references, source, full); });

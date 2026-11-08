@@ -2,7 +2,8 @@ import { diagnosticReferences, safeDiagnosticReferences, type DiagnosticReferenc
 import { backendHttpMetadata } from "./httpObservation.ts";
 
 export const QUOTE_LATENCY_EVENT = "cybergold:quote-latency";
-type Phase = "input" | "dispatch" | "headers" | "first-body" | "first-frame" | "first-selected" | "selected" | "finished" | "display" | "display-full" | "long-task" | "long-task-coverage";
+type Phase = "input" | "dispatch" | "headers" | "first-body" | "first-frame" | "first-selected" | "selected" | "finished" | "display" | "display-full" | "long-task" | "long-task-coverage" | "resource-timing" | "resource-timing-coverage";
+const resourceTimeFields = ["startTime", "fetchStart", "domainLookupStart", "domainLookupEnd", "connectStart", "connectEnd", "secureConnectionStart", "requestStart", "responseStart", "responseEnd", "duration"] as const;
 export type QuoteLatencyEvent = DiagnosticReferences & {
   phase: Phase; atMs: number; elapsedMs: number; origin: "stream" | "input" | "refresh" | "navigation" | "browser";
   outcome?: "succeeded" | "cancelled" | "failed"; source?: "stored" | "search";
@@ -12,6 +13,8 @@ export type QuoteLatencyEvent = DiagnosticReferences & {
   producerMetrics?: Partial<Record<"totalMs" | "firstQualifiedMs" | "selectionMs" | "canonicalCompletedMs" | "timeToFirstWholePlanMs", number>>;
   inputLimitObserved?: boolean; readAtMs?: number; parsedAtMs?: number;
   supported?: boolean; startMs?: number; endMs?: number; durationMs?: number;
+  resourceTiming?: Partial<Record<typeof resourceTimeFields[number], number>>;
+  nextHopProtocol?: "http/1.1" | "h2" | "h3";
 };
 
 /** Page-local timing only. It neither sends telemetry nor changes quote state. */
@@ -146,6 +149,45 @@ export function observeQuoteLongTasks(): () => void {
       } catch { /* Observer delivery cannot interrupt page work. */ }
     });
     observer.observe({ type: "longtask", buffered: true }); coverage(true);
+  } catch { try { observer?.disconnect(); } catch { /* Optional cleanup. */ } coverage(false); }
+  return () => { try { observer?.disconnect(); } catch { /* Optional cleanup. */ } };
+}
+
+/** Passive completed/aborted resource entries; never extend a streaming request. */
+export function observeQuoteResources(): () => void {
+  let observer: PerformanceObserver | undefined;
+  const coverage = (supported: boolean) => {
+    const atMs = now();
+    if (atMs !== undefined) emitQuoteLatency({ phase: "resource-timing-coverage", atMs, elapsedMs: 0, origin: "browser", supported });
+  };
+  try {
+    if (typeof PerformanceObserver === "undefined" || !PerformanceObserver.supportedEntryTypes?.includes("resource")) {
+      coverage(false); return () => {};
+    }
+    const origin = window.location.origin;
+    observer = new PerformanceObserver(list => {
+      try {
+        for (const entry of list.getEntries()) {
+          try {
+            const resource = entry as PerformanceResourceTiming;
+            if (resource.entryType !== "resource" || resource.initiatorType !== "fetch") continue;
+            const url = new URL(resource.name);
+            if (url.origin !== origin || url.pathname !== "/api/economic-quotes/stream") continue;
+            const atMs = now();
+            if (atMs === undefined || !Number.isFinite(resource.duration)) continue;
+            const resourceTiming: NonNullable<QuoteLatencyEvent["resourceTiming"]> = {};
+            for (const field of resourceTimeFields) {
+              const value = resource[field];
+              if (typeof value === "number" && Number.isFinite(value)) resourceTiming[field] = value;
+            }
+            const protocol = resource.nextHopProtocol;
+            emitQuoteLatency({ phase: "resource-timing", atMs, elapsedMs: resource.duration, origin: "browser", resourceTiming,
+              ...(protocol === "http/1.1" || protocol === "h2" || protocol === "h3" ? { nextHopProtocol: protocol } : {}) });
+          } catch { /* An unavailable entry cannot hide later resource observations. */ }
+        }
+      } catch { coverage(false); }
+    });
+    observer.observe({ type: "resource", buffered: true }); coverage(true);
   } catch { try { observer?.disconnect(); } catch { /* Optional cleanup. */ } coverage(false); }
   return () => { try { observer?.disconnect(); } catch { /* Optional cleanup. */ } };
 }
