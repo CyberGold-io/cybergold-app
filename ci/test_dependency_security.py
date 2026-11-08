@@ -2,6 +2,7 @@
 """Regression tests for the common merge decision, independent of live advisories."""
 
 import copy
+import hashlib
 import importlib.util
 import io
 import json
@@ -9,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
@@ -265,10 +267,167 @@ class DecisionTests(unittest.TestCase):
                 POLICY.urllib.request,
                 "urlopen",
                 return_value=io.BytesIO(b"incorrect scanner bytes"),
-            ),
-            self.assertRaisesRegex(ValueError, "checksum mismatch"),
+            ) as download,
         ):
-            POLICY.install_scanner()
+            with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+                POLICY.install_scanner()
+            download.assert_called_once()
+            self.assertFalse(list(Path(directory).iterdir()))
+
+
+class ScannerDownloadTests(unittest.TestCase):
+    scanner = b"same pinned scanner bytes"
+    filename = "osv-scanner_linux_amd64"
+    download_url = (
+        f"https://github.com/google/osv-scanner/releases/download/"
+        f"v{POLICY.SCANNER_VERSION}/{filename}"
+    )
+    release_url = (
+        "https://api.github.com/repos/google/osv-scanner/releases/tags/"
+        f"v{POLICY.SCANNER_VERSION}"
+    )
+    asset_url = "https://api.github.com/repos/google/osv-scanner/releases/assets/632251666"
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.directory = Path(temporary.name)
+        for mocked in (
+            patch.object(POLICY.tempfile, "gettempdir", return_value=temporary.name),
+            patch.object(POLICY.platform, "system", return_value="Linux"),
+            patch.object(POLICY.platform, "machine", return_value="x86_64"),
+            patch.dict(
+                POLICY.SCANNER_SHA256,
+                {"linux_amd64": hashlib.sha256(self.scanner).hexdigest()},
+            ),
+        ):
+            mocked.start()
+            self.addCleanup(mocked.stop)
+
+    def release(self, assets=None):
+        return io.BytesIO(
+            json.dumps({"assets": assets if assets is not None else [
+                {"name": "osv-scanner_darwin_arm64", "url": "wrong-platform"},
+                {"name": self.filename, "url": self.asset_url},
+            ]}).encode()
+        )
+
+    def test_direct_success_does_not_query_api(self):
+        with patch.object(
+            POLICY.urllib.request, "urlopen", return_value=io.BytesIO(self.scanner)
+        ) as download:
+            scanner = POLICY.install_scanner()
+        download.assert_called_once_with(self.download_url, timeout=60)
+        self.assertEqual(scanner.read_bytes(), self.scanner)
+        self.assertEqual(scanner.stat().st_mode & 0o777, 0o755)
+
+    def test_http_server_error_uses_matching_official_api_asset_and_same_checksum(self):
+        for status in (500, 504, 599):
+            failure = urllib.error.HTTPError(
+                self.download_url, status, "Server error", {}, None
+            )
+            with self.subTest(status=status), patch.object(
+                POLICY.urllib.request,
+                "urlopen",
+                side_effect=[failure, self.release(), io.BytesIO(self.scanner)],
+            ) as download:
+                scanner = POLICY.install_scanner()
+                self.assertEqual(scanner.read_bytes(), self.scanner)
+                self.assertEqual(download.call_args_list[0].args, (self.download_url,))
+                self.assertEqual(download.call_args_list[1].args, (self.release_url,))
+                request = download.call_args_list[2].args[0]
+                self.assertEqual(request.full_url, self.asset_url)
+                self.assertEqual(
+                    request.get_header("Accept"), "application/octet-stream"
+                )
+                self.assertEqual(
+                    request.header_items(), [("Accept", "application/octet-stream")]
+                )
+                self.assertTrue(all(
+                    call.kwargs == {"timeout": 60}
+                    for call in download.call_args_list
+                ))
+                scanner.unlink()
+
+    def test_client_and_non_http_errors_do_not_use_an_alternate_path(self):
+        failures = (
+            urllib.error.HTTPError(self.download_url, 403, "Forbidden", {}, None),
+            urllib.error.HTTPError(self.download_url, 404, "Not Found", {}, None),
+            urllib.error.URLError("TLS verification failed"),
+            TimeoutError("download timed out"),
+        )
+        for failure in failures:
+            with self.subTest(failure=type(failure).__name__), patch.object(
+                POLICY.urllib.request, "urlopen", side_effect=failure
+            ) as download:
+                with self.assertRaises(type(failure)) as caught:
+                    POLICY.install_scanner()
+                self.assertIs(caught.exception, failure)
+                download.assert_called_once_with(self.download_url, timeout=60)
+        self.assertFalse(list(self.directory.iterdir()))
+
+    def test_fallback_checksum_mismatch_is_rejected_without_other_attempts(self):
+        with patch.object(
+            POLICY.urllib.request,
+            "urlopen",
+            side_effect=[
+                urllib.error.HTTPError(self.download_url, 504, "Server error", {}, None),
+                self.release(), io.BytesIO(b"wrong bytes"),
+            ],
+        ) as download:
+            with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+                POLICY.install_scanner()
+        self.assertEqual(download.call_count, 3)
+        self.assertFalse(list(self.directory.iterdir()))
+
+    def test_valid_cache_works_without_network(self):
+        scanner = self.directory / (
+            f"cybergold-osv-scanner-{POLICY.SCANNER_VERSION}-linux_amd64"
+        )
+        scanner.write_bytes(self.scanner)
+        scanner.chmod(0o755)
+        with patch.object(
+            POLICY.urllib.request, "urlopen",
+            side_effect=urllib.error.URLError("offline"),
+        ) as download:
+            self.assertEqual(POLICY.install_scanner(), scanner)
+        download.assert_not_called()
+
+    def test_missing_expected_asset_names_the_filename(self):
+        with patch.object(
+            POLICY.urllib.request,
+            "urlopen",
+            side_effect=[
+                urllib.error.HTTPError(self.download_url, 504, "Server error", {}, None),
+                self.release([]),
+            ],
+        ) as download:
+            with self.assertRaisesRegex(
+                ValueError, f"release asset not found: {self.filename}"
+            ):
+                POLICY.install_scanner()
+        self.assertEqual(download.call_count, 2)
+
+    def test_api_transport_and_metadata_failures_propagate_normally(self):
+        error = urllib.error.URLError("API unavailable")
+        for replies, expected in (
+            ([error], urllib.error.URLError),
+            ([io.BytesIO(b"not JSON")], json.JSONDecodeError),
+            ([self.release(), error], urllib.error.URLError),
+        ):
+            with self.subTest(expected=expected.__name__), patch.object(
+                POLICY.urllib.request,
+                "urlopen",
+                side_effect=[
+                    urllib.error.HTTPError(self.download_url, 504, "Server error", {}, None),
+                    *replies,
+                ],
+            ):
+                with self.assertRaises(expected) as caught:
+                    POLICY.install_scanner()
+                if expected is urllib.error.URLError:
+                    self.assertIs(caught.exception, error)
+        self.assertFalse(list(self.directory.iterdir()))
 
 
 if __name__ == "__main__":
