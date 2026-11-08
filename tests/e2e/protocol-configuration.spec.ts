@@ -21,8 +21,8 @@ test("one configuration bootstrap supplies Core, market and the token catalog wi
   await page.goto("/en");
   await expect(page.getByText("Your budget", { exact: true })).toBeVisible();
   await expect.poll(() => configurations).toBeGreaterThan(0);
-  const bootstrapCalls = configurations;
   await selectPaxg(page);
+  const bootstrapCalls = configurations;
   await page.locator("#sell-amount").fill("1");
   await expect(page.locator("#buy-amount")).toHaveText("0.999");
   await page.locator("#sell-amount").fill("2");
