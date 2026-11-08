@@ -37,6 +37,7 @@ export async function fetchQuoteStream<Value, Event extends { type: string }>(
     while (true) {
       signal.throwIfAborted();
       const { value, done } = await reader.read();
+      const readAtMs = timing?.now();
       if (value?.byteLength) timing?.mark("first-body");
       signal.throwIfAborted();
       pending += decoder.decode(value, { stream: !done });
@@ -46,12 +47,16 @@ export async function fetchQuoteStream<Value, Event extends { type: string }>(
       for (const line of lines) {
         if (!line.trim()) continue;
         const event = JSON.parse(line) as Terminal<Value> | Event;
+        const parsedAtMs = timing?.now();
         timing?.mark("first-frame");
         retainDiagnosticReferences(event, { ...metadata, ...diagnosticReferences(event) });
         if (event.type === "error") throw knownQuoteError(event)
           ?? new QuotePreviewError("quote-unavailable", "Quote service failed.", diagnosticReferences(event), quoteDiagnostics(event));
         if ("value" in event) retainDiagnosticReferences(event.value, diagnosticReferences(event));
-        if (event.type === "qualified" || event.type === "complete") timing?.mark("first-selected");
+        if (event.type === "qualified" || event.type === "complete") {
+          timing?.mark("first-selected");
+          if ("value" in event) timing?.selected(event.value, event.type, { readAtMs, parsedAtMs });
+        }
         if (event.type === "complete") { timing?.mark("finished", { outcome: "succeeded" }); return (event as { value: Value }).value; }
         onEvent(event as Event);
         signal.throwIfAborted();

@@ -1689,7 +1689,8 @@ const computedReceiveQuote = useMemo((): Prefill => {
     activeQuoteStatus === "success" && !isSpendAmountZero && !isSubmittingSwap &&
     Boolean(activeUniversalQuote && isEconomicQuote(activeUniversalQuote)) &&
     Boolean(showBuyBasket ? qualifiedBasketQuote : hasValidatedReceiveAmount || basketSpendingInputs),
-    activeQuoteReferences, activeUniversalQuote && isEconomicQuote(activeUniversalQuote) ? activeUniversalQuote.observation?.source : undefined);
+    activeQuoteReferences, activeUniversalQuote && isEconomicQuote(activeUniversalQuote) ? activeUniversalQuote.observation?.source : undefined,
+    evaluationStatus === "confirmed" && !purchaseSpendingLimited);
   // Pulse displayed number replacements, independently of quote identity or capture.
   const previousReceiveAmount = useRef<string | undefined>(undefined);
   const [receiveUpdatePulse, setReceiveUpdatePulse] = useState<string | undefined>(undefined);

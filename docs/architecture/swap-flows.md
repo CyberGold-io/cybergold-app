@@ -4,7 +4,7 @@ doc_type: architecture
 status: active
 owner: app-maintainer
 created: 2026-07-11
-last_reviewed: 2026-11-04
+last_reviewed: 2026-11-08
 canonical_for: App preview and execution orchestration
 ---
 
@@ -103,6 +103,26 @@ selected Core/market family and raw integer bounds. A failure may expose a
 copyable reference alongside the localized product message. Error/provider text,
 signatures, calldata and private URLs are excluded. Submitted-but-unconfirmed
 transactions retain their hash and are rechecked without resubmission.
+
+Page-local quote timing events are also written as structured browser-console
+JSON under `cybergold:quote-latency`. One browser monotonic clock observes native
+input, fetch dispatch, headers, first bytes, parsed selected frames and committed
+display. Selected-frame records retain only diagnostic references, raw input
+amounts, quoted output, producer timing metrics, stored/search origin and observed limitation evidence;
+they exclude plans, addresses, URLs and wallet data. The first validated display
+and the first confirmed full-budget display are separate milestones, so an early
+limited quote does not end the full-budget clock. Optional browser long-task
+entries identify main-thread blocking intervals, with an explicit observation
+support record. They do not identify the responsible function or exclusive CPU
+time. Optional resource timing records retain only the browser's numeric fetch,
+DNS, connection, request and response timestamps and recognized HTTP protocol for
+the same-origin economic stream. They may arrive after completion or abort;
+zero or absent phases do not establish an instantaneous operation. Resource
+entries have no request UUID and require an unambiguous dispatch-clock join.
+Producer metrics retain their producer's clock, including historical metrics on
+stored observations; they are not the current HTTP request duration.
+Console capture adds no telemetry request or persistent App history; these
+best-effort observations do not change quote readiness, timers or cancellation.
 
 Issuance binds the current ordered Core input assets. Redemption has no
 healthy/recovery mode split: every Core preview returns one complete canonical

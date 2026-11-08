@@ -4,7 +4,7 @@ doc_type: development-guide
 status: active
 owner: app-maintainer
 created: 2026-09-26
-last_reviewed: 2026-10-24
+last_reviewed: 2026-11-08
 canonical_for: App dependency manifest coverage and reviewed remediation limits
 ---
 
@@ -44,6 +44,15 @@ not count as a clean result. This default-branch monitor remains separate
 from pull-request checks and the deployment aggregate: outstanding alerts on
 `main` cannot deadlock the feature and `dev` changes needed to fix them.
 No alert is dismissed or excluded by an advisory allowlist.
+
+The required dependency comparison uses the version and platform SHA-256 pins
+in [the OSV installer](../../ci/check-dependency-security.py). If GitHub's normal
+release download returns HTTP 5xx, the installer retrieves that same platform
+asset from the pinned release through GitHub's public asset API. Every returned
+body must pass the same pinned checksum before it is cached or executed.
+Checksum failures, HTTP 4xx, TLS failures and other transport errors retain
+their ordinary failures. This recovery changes no scanner version, dependency
+decision, exception or required check.
 
 ### Retired braces development exception
 
