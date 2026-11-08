@@ -202,6 +202,13 @@ for (const result of ['fresh', 'limited', 'full'] as const) test(`a Backend full
 
 test('latency evidence includes typing settlement and records validated display only after the arithmetic overlay ends', async ({page}) => {
   await install(page); await wallet(page);
+  const consoleEvidence: Record<string, unknown>[] = [], malformedConsole: string[] = [];
+  page.on('console', message => {
+    const prefix = 'cybergold:quote-latency ', text = message.text();
+    if (!text.startsWith(prefix)) return;
+    try { consoleEvidence.push(JSON.parse(text.slice(prefix.length))); }
+    catch { malformedConsole.push(text); }
+  });
   await page.addInitScript(() => {
     const scope = window as unknown as { latency: Record<string, unknown>[] };
     scope.latency = [];
@@ -220,16 +227,55 @@ test('latency evidence includes typing settlement and records validated display 
     await expect.poll(() => wire.connections.length).toBe(1);
     await expect(page.locator('#buy-amount')).toHaveText('12');
     const current = wire.connections[0];
-    current.frame({type:'qualified',value:{...value(current.input,'10',String(8n*unit/10n)),observation:{source:'stored',refresh:false}}});
+    const stored = { ...value(current.input, '10', String(8n * unit / 10n)),
+      observation: { source: 'stored' as const, refresh: false } };
+    // Bytes arrive before a complete JSONL frame can be parsed or selected.
+    current.response.write('{"type":"qualified","value":');
+    await expect.poll(async () => (await evidence()).filter(event => event.phase === 'first-body').length).toBe(1);
+    expect((await evidence()).filter(event => event.phase === 'first-frame' || event.phase === 'first-selected')).toHaveLength(0);
+    current.response.write(JSON.stringify(stored) + '}\n');
     await expect(page.locator('[data-trade-action]')).toBeEnabled();
     await expect(page.locator('#buy-amount')).toHaveText('12');
     await expect.poll(async () => (await evidence()).filter(event => event.phase === 'first-selected').length).toBe(1);
     expect((await evidence()).filter(event => event.phase === 'display')).toHaveLength(0);
-    current.frame({type:'qualified',value:{...value(current.input,'9'),observation:{source:'search',refresh:false}}});
+    const limited = { ...value(current.input, '8', String(8n * unit / 10n)),
+      observation: { source: 'search' as const, refresh: false } };
+    limited.reuseSample!.inputLimitObserved = true;
+    current.frame({ type: 'qualified', value: limited });
+    await expect(page.locator('#buy-amount')).toHaveText('8');
+    await expect(page.getByTestId('quote-estimate-description')).toHaveCount(0);
+    await expect(page.locator('[data-trade-spending-value]')).toHaveText('0.8 ETH');
+    await expect.poll(async () => (await evidence()).filter(event => event.phase === 'display').length).toBe(1);
+    const partialDisplay = (await evidence()).find(event => event.phase === 'display')!;
+    expect(partialDisplay.limited).toBe(true);
+    expect((await evidence()).filter(event => event.phase === 'display-full')).toHaveLength(0);
+    const full = { ...value(current.input, '9'), observation: { source: 'search' as const, refresh: false } };
+    current.frame({ type: 'qualified', value: full });
     await expect(page.locator('#buy-amount')).toHaveText('9');
     await expect.poll(async () => (await evidence()).filter(event => event.phase === 'display').length).toBe(1);
+    await expect.poll(async () => (await evidence()).filter(event => event.phase === 'display-full').length).toBe(1);
     const events = await evidence(), edited = events.filter(event => event.phase === 'input').at(-1)!;
     const dispatch = events.find(event => event.phase === 'dispatch')!, displayed = events.find(event => event.phase === 'display')!;
+    const selected = events.filter(event => event.phase === 'selected'), fullDisplay = events.find(event => event.phase === 'display-full')!;
+    expect(selected.map(event => event.selectionSequence)).toEqual([1, 2, 3]);
+    expect(selected.map(event => event.selectedInputAmounts)).toEqual([[stored.inputs[0].amount], [limited.inputs[0].amount], [full.inputs[0].amount]]);
+    expect(selected.map(event => event.requestedInputAmounts)).toEqual(Array.from({ length: 3 }, () => [current.input.inputs[0].amount]));
+    expect(selected.map(event => event.quotedOutput)).toEqual([stored.quotedOutput, limited.quotedOutput, full.quotedOutput]);
+    expect(selected.map(event => event.source)).toEqual(['stored', 'search', 'search']);
+    expect(selected[1].inputLimitObserved).toBe(true);
+    expect(selected.every(event => event.requestId === displayed.requestId && event.attemptId === displayed.attemptId)).toBe(true);
+    for (const event of selected) {
+      expect(Number.isFinite(Number(event.readAtMs))).toBe(true);
+      expect(Number(event.parsedAtMs)).toBeGreaterThanOrEqual(Number(event.readAtMs));
+      expect(Number(event.atMs)).toBeGreaterThanOrEqual(Number(event.parsedAtMs));
+    }
+    expect(fullDisplay).toMatchObject({ editId: displayed.editId, requestId: displayed.requestId,
+      attemptId: displayed.attemptId, origin: 'input', source: 'search', limited: false });
+    expect(Number(fullDisplay.atMs)).toBeGreaterThanOrEqual(Number(displayed.atMs));
+    const quoteEvents = events.filter(event => event.origin !== 'browser');
+    await expect.poll(() => consoleEvidence.filter(event => event.origin !== 'browser').length).toBe(quoteEvents.length);
+    expect(consoleEvidence.filter(event => event.origin !== 'browser')).toEqual(JSON.parse(JSON.stringify(quoteEvents)));
+    expect(malformedConsole).toEqual([]);
     expect(Number(dispatch.atMs)-Number(edited.atMs)).toBeGreaterThanOrEqual(90);
     expect(displayed.requestId).toBe('00000000-0000-4000-8000-000000000001');
     expect(displayed.source).toBe('search'); expect(displayed.origin).toBe('input');
