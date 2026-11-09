@@ -2,6 +2,7 @@
 
 import { useId, type ReactNode, type FocusEvent } from "react";
 import Image from "next/image";
+import { createNumberInputEditing } from "../utils/numberInput";
 import { LocalizedNumberInput } from "./localizedNumberInput";
 import { resolveTokenImagePath } from "../utils/tokenImages";
 import { readSwapFeePreferences, type SwapFeePreferences } from "../utils/swapFeePreferences";
@@ -57,6 +58,7 @@ function bootstrapTradeDisplay(
   readScope: typeof readStoredTradeDisplayScope,
   tokenImagePath: typeof resolveTokenImagePath,
   readFeePreferences: typeof readSwapFeePreferences,
+  createNumberEditing: typeof createNumberInputEditing,
 ) {
   const wireFeePreferences = (presentation: HTMLElement) => {
     const feePreferences = readFeePreferences(window.sessionStorage);
@@ -259,6 +261,10 @@ function bootstrapTradeDisplay(
     const inputs = snapshot.values.sellIsBasket === "true"
       ? presentation.querySelectorAll<HTMLInputElement>('[data-trade-basket="sell"] [data-trade-basket-input]')
       : presentation.querySelectorAll<HTMLInputElement>('[data-trade-display="sellAmount"]');
+    const numberParts = new Intl.NumberFormat(locale).formatToParts(12345.6);
+    const numberEditing = createNumberEditing(numberParts.find(part => part.type === "decimal")?.value ?? ".",
+      numberParts.find(part => part.type === "group")?.value ?? "");
+    for (const input of inputs) numberEditing.bind(input);
     for (const input of inputs) input.addEventListener("input", () => {
       const field = snapshot.values.sellIsBasket === "true" ? "driverAmountStr" : "sellAmount";
       draft[field] = input.value;
@@ -412,6 +418,7 @@ export function TradeDisplayBootstrap({ chainId, locale, children }: {
     `(${readStoredTradeDisplayScope.toString()})`,
     `(${resolveTokenImagePath.toString()})`,
     `(${readSwapFeePreferences.toString()})`,
+    `(${createNumberInputEditing.toString()})`,
   ].join(",")});`;
 
   return (

@@ -2,8 +2,8 @@
 
 import type { InputHTMLAttributes, Ref } from "react";
 import { useLocale } from "next-intl";
-import { formatDecimalInputForCursor, ungroupLocalizedNumber } from "../utils/formatting";
-import { decimalFromPaste, editNumberInput, replaceNumberInput } from "../utils/numberInput";
+import { ungroupLocalizedNumber } from "../utils/formatting";
+import { decimalFromPaste, editNumberInput, replaceNumberInput, numberInputEditing } from "../utils/numberInput";
 
 type Props = Omit<InputHTMLAttributes<HTMLInputElement>, "value" | "onChange"> & {
   value: string;
@@ -28,24 +28,7 @@ export function LocalizedNumberInput({ value, onValueChange, ...props }: Props) 
     onKeyDown={event => {
       props.onKeyDown?.(event);
       if (event.defaultPrevented || event.nativeEvent.isComposing) return;
-      const input = event.currentTarget;
-      const start = input.selectionStart ?? 0, end = input.selectionEnd ?? start;
-      if (!event.altKey && !event.ctrlKey && !event.metaKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
-        const left = event.key === "ArrowLeft";
-        const active = input.selectionDirection === "backward" ? start : end;
-        const plain = ungroupLocalizedNumber(input.value, locale);
-        const logicalPosition = (offset: number) => ungroupLocalizedNumber(input.value.slice(0, offset), locale).length;
-        const displayPosition = (offset: number) => formatDecimalInputForCursor(plain, locale, offset).selectionStart;
-        const logical = !event.shiftKey && start !== end ? logicalPosition(left ? start : end)
-          : Math.max(0, Math.min(plain.length, logicalPosition(active) + (left ? -1 : 1)));
-        const position = displayPosition(logical);
-        event.preventDefault();
-        if (!event.shiftKey) input.setSelectionRange(position, position);
-        else {
-          const anchor = displayPosition(logicalPosition(input.selectionDirection === "backward" ? end : start));
-          input.setSelectionRange(Math.min(anchor, position), Math.max(anchor, position), position < anchor ? "backward" : "forward");
-        }
-      }
+      numberInputEditing(locale).moveCursor(event.currentTarget, event.nativeEvent);
     }}
     onCopy={event => {
       props.onCopy?.(event);

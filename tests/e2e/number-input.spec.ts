@@ -135,3 +135,42 @@ test("basket component inputs share locale editing and clipboard behavior", asyn
   await paste(page, "12,345.67");
   await expect(amount).toHaveValue("12,345.67");
 });
+
+for (const basket of [false, true]) test(`cached ${basket ? "basket" : "main"} input keeps editing semantics before hydration`, async ({ page }) => {
+  const observed = await install(page);
+  await page.goto("/en");
+  if (basket) await selectBasket(page);
+  const liveAmount = basket ? page.locator('[data-trade-basket="sell"] input:visible').first() : input(page);
+  await liveAmount.fill("12345.67");
+  await expect(liveAmount).toHaveValue("12,345.67");
+  await expect.poll(() => page.evaluate(() => Object.keys(sessionStorage)
+    .some(key => key.startsWith("cybergold:trade-display:v1:")))).toBe(true);
+  let releaseScripts!: () => void;
+  const scriptsHeld = new Promise<void>(resolve => { releaseScripts = resolve; });
+  await page.route("**/_next/static/**/*.js", async route => { await scriptsHeld; await route.continue(); });
+  try {
+    await page.reload({ waitUntil: "domcontentloaded" });
+    const cached = page.locator('[data-trade-cached]');
+    const amount = basket ? cached.locator('[data-trade-basket="sell"] input:visible').first()
+      : cached.locator('input[data-trade-display="sellAmount"]');
+    await expect(amount).toBeVisible();
+    await select(amount, 0, 9);
+    await page.keyboard.type("12345,67");
+    await expect(amount).toHaveValue("12,345.67");
+    await select(amount, 3);
+    await page.keyboard.press("Backspace");
+    await expect(amount).toHaveValue("1,345.67");
+    await select(amount, 0, 8);
+    await paste(page, "12,345.67");
+    await expect(amount).toHaveValue("12,345.67");
+    await select(amount, 0, 9);
+    await page.keyboard.press("ControlOrMeta+C");
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe("12345.67");
+    releaseScripts();
+    await page.unroute("**/_next/static/**/*.js");
+    await expect(page.locator('[data-trade-live]')).toBeVisible();
+    const restored = basket ? page.locator('[data-trade-live] [data-trade-basket="sell"] input:visible').first() : input(page);
+    await expect(restored).toHaveValue("12,345.67");
+    if (!basket) await expect.poll(() => observed.intents.at(-1)?.amount).toBe("12345670000000000000000");
+  } finally { releaseScripts(); }
+});
