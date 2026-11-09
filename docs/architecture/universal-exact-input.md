@@ -4,7 +4,7 @@ doc_type: architecture
 status: active
 owner: app-maintainer
 created: 2026-10-20
-last_reviewed: 2026-10-20
+last_reviewed: 2026-11-09
 canonical_for: Universal exact-input App consumers and local verification
 ---
 
@@ -19,10 +19,10 @@ An unconfigured universal quote service returns its ordinary unavailable error.
 
 | Journey | Quote producer | Submission |
 | --- | --- | --- |
-| Token/native purchase or sale | `POST /api/quotes/universal-exact-input`, intent 0 or 1 | `useUniversalExactInputExecution` |
-| Direct exact basket issuance | Same endpoint, intent 2, full ordered explicit input vector | Same executor |
-| Direct exact basket redemption | Same endpoint, intent 3, exact CYGLD input | Same executor |
-| Operational wallet runner, exact input | Same endpoint, all four intents | The captured universal plan and aggregate receipt |
+| Token/native purchase or sale | `POST /api/economic-quotes/stream`, intent 0 or 1 | `useUniversalExactInputExecution` after selected-plan preparation |
+| Direct exact basket issuance | Same stream, intent 2, full ordered explicit input vector | Same executor |
+| Direct exact basket redemption | Same stream, intent 3, exact CYGLD input | Same executor |
+| Operational wallet runner, exact input | Economic stream for active App journeys; retained universal endpoint for explicit component calls | The captured universal plan and aggregate receipt |
 
 The visible quote supplies complete fees, minima, output and physical retained
 input estimates before submission. The click freezes the plan before any wallet
@@ -49,8 +49,10 @@ sales can have a zero scalar output minimum.
 
 ## Retained and inactive callers
 
-The published page has no output-target editing journey. Its old Core sale
-sizing sources remain useful numerical previews. The inactive scalar and basket
+The published page has no output-target editing journey. The Backend still
+constructs its specialized `QuoteIntent` solver for the supported direct
+`/api/quotes/intent/stream` API and retained exact-output/selected-plan trade
+branches. Its Core sale sizing remains useful numerically. The inactive scalar and basket
 output-target Core sale handlers now acquire fresh universal bytes at the solved
 gross CYGLD input, and retain accepted scalar or complete-vector minima. They do
 not promote old adapter calldata. Descriptor changes meet the existing contract
@@ -72,9 +74,14 @@ Read-only basket/token previews, MAX sizing and lightweight trade models retain
 their numerical interfaces. A provisional model is not an executable plan.
 The refreshed Backend schema includes optional budget ranges for indicative
 models; those ranges do not change universal declared input or wallet funding.
-The spending field shows the complete declared input, including while a capacity
-range supplies an indicative output. A limited AMM consumption estimate appears
-as a disclosed retained charge. The cached pre-hydration presentation retains
+The spending field shows the selected plan's declared input, which can be
+smaller than the entered budget. Backend funding alternatives can reduce
+acquisitions from measured Core consumption, nominate useful market residuals
+and combine resized Core funding with a market branch. Each alternative is a
+complete Helpers observation before selection; the App does not perform those
+calculations. A smaller quote does not establish a global spending limit. An
+acquired input returned by an encoded conversion appears as a disclosed
+retained charge. The cached pre-hydration presentation retains
 that disclosure as text only and keeps wallet execution disabled until a fresh
 complete quote is ready.
 Insufficient exchange liquidity has its own localized error, preserved through

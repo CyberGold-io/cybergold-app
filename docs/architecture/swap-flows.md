@@ -4,7 +4,7 @@ doc_type: architecture
 status: active
 owner: app-maintainer
 created: 2026-07-11
-last_reviewed: 2026-11-08
+last_reviewed: 2026-11-09
 canonical_for: App preview and execution orchestration
 ---
 
@@ -85,13 +85,13 @@ use the canonicalized preview amounts in basket-asset order. Swap payloads and
 quotes are built off chain; adapters execute reviewed payloads and do not
 provide the App's quote authority.
 
-All first-party swap previews and mutations go through Helpers. Routed token
-and native flows use the direct-basket Helpers previews as construction probes
-for the current required issuance lots or complete redemption vector, then use
-the aggregation previews and mutators for the final route. This keeps Helpers'
-configurable fee in the same accounting domain throughout construction and
-execution. The user transaction targets the Helpers diamond with its
-authorization, recipient, ordering, and minimum bindings.
+All first-party swap plans are measured and executed through Helpers. The
+Backend constructs complete universal plans from the actual Core basket fields
+and market routes, then measures their combined execution with Helpers. Its
+optional funding refinement can work backward from measured Core consumption
+and useful residual conversions; each changed whole plan is simulated again.
+The user transaction targets the Helpers diamond with the selected funding,
+authorization, recipient, ordering and minimum bindings.
 
 Browser diagnostics are best effort and never affect quote/execution readiness.
 Quote calls carry an optional `X-CyberGold-Attempt-Id`; the fixed Next adapter
@@ -144,8 +144,10 @@ Output-target entry is deferred. Standalone exact-out basket hooks, Backend
 solvers, contract entry points and broad generated API/ABI types remain
 available for future work and explicit component diagnostics. The production
 page neither imports those form hooks nor creates output-driven requests.
-Input-budget token/native issuance still uses fixed-output Helpers operations;
-the `ExactOut` executor names are necessary to the retained spend-budget flow.
+The ordinary spend-budget journeys execute `executeExactInput`. Retained
+exact-output/numeric APIs and their specialized Core sizing solver support the
+deferred consumers and diagnostics; they are separate from the active economic
+quote stream.
 
 Holder settlement of already-owned shares remains pool-scoped: it burns shares
 only for a positive current payout, capped by live custody. A zero-output
@@ -167,14 +169,15 @@ outcome assertions are specified in the acceptance documents linked from the
 The expandable fee section exposes execution tolerance from 0% to 1%, defaulting
 to 1%. It displays the selected plan's minimum output for the input budget.
 Market estimates exclude this tolerance.
-Routed token/native issuance entered as an input budget still executes a fixed
-CYGLD output with that budget as its maximum input; it does not become a new
-exact-input contract operation.
-Unused input follows the existing Helpers refund behavior. Input ceilings and
-fixed output guarantees remain the Backend-selected plan's actual terms.
+The entered amount is an upper budget. The spending field shows the selected
+plan's actual declared funding, which can be smaller; the unallocated budget
+stays in the wallet. Acquired assets returned by an encoded conversion instead
+remain disclosed charges at Helpers. The App executes the selected universal
+body and preserves its accepted input maxima and output minima during
+preparation. Funding refinement does not change the App's selection policy.
 
-Issuance amounts that exceed remaining gross mint capacity keep the requested
-amounts visible in red and disable submission. Fees count toward gross mint
+Direct-basket issuance amounts that exceed remaining gross mint capacity keep
+the requested amounts visible in red and disable submission. Fees count toward gross mint
 capacity, using the same integer fee inversion as Core and Helpers. The warning
 retains the uncapped requested output even when a warm model or Helpers preview
 clips issuance to the remaining capacity. This Core-specific cap presentation
