@@ -1,7 +1,8 @@
 "use client";
 
-import { useId, type ReactNode, type FocusEvent, type ChangeEvent } from "react";
+import { useId, type ReactNode, type FocusEvent } from "react";
 import Image from "next/image";
+import { LocalizedNumberInput } from "./localizedNumberInput";
 import { resolveTokenImagePath } from "../utils/tokenImages";
 import { readSwapFeePreferences, type SwapFeePreferences } from "../utils/swapFeePreferences";
 import {
@@ -14,12 +15,12 @@ import {
 } from "../utils/tradeDisplaySnapshot";
 
 /** Shared trusted row markup for the live form and the pre-paint presentation. */
-export function TradeBasketPresentationRow({ row, isDarkMode, inputRef, onFocus, onChange, inputClassName, disabled = false, busy = false }: {
+export function TradeBasketPresentationRow({ row, isDarkMode, inputRef, onFocus, onValueChange, inputClassName, disabled = false, busy = false }: {
   row: TradeBasketDisplayRow;
   isDarkMode: boolean;
   inputRef?: (element: HTMLInputElement | null) => void;
   onFocus?: (event: FocusEvent<HTMLInputElement>) => void;
-  onChange?: (event: ChangeEvent<HTMLInputElement>) => void;
+  onValueChange?: (value: string) => void;
   inputClassName?: string;
   disabled?: boolean;
   busy?: boolean;
@@ -33,9 +34,9 @@ export function TradeBasketPresentationRow({ row, isDarkMode, inputRef, onFocus,
       <span data-trade-basket-field="weight" className="whitespace-nowrap text-text-muted">{row.weight}</span>
     </div>
     <div className="min-w-0">
-      <input hidden={row.side !== "sell"} data-trade-basket-input data-trade-spend-input={row.side === "sell" && row.driver ? "" : undefined}
+      <LocalizedNumberInput hidden={row.side !== "sell"} data-trade-basket-input data-trade-spend-input={row.side === "sell" && row.driver ? "" : undefined}
         className={inputClassName ?? "block min-w-0 w-full rounded-md border border-swap-container-border bg-background-swap p-2 text-start text-sm tabular-nums editable-caret transition-colors focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring text-text-input focus:border-gold-cg/45 focus:ring-0"}
-        type="text" inputMode="decimal" aria-label={row.label} value={row.amount} ref={inputRef} onFocus={onFocus} onChange={onChange} disabled={disabled} readOnly={!onChange} />
+        type="text" inputMode="decimal" aria-label={row.label} value={row.amount} ref={inputRef} onFocus={onFocus} onValueChange={onValueChange} disabled={disabled} readOnly={!onValueChange} />
       <output hidden={row.side !== "buy"} data-trade-estimate data-trade-basket-output aria-label={row.label} aria-describedby="receive-amount-description"
         aria-busy={busy || undefined}
         className="block min-w-0 w-full break-words p-2 text-start text-sm tabular-nums select-text cursor-default text-text-input">{row.amount}</output>

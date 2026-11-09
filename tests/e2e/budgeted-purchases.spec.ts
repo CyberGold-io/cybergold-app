@@ -122,7 +122,7 @@ for (const strategy of ["core", "market"] as const) test(`${strategy} purchase s
   await expectThemeColor(page, value, "--text-input");
   await page.locator("#sell-amount").fill("100");
   await expect(value).toHaveText("100 PAXG");
-  await expect(equivalent).toHaveText("~ 3.11 kg of gold • $311 034.77");
+  await expect(equivalent).toHaveText("~ 3.11 kg of gold • $311,034.77");
   await expect(value).toHaveAttribute("data-limited", "false");
   await expect(page.getByTestId("exact-input-retention-disclosure")).toContainText("70 PAXG");
   await value.focus();
@@ -140,7 +140,7 @@ for (const strategy of ["core", "market"] as const) test(`${strategy} purchase s
   await page.locator("#sell-amount").fill("20");
   await expect(spending).toBeVisible();
   await expect(value).toHaveText("20 PAXG");
-  await expect(equivalent).toHaveText("~ 622.07 g of gold • $62 206.95");
+  await expect(equivalent).toHaveText("~ 622.07 g of gold • $62,206.95");
   await expect(value).toHaveAttribute("data-limited", "false");
   await expect(page.locator("#swapsection")).toHaveAttribute("data-trade-evaluation", "confirmed");
   await expectThemeColor(page, value, "--text-input");
@@ -152,7 +152,7 @@ for (const strategy of ["core", "market"] as const) test(`${strategy} purchase s
   await expect(spending).toBeVisible();
   await expect(value).toHaveText("10 CYGLD");
   await expect(value).toHaveAttribute("data-limited", "false");
-  await expect(equivalent).toHaveText("~ 20.00 g of gold • $2 000.00");
+  await expect(equivalent).toHaveText("~ 20.00 g of gold • $2,000.00");
   await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
 });
 
@@ -168,7 +168,7 @@ test("CYGLD basket redemption spending uses the selected fiat currency and gold 
   const spending = page.getByTestId("purchase-spending");
   await expect(spending).toBeVisible();
   await expect(spending.locator("[data-trade-spending-value]")).toHaveText("10 CYGLD");
-  await expect(spending.locator('[data-trade-display="purchaseSpendingEquivalent"]')).toHaveText(/~ 0\.643 troy oz • CHF\s*1 600\.00/);
+  await expect(spending.locator('[data-trade-display="purchaseSpendingEquivalent"]')).toHaveText(/~ 0\.643 troy oz • CHF\s*1,600\.00/);
   await expect(page.locator("#sell-amount-label")).toHaveText("You Sell");
   await expect(page.getByRole("button", { name: "Swap currencies", exact: true })).toBeEnabled();
 });
@@ -250,7 +250,7 @@ test("a universal purchase restores its input budget across reload without resto
     await expect(cached.locator('[data-trade-display="spendAmountLabel"]')).toHaveText("Your budget");
     await expect(cached.locator('[data-trade-display="purchaseSpendingValue"]')).toHaveText("100 PAXG");
     await expect(cached.locator('[data-trade-display="retentionDisclosure"]')).not.toContainText("70 PAXG");
-    await expect(cached.locator('[data-trade-display="purchaseSpendingEquivalent"]')).not.toHaveText("~ 3.11 kg of gold • $311 034.77");
+    await expect(cached.locator('[data-trade-display="purchaseSpendingEquivalent"]')).not.toHaveText("~ 3.11 kg of gold • $311,034.77");
     await expect(cached.locator("[data-trade-spending-value]")).toHaveAttribute("data-limited", "false");
     await expect(cached.locator("[data-trade-evaluation]")).toHaveAttribute("data-trade-evaluation", "pending");
     await expectThemeColor(page, cached.locator("[data-trade-spending-value]"), "--text-input-disabled");
@@ -271,7 +271,7 @@ test("a universal purchase restores its input budget across reload without resto
     await expect(page.locator("#sell-amount")).toHaveValue("101");
     observed.release();
     await expect(page.getByTestId("purchase-spending")).toContainText("101 PAXG");
-    await expect(page.getByTestId("purchase-spending").locator('[data-trade-display="purchaseSpendingEquivalent"]')).toHaveText("~ 3.14 kg of gold • $314 145.12");
+    await expect(page.getByTestId("purchase-spending").locator('[data-trade-display="purchaseSpendingEquivalent"]')).toHaveText("~ 3.14 kg of gold • $314,145.12");
     expect(hydrationErrors).toEqual([]);
   } finally { releaseScripts(); observed.release(); }
 });

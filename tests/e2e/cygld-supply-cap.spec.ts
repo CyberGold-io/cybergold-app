@@ -377,7 +377,7 @@ test("cold optional Core capacity does not restrict trading and connected MAX us
   await expect(page.getByTestId("cygld-purchase-capacity")).toHaveCount(0);
   expect(requests).toHaveLength(0);
   await page.getByRole("button", { name: "Use maximum sell amount", exact: true }).click();
-  await expect(page.locator("#sell-amount")).toHaveValue("1000");
+  await expect(page.locator("#sell-amount")).toHaveValue("1,000");
   await expect(page.locator("#buy-amount")).toHaveText("199.8");
   await expect.poll(() => requests.at(-1)).toMatchObject({ mode: "issue-exact-in", amount: String(1000n * unit) });
   await expect(page.getByTestId("trade-mechanism")).toHaveCount(0);
@@ -562,7 +562,7 @@ for (const side of ["sell"] as ("sell" | "buy")[]) {
     await expect(page.locator("#buy-amount")).toHaveText("199.8");
     await page.getByRole("button", { name: side === "sell" ? "Use maximum sell amount" : "Use maximum purchase amount", exact: true }).click();
     await expect(page.locator("#buy-amount")).toHaveText("199.8");
-    await expect(page.locator("#sell-amount")).toHaveValue("1000");
+    await expect(page.locator("#sell-amount")).toHaveValue("1,000");
     await expect.poll(() => requests.at(-1)).toMatchObject({ mode: "issue-exact-in", amount: String(1000n * unit) });
     for (const input of ["#sell-amount", "#buy-amount"]) await expect(page.locator(input)).not.toHaveAttribute("aria-invalid", "true");
     await expect(page.locator("#purchase-cap-warning")).toHaveCount(0);
