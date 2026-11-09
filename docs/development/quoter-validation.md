@@ -4,18 +4,19 @@ doc_type: development-guide
 status: active
 owner: app-maintainer
 created: 2026-10-26
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-09
 canonical_for: App Quoter benchmark loop and measurement report semantics
 ---
 
 # Quoter validation measurements
 
-Public quote checks remain read-only. Sandbox execution profiles now create
-owned copies of the deployed Sandbox; the sequential suite evolves one copy
-while independent roles restore their private baseline. Owned-local-fork
-qualifiers remain the local environment/fixture owners. `tests/trading/quoterBenchmark.ts` adds the serial
+Public quote checks remain read-only. Regular Sandbox and Mainnet execution
+profiles run the synthetic UI suite described in [the test guide](../../tests/README.md).
+Explicit owned-local-fork qualifiers remain separate environment/fixture owners.
+`tests/trading/quoterBenchmark.ts` adds the serial
 paired measurement loop; it does not reset a deployed service, start another
-worker, or alter the standard 24-journey operating matrix.
+worker, or alter the standard 30-journey operating matrix, including USDT issue
+and redemption at all three nominal sizes.
 
 The App's former public `sandbox-execution` CLI branch is retired. The wallet
 npm command delegates to the existing owned qualifier and includes the full

@@ -1,4 +1,4 @@
-import { protocolAddresses } from "../../fixtures/protocol-configuration";
+import { fixtureChainId, protocolAddresses } from "../../fixtures/protocol-configuration";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { universalFixture, universalFromCoreQuote, tradeRequestFromUniversal } from "./universal-exact-input";
@@ -10,7 +10,7 @@ import { toFunctionSelector } from "viem";
 import { HELPERS_DIAMOND_ABI } from "../../../app/contracts/generated/helpersDiamond";
 
 export const asset = "0x45804880de22913dafe09f4980848ece6ecbaf78";
-export const context = { chainId: 31337, blockNumber: "100", blockHash: `0x${"a".repeat(64)}`, observedAt: "2026-10-01T00:00:00Z" };
+export const context = { chainId: fixtureChainId, blockNumber: "100", blockHash: `0x${"a".repeat(64)}`, observedAt: "2026-10-01T00:00:00Z" };
 const success = <T,>(value: T) => ({ status: "success", value });
 const adapter = protocolAddresses.adapter!;
 const weth = "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2";

@@ -16,9 +16,10 @@ export const tokens: TokenType[] = [
   { id: "eth", symbol: "ETH", name: "Ether", type: "native", decimals: 18 },
   { id: "weth", symbol: "WETH", name: "Wrapped Ether", type: "erc20", address: tokenAddresses.WETH, decimals: 18 },
 ];
-export const protocolConfigurationFixture: ProtocolConfiguration = { chainId: 31337,
+export const fixtureChainId = Number(process.env.NEXT_PUBLIC_CHAIN_ID ?? 31337);
+export const protocolConfigurationFixture: ProtocolConfiguration = { chainId: fixtureChainId,
   contracts: { core: protocolAddresses.core, helpers: protocolAddresses.helpers, uniswapAdapter: protocolAddresses.adapter, governance: null, staking: null, safe: null },
-  tokens: tokens.filter(token => token.type !== "basket").map(token => ({ ...token, chainId: 31337 })),
+  tokens: tokens.filter(token => token.type !== "basket").map(token => ({ ...token, chainId: fixtureChainId })),
   universalExactInput: { adapter: null, encoding: null, settlementPolicy: "protocol-retained-input" },
   sandboxForkGeneration: null, adapter: { status: "success", encoding: "uniswap-multi-protocol-v1", observation: null } };
 export const configuredFixtureAddresses: Record<keyof typeof protocolAddresses, Address> = protocolAddresses;

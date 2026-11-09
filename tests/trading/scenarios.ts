@@ -8,7 +8,7 @@ export type Scenario = {
   id: string; family: "issue-token" | "redeem-token" | "issue-basket" | "redeem-basket" | "market-buy" | "market-sell";
   requestedStrategy: "core" | "market"; inputMode: "exact-in" | "exact-out";
   sizingError?: "valuation-unavailable"; size?: "small" | "medium" | "large"; nominalUsd?: string; amountRaw?: string; valuationId?: string; basketAmounts?: string[]; basketAssets?: string[];
-  side: "buy" | "sell"; asset: "PAXG" | "USDC" | "ETH" | "BASKET"; displayAmount: string;
+  side: "buy" | "sell"; asset: "PAXG" | "USDC" | "USDT" | "ETH" | "BASKET"; displayAmount: string;
 };
 export class ScenarioUnavailableError extends Error {
   readonly code: string;

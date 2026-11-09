@@ -4,7 +4,7 @@ doc_type: test-guide
 status: active
 owner: app-maintainer
 created: 2026-07-11
-last_reviewed: 2026-11-07
+last_reviewed: 2026-11-09
 canonical_for: App Playwright and Synpress end-to-end test operation
 ---
 
@@ -12,8 +12,8 @@ canonical_for: App Playwright and Synpress end-to-end test operation
 
 ## Regular server regression profiles
 
-The regular `sandbox-execution` and `sandbox-independent-execution` profile IDs
-select synthetic browser regression tests. Both use the same retained ordinary
+The regular `sandbox-execution`, `sandbox-independent-execution` and single
+`mainnet-execution` profile IDs select synthetic browser regression tests. They use the same retained ordinary
 UI cases in `market-swaps.spec.ts`, `execution-tolerance.spec.ts`,
 `swap-confirmation-feedback.spec.ts` and `wallet-batch.spec.ts`. Each case keeps
 Playwright's fresh browser context. The suite names are operator groupings;
@@ -24,11 +24,18 @@ node scripts/run-synthetic-trade-regression.mjs \
   --suite sequential --output-dir out/synthetic-sequential
 node scripts/run-synthetic-trade-regression.mjs \
   --suite independent --output-dir out/synthetic-independent
+node scripts/run-synthetic-trade-regression.mjs \
+  --target mainnet --suite sequential --output-dir out/synthetic-mainnet
 ```
 
 The runner copies frontend/test source to a writable temporary directory,
 links installed dependencies, and builds/starts its own local Next.js frontend.
-Only the checked-in `tests/fixtures/app.env` supplies application settings.
+The checked-in `tests/fixtures/app.env` supplies application settings. The
+Mainnet target overrides only the public chain context to Ethereum chain 1 and
+disables the fixture faucet. Canonical token addresses remain real addresses;
+Core, Helpers and their observations remain mocked. The same USDT issuance case
+checks its zero-first approval and six-decimal budget; redemption checks its
+selected output currency and mocked submission/receipt.
 Existing in-page EIP1193 providers return synthetic signatures and transaction
 hashes; browser routes supply quotes, preparation, balances and receipts.
 There is no wallet extension, funding, chain node, actual signature or submitted
@@ -36,11 +43,12 @@ transaction. The server runner runs with Docker networking disabled; local
 Next.js and browser communication stays within that container.
 
 `report.json` labels `mode: synthetic`, `evidenceKind: mocked-ui` and
-`transactionEvidence: synthetic-hashes-mocked-receipts`. It checkpoints actual
+`transactionEvidence: synthetic-hashes-mocked-receipts`, plus the selected
+`target`, `chainId` and `testContext: mocked-mainnet|mocked-sandbox`. It checkpoints actual
 source-case IDs, outcomes, durations and counts. A passing case proves only its
 mocked UI assertions; it proves no mined transaction, inventory change, real
-settlement, live quote latency or 24-scenario economic matrix coverage. The
-separate `sandbox-quotes` profile continues observing actual read-only quotes.
+settlement, live quote latency or 30-scenario economic matrix coverage. The
+separate `sandbox-quotes` and `mainnet-quotes` profiles observe actual read-only quotes.
 Ordinary Playwright assertion details remain in the private
 `synthetic-ui-tests.log`; the structured report excludes raw error/provider data.
 
@@ -175,9 +183,9 @@ registry access first, or pass an already-built local Python image. On Linux
 run the command under `xvfb-run -a` if no desktop display is available. The
 extension runs in headed mode; a virtual display supplies its browser windows.
 
-The command runs the session/network scenarios and the shared 24-scenario UI
+The command runs the session/network scenarios and the shared 30-scenario UI
 matrix in [fixed-api-roundtrips.spec.ts](./metamask/fixed-api-roundtrips.spec.ts).
-It enters PAXG, USDC, native ETH and basket buy/sell exact-input intents
+It enters PAXG, USDC, USDT, native ETH and basket buy/sell exact-input intents
 at three nominal sizes, signs through MetaMask, and checks actual operation,
 integer bounds, fees, refunds, native gas and wallet effects on its owned fork.
 The other qualified provider plan receives a separate retained-plan execution
@@ -259,14 +267,16 @@ are separate workstreams; this command introduces no required CI job.
 
 ### Read-only quote matrix and explicit native capability inventory
 
-[matrix.ts](./trading/matrix.ts) retains the complete capability definitions: four
-counterasset choices (PAXG, USDC, native ETH, basket), two directions, two amount
-modes and three nominal dollar tiers ($1/$100/$10,000), totaling 48 definitions.
+[matrix.ts](./trading/matrix.ts) retains the complete capability definitions: five
+counterasset choices (PAXG, USDC, USDT, native ETH, basket), two directions, two amount
+modes and three nominal dollar tiers ($1/$100/$10,000), totaling 60 definitions.
 Its shared active selector chooses exact-input journeys for ordinary quote
 and explicitly selected native wallet/fork matrices. The synthetic regular
-profiles report their actual source cases instead. The matrix defines **24 primary UI
-journeys, 48 Core/Market assessment slots and up to 48 trade executions**,
-comprising 24 UI winners and 24 retained alternates when qualified. Setup, approvals,
+profiles report their actual source cases instead. The matrix defines **30 primary UI
+journeys, 60 Core/Market assessment slots and up to 60 trade executions**,
+comprising 30 UI winners and 30 retained alternates when qualified. USDT raw
+amounts use its configured six decimals and observed USDC/USDT pool valuation,
+without an additional dollar-peg assumption. Setup, approvals,
 supplementary tests and diagnostic repetitions have separate counts.
 
 The complete `matrixTemplates()` inventory and legacy `tradeScenarios` keep their
@@ -280,7 +290,7 @@ input-budget purchases.
 
 The low-level browser observer's omitted-inventory compatibility fallback uses
 eight legacy exact-input Core seeds. Operating entry points supply the sized
-24-case matrix explicitly; the fallback is not a second operating profile.
+30-case matrix explicitly; the fallback is not a second operating profile.
 
 Case IDs retain the existing `core-issue` and `core-redeem` economic-family
 labels for report compatibility. Those labels do not choose the provider:
