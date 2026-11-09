@@ -4,7 +4,7 @@ doc_type: acceptance-specification
 status: active
 owner: app-maintainer
 created: 2026-07-11
-last_reviewed: 2026-10-19
+last_reviewed: 2026-11-09
 canonical_for: App token-flow acceptance requirements
 ---
 
@@ -31,9 +31,11 @@ acceptance cases; it does not describe active output entry.
 5. Submit a Backend-selected plan. The App never ranks competing providers
    or overrides the selected strategy using local models, mint cap or MAX.
    A Core-specific quote failure cannot erase a qualified Market plan.
-6. Preserve tolerance, input ceilings, canonical ordering, refunds, existing
-   permissions, wallet rejection and original receipt recovery. Input-budget
-   token/native purchases still use the required ExactOut Helpers selectors.
+6. Preserve tolerance, input ceilings, canonical ordering, retention disclosures,
+   existing permissions, wallet rejection and original receipt recovery. Execute
+   the selected universal exact-input plan with its declared spending; budget
+   outside that plan stays in the wallet. Returned acquired inputs are disclosed
+   retained charges at Helpers.
 7. Keep the complete exact-out definitions and component diagnostics. Ordinary
    product matrices contain 24 exact-in journeys; future UI cases are excluded
    from normal collection with separate configuration and restoration notes.

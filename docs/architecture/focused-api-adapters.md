@@ -4,7 +4,7 @@ doc_type: architecture
 status: active
 owner: app-maintainer
 created: 2026-10-01
-last_reviewed: 2026-10-11
+last_reviewed: 2026-11-09
 canonical_for: Focused API frontend capability before consumer deployment
 ---
 
@@ -188,8 +188,15 @@ not establish installation or physical-wallet qualification.
 
 ## Unified token trading
 
-The home page has one neutral token trading form without a mechanism chooser or
-selected-strategy label. `POST /api/quotes/trade/stream` sends
+The current input-driven form uses `/api/economic-quotes/stream` and
+`/api/economic-estimates`, followed by selected universal-plan preparation and
+`executeExactInput`. The [swap-flow architecture](swap-flows.md) describes that
+active path. The interfaces below record the earlier integration; exact-output
+and explicit component consumers remain supported. Fresh exact-input requests
+to the retained trade endpoint delegate to universal quotation when configured.
+
+The original integration introduced one neutral token trading form without a
+mechanism chooser or selected-strategy label. `POST /api/quotes/trade/stream` sends
 side, exact-in mode, counter-token/native selection, amount, recipient,
 deadline and tolerance. The Backend assembles and competes Core and market
 candidates, publishes each improving qualified winner, and returns the selected
