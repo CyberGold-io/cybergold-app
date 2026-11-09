@@ -26,7 +26,7 @@ test('focused USDT raw inputs supplement rather than change the standard operati
   assert.equal(new Set(cases.map(row => row.id)).size, 6);
   assert.ok(cases.every(row => row.inputCurrency.toLowerCase() === tokenAddresses.USDT.toLowerCase()));
   assert.equal(activeMatrixTemplates().length, count);
-  assert.equal(count, 24);
+  assert.equal(count, 30);
 });
 
 test('raw output errors preserve exact integer deltas independently of value/gas metrics', () => {

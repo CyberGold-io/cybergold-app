@@ -95,6 +95,20 @@ test('the frontend environment uses the checked-in fixture without inheriting pr
   assert.equal(/private-|public-app/.test(JSON.stringify(environment)), false);
 });
 
+test('Mainnet synthetic execution selects chain one while retaining mocked settlement and isolated environment', () => {
+  const report = syntheticReport('sequential', 'run', 'start', 'mainnet');
+  assert.equal(report.target, 'mainnet'); assert.equal(report.chainId, 1);
+  assert.equal(report.testContext, 'mocked-mainnet'); assert.equal(report.mode, 'synthetic');
+  assert.equal(report.transactionEvidence, 'synthetic-hashes-mocked-receipts');
+  const environment = syntheticEnvironment({ PATH: '/node/bin', NEXT_PUBLIC_CHAIN_ID: '999',
+    CYBERGOLD_BACKEND_URL: 'https://private-backend', SYNPRESS_WALLET_SEED_PHRASE: 'private-seed' },
+    { NEXT_PUBLIC_CHAIN_ID: '31337', NEXT_PUBLIC_CHAIN_NAME: 'Ethereum Anvil', NEXT_PUBLIC_FORK_FAUCET_ENABLED: '1' }, '/tmp/owned', 'mainnet');
+  assert.equal(environment.NEXT_PUBLIC_CHAIN_ID, '1'); assert.equal(environment.NEXT_PUBLIC_CHAIN_NAME, 'Ethereum');
+  assert.equal(environment.NEXT_PUBLIC_FORK_FAUCET_ENABLED, '0');
+  assert.doesNotMatch(JSON.stringify(environment), /private-backend|private-seed|999/);
+  assert.deepEqual(syntheticConfig('/tmp/owned', '/tmp/reports', 3456, report).testMatch, [...syntheticFiles]);
+});
+
 test('the writable frontend copy excludes local environments, wallet caches and repository state', async () => {
   const root = await mkdtemp(join(tmpdir(), 'synthetic-source-'));
   try {

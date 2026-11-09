@@ -8,15 +8,17 @@ export const syntheticFiles = [
   'swap-confirmation-feedback.spec.ts', 'wallet-batch.spec.ts',
 ] as const;
 export type SyntheticSuite = 'sequential' | 'independent';
+export type SyntheticTarget = 'sandbox' | 'mainnet';
 export type SyntheticCase = {
   id: string; name: string; testFile: string; family: 'runner'; layer: 'browser'; inputMode: 'unknown';
   status: 'pass' | 'fail' | 'skipped' | 'unavailable'; code: string; durationMs: number; evidenceKind: 'mocked-ui';
 };
 export type SyntheticReport = ReturnType<typeof syntheticReport>;
 
-export function syntheticReport(suite: SyntheticSuite, runId: string, startedAt: string) {
+export function syntheticReport(suite: SyntheticSuite, runId: string, startedAt: string, target: SyntheticTarget = 'sandbox') {
   return {
-    schema: 'cybergold.trade-regression.v1', runId, target: 'sandbox', mode: 'synthetic', suite,
+    schema: 'cybergold.trade-regression.v1', runId, target, mode: 'synthetic', suite,
+    chainId: target === 'mainnet' ? 1 : 31337, testContext: `mocked-${target}`,
     evidenceKind: 'mocked-ui', transactionEvidence: 'synthetic-hashes-mocked-receipts', startedAt,
     finishedAt: undefined as string | undefined, runnerOutcome: 'unavailable' as 'pass' | 'fail' | 'unavailable',
     runnerCode: undefined as string | undefined, runnerDiagnostics: { stage: 'synthetic-build' },
@@ -73,7 +75,7 @@ export async function copySyntheticSource(source: string, work: string) {
   await symlink(join(source, 'node_modules'), join(work, 'node_modules'), 'dir');
 }
 
-export function syntheticEnvironment(inherited: Record<string, string | undefined>, fixture: Record<string, string>, home: string): Record<string, string | undefined> {
+export function syntheticEnvironment(inherited: Record<string, string | undefined>, fixture: Record<string, string>, home: string, target: SyntheticTarget = 'sandbox'): Record<string, string | undefined> {
   const originalHome = inherited.HOME ?? homedir();
   const browserCache = process.platform === 'darwin' ? join(originalHome, 'Library/Caches/ms-playwright')
     : process.platform === 'win32' ? join(inherited.LOCALAPPDATA ?? join(originalHome, 'AppData/Local'), 'ms-playwright')
@@ -82,6 +84,7 @@ export function syntheticEnvironment(inherited: Record<string, string | undefine
     PATH: inherited.PATH, SYSTEMROOT: inherited.SYSTEMROOT,
     PLAYWRIGHT_BROWSERS_PATH: inherited.PLAYWRIGHT_BROWSERS_PATH ?? browserCache,
     HOME: home, TMPDIR: home, NEXT_TELEMETRY_DISABLED: '1', ...fixture,
+    ...(target === 'mainnet' ? { NEXT_PUBLIC_CHAIN_ID: '1', NEXT_PUBLIC_CHAIN_NAME: 'Ethereum', NEXT_PUBLIC_FORK_FAUCET_ENABLED: '0' } : {}),
   };
 }
 

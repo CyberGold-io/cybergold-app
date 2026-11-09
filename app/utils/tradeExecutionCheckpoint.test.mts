@@ -145,7 +145,7 @@ globalThis.fetch = async url => {
 test("both real suite bodies persist setup stages before held original network and funding actions", async () => {
   for (const suite of ["ui", "independent"] as const) for (const stop of ["network-add", "faucet"] as const) {
     const value = await heldSuite(suite, stop);
-    assert.equal(value.report.scenarios.length, suite === "ui" ? 24 : 1);
+    assert.equal(value.report.scenarios.length, suite === "ui" ? 30 : 1);
     assert.ok(value.report.scenarios.every((row: { status: string; code: string; executionStage: string }) =>
       row.status === "unavailable" && row.code === "not-exercised"
       && row.executionStage === (stop === "network-add" ? "setup-network-add" : "setup-funding")));

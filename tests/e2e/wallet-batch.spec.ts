@@ -1,4 +1,4 @@
-import { protocolAddresses } from "../fixtures/protocol-configuration";
+import { protocolAddresses, tokenAddresses } from "../fixtures/protocol-configuration";
 import { routeWalletBalances } from "./fixtures/wallet-balances";
 import { expect, test, type Page } from "./fixtures/app-test";
 import { decodeFunctionData, maxUint256 } from "viem";
@@ -100,6 +100,7 @@ async function setup(page: Page, mode: Mode, outcome: "success" | "reverted" | "
       { id: "weth", address: weth, balance: { status: "success", value: String(100n * 10n ** 18n) } },
       { id: "paxg", address: paxg, balance: { status: "success", value: String(100n * 10n ** 18n) } },
       { id: "xaut", address: xaut, balance: { status: "success", value: String(100n * 10n ** 18n) } },
+      { id: "usdt", address: tokenAddresses.USDT, balance: { status: "success", value: "100000000" } },
       { id: "cygld", address: protocolAddresses.core, balance: { status: "success", value: String(100n * 10n ** 18n) } },
     ],
   } }));
@@ -175,6 +176,55 @@ for (const mode of ["supported", "unsupported", "ready", "unavailable", "other-c
     }
   });
 }
+
+test("USDT issuance batches its zero-first approval and exact six-decimal budget before mocked settlement", async ({ page }) => {
+  const observed = await setup(page, "supported", "success", false, "ordinary");
+  await page.route("**/api/account/permit2", route => {
+    const request = route.request().postDataJSON();
+    return route.fulfill({ json: { context, mode: request.mode, permit2,
+      result: request.mode === "allowances" ? { allowances: request.tokens.map((token: string) => ({ token, value: "1" })) }
+        : request.mode === "nonce" ? { nonce: "0" } : { code: "0x01" } } });
+  });
+  await choose(page, "USDT"); await page.locator("#sell-amount").fill("1");
+  const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
+  await expect(swap).toBeEnabled(); await swap.click();
+  await expect(page.getByText("Transaction confirmed", { exact: true })).toBeVisible();
+  const state = await observed();
+  expect(state.transactions).toHaveLength(0); expect(state.bundles).toHaveLength(1);
+  const bundle = state.bundles[0];
+  expect(bundle.chainId).toBe(`0x${chain.toString(16)}`);
+  expect(bundle.calls.map(call => call.to.toLowerCase())).toEqual([
+    tokenAddresses.USDT.toLowerCase(), tokenAddresses.USDT.toLowerCase(), protocolAddresses.helpers,
+  ]);
+  expect(bundle.calls.slice(0, 2).map(call => decodeFunctionData({ abi: erc20Abi, data: call.data }).args))
+    .toEqual([[permit2, 0n], [permit2, 1_000_000n]]);
+  const execution = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: bundle.calls[2].data });
+  expect(execution.functionName).toBe("executeExactInput");
+  const params = execution.args![0] as { inputs: readonly { currency: string; amount: bigint }[] };
+  expect(params.inputs).toHaveLength(1); expect(params.inputs[0].amount).toBe(1_000_000n);
+  expect(params.inputs[0].currency.toLowerCase()).toBe(tokenAddresses.USDT.toLowerCase());
+});
+
+test("USDT redemption preserves the selected output currency through ordinary mocked submission and receipt", async ({ page }) => {
+  const observed = await setup(page, "unsupported", "success", true, "ordinary");
+  const preparations: { quote: { request: { outputCurrency: string }; inputs: { amount: string }[] } }[] = [];
+  page.on("request", request => { if (new URL(request.url()).pathname === "/api/tx-preparations") preparations.push(request.postDataJSON()); });
+  await choose(page, "USDT"); await page.getByRole("button", { name: "Reverse swap direction", exact: true }).click();
+  await page.locator("#sell-amount").click(); await page.locator("#sell-amount").fill("1");
+  const swap = page.getByRole("button", { name: "Swap currencies", exact: true });
+  await expect(swap).toBeEnabled(); await swap.click();
+  await expect(page.getByText("Transaction confirmed", { exact: true })).toBeVisible();
+  const state = await observed();
+  expect(state.bundles).toHaveLength(0); expect(state.transactions).toHaveLength(1);
+  expect(preparations).toHaveLength(1);
+  expect(preparations[0].quote.request.outputCurrency.toLowerCase()).toBe(tokenAddresses.USDT.toLowerCase());
+  expect(preparations[0].quote.inputs).toMatchObject([{ amount: String(10n ** 18n) }]);
+  const execution = decodeFunctionData({ abi: HELPERS_EXECUTION_ABI, data: state.transactions[0].data });
+  expect(execution.functionName).toBe("executeExactInput");
+  const params = execution.args![0] as { outputCurrency: string; inputs: readonly { amount: bigint }[] };
+  expect(params.outputCurrency.toLowerCase()).toBe(tokenAddresses.USDT.toLowerCase());
+  expect(params.inputs).toMatchObject([{ amount: 10n ** 18n }]);
+});
 
 for (const exactOut of [false]) {
   test(`basket purchase batches its first-use approval: ${exactOut ? "exact-out" : "exact-in"}`, async ({ page }) => {

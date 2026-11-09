@@ -45,7 +45,7 @@ export function quoterProducerTimings(value: unknown): QuoterProducerTimings | u
 export type QuoterBenchmarkCase = { id: string; inputCurrency: string; outputCurrency: string; amountRaw: string };
 export const focusedUsdtAmounts = ['0.01', '0.02', '0.04', '0.06', '0.08', '0.10'] as const;
 
-/** Explicit raw inputs; does not alter the existing 24-journey operating matrix. */
+/** Explicit raw inputs; does not alter the standard 30-journey operating matrix. */
 export function focusedUsdtCases(configuration: ProtocolConfiguration): QuoterBenchmarkCase[] {
   const input = configuredToken(configuration, 'USDT');
   const output = configuredToken(configuration, 'CYGLD');

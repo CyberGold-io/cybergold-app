@@ -10,11 +10,12 @@ import { fileURLToPath } from 'node:url';
 import { copySyntheticSource, syntheticConfig, syntheticEnvironment, syntheticReport,
   writeSyntheticReport } from '../tests/trading/syntheticRegression.ts';
 
-const { values } = parseArgs({ options: { suite: { type: 'string' }, 'output-dir': { type: 'string' } } });
+const { values } = parseArgs({ options: { target: { type: 'string', default: 'sandbox' }, suite: { type: 'string' }, 'output-dir': { type: 'string' } } });
+if (!['sandbox', 'mainnet'].includes(values.target)) throw new Error('--target must be sandbox or mainnet');
 if (!['sequential', 'independent'].includes(values.suite)) throw new Error('--suite must be sequential or independent');
 if (!values['output-dir']) throw new Error('--output-dir is required');
 const output = resolve(values['output-dir']), source = fileURLToPath(new URL('../', import.meta.url));
-const report = syntheticReport(values.suite, randomUUID(), new Date().toISOString());
+const report = syntheticReport(values.suite, randomUUID(), new Date().toISOString(), values.target);
 await writeSyntheticReport(output, report);
 const work = await mkdtemp(join(tmpdir(), 'cybergold-synthetic-ui-'));
 
@@ -43,7 +44,7 @@ async function freePort() {
 try {
   await copySyntheticSource(source, work);
   const fixture = parseEnv(await readFile(join(source, 'tests/fixtures/app.env'), 'utf8'));
-  const environment = syntheticEnvironment(process.env, fixture, work);
+  const environment = syntheticEnvironment(process.env, fixture, work, values.target);
   await command([join(work, 'node_modules/next/dist/bin/next'), 'build', '--webpack'], environment, 'synthetic-build');
   report.runnerDiagnostics.stage = 'synthetic-ui-tests';
   await writeSyntheticReport(output, report);

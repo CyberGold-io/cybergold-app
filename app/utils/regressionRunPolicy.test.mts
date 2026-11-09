@@ -41,8 +41,8 @@ for (const policy of ['diagnostic', 'full'] as const) test(`real browser observe
   } as unknown as Browser));
   const rows = await observeBrowserQuotes('https://fixture.invalid', protocolConfigurationFixture, {} as never,
     inventory, async result => { checkpoints++; snapshots.push(structuredClone([...result])); }, undefined, policy);
-  assert.equal(rows.length, 24); assert.deepEqual(rows.map(row => row.id), inventory.map(row => `ui-${row.id}`));
-  assert.equal(navigations, policy === 'diagnostic' ? 1 : 24); assert.equal(checkpoints, navigations);
+  assert.equal(rows.length, 30); assert.deepEqual(rows.map(row => row.id), inventory.map(row => `ui-${row.id}`));
+  assert.equal(navigations, policy === 'diagnostic' ? 1 : 30); assert.equal(checkpoints, navigations);
   assert.equal(closed, 2); assert.equal(rows[0].status, 'fail'); assert.equal(rows[0].code, 'unexpected-error');
   assert.ok(rows.every(row => row.executionAttempted === false && row.transactionDisposition === 'not-submitted'));
   if (policy === 'diagnostic') for (const row of rows.slice(1)) {
@@ -50,7 +50,7 @@ for (const policy of ['diagnostic', 'full'] as const) test(`real browser observe
     assert.equal(row.providers, undefined); assert.equal(row.durationMs, undefined);
   }
   else assert.ok(rows.every(row => row.status === 'fail' && row.durationMs !== undefined));
-  assert.equal(snapshots.at(-1)?.length, 24);
+  assert.equal(snapshots.at(-1)?.length, 30);
   assert.doesNotMatch(JSON.stringify(rows), /private-original/);
 });
 
@@ -101,8 +101,8 @@ globalThis.fetch = async url => new URL(url).pathname === '/en'
 }
 
 for (const [input, policy, navigations] of [
-  [{}, 'full', 24], [{ environment: 'diagnostic' }, 'diagnostic', 1],
-  [{ cli: 'full', environment: 'diagnostic' }, 'full', 24], [{ cli: 'diagnostic' }, 'diagnostic', 1],
+  [{}, 'full', 30], [{ environment: 'diagnostic' }, 'diagnostic', 1],
+  [{ cli: 'full', environment: 'diagnostic' }, 'full', 30], [{ cli: 'diagnostic' }, 'diagnostic', 1],
 ] as const) test(`actual quote CLI ${JSON.stringify(input)} preserves policy, completed progress and unexercised remainder`, () => {
   const { output, child } = runQuotePolicy(input);
   try {
@@ -111,7 +111,7 @@ for (const [input, policy, navigations] of [
     const report = JSON.parse(readFileSync(join(output, 'report.json'), 'utf8'));
     const checkpoint = JSON.parse(readFileSync(join(output, 'regression-ui.json'), 'utf8'));
     assert.equal(report.runPolicy, policy); assert.equal(checkpoint.runPolicy, policy);
-    assert.equal(report.scenarios.length, 24); assert.deepEqual(report.scenarios, checkpoint.scenarios);
+    assert.equal(report.scenarios.length, 30); assert.deepEqual(report.scenarios, checkpoint.scenarios);
     const completed = report.scenarios.slice(0, navigations).map((row: ScenarioResult) => row.id);
     assert.deepEqual(report.progress, { completedScenarioIds: completed });
     assert.deepEqual(checkpoint.progress, report.progress);
@@ -167,7 +167,7 @@ childProcess.spawn=(executable,args,options)=>{
     assert.equal(child.status, 1, child.stderr);
     assert.deepEqual(JSON.parse(readFileSync(join(output, 'children.json'), 'utf8')), ['python3', 'diagnostic']);
     const report = JSON.parse(readFileSync(join(output, 'report.json'), 'utf8'));
-    assert.equal(report.runPolicy, 'diagnostic'); assert.equal(report.scenarios.length, 24);
+    assert.equal(report.runPolicy, 'diagnostic'); assert.equal(report.scenarios.length, 30);
     assert.deepEqual(report.progress, { completedScenarioIds: [report.scenarios[0].id] });
     assert.deepEqual(report.diagnosticStop, { scenarioId: report.scenarios[0].id, role: 'winner' });
     assert.ok(report.scenarios.slice(1).every((row: ScenarioResult) => row.code === 'not-exercised' && row.providers === undefined));
