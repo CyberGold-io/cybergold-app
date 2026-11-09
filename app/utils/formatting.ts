@@ -1,7 +1,6 @@
 import { formatUnits } from "viem";
 
 const DEFAULT_DECIMAL_SEPARATOR = ".";
-const GROUP_SEPARATOR = " ";
 const GRAMS_PER_TROY_OUNCE = 31.1034768;
 const SUBSCRIPT_DIGITS = ["₀", "₁", "₂", "₃", "₄", "₅", "₆", "₇", "₈", "₉"];
 
@@ -23,6 +22,7 @@ type NumberFormatOptions = {
 
 const NUMERIC_PART_TYPES = new Set(["integer", "fraction", "decimal", "group"]);
 const decimalSeparators = new Map<string, string>();
+const groupSeparators = new Map<string, string>();
 const numberFormatters = new Map<string, Intl.NumberFormat>();
 
 function numberFormatter(locale: string, options?: Intl.NumberFormatOptions) {
@@ -54,6 +54,25 @@ export function getLocaleDecimalSeparator(locale: string) {
   } catch {
     return DEFAULT_DECIMAL_SEPARATOR;
   }
+}
+
+export function getLocaleGroupSeparator(locale: string) {
+  const cached = groupSeparators.get(locale);
+  if (cached !== undefined) return cached;
+  const separator = numberFormatter(locale).formatToParts(12345)
+    .find(part => part.type === "group")?.value ?? "";
+  groupSeparators.set(locale, separator);
+  return separator;
+}
+
+// Display strings have known locale punctuation; canonical strings use a dot.
+export function ungroupLocalizedNumber(value: string, locale = "en") {
+  const group = getLocaleGroupSeparator(locale);
+  return (group ? value.split(group).join("") : value).replace(/[\s'’]/g, "");
+}
+
+export function canonicalizeLocalizedNumberString(value: string, locale = "en") {
+  return canonicalizeNumberString(ungroupLocalizedNumber(value, locale), locale);
 }
 
 export function canonicalizeNumberString(
@@ -119,7 +138,7 @@ function formatCanonicalNumberString(
   const [integerPartRaw = "0", fractionalPart = ""] = unsigned.split(".");
   const groupedIntegerPart = integerPartRaw.replace(
     /\B(?=(\d{3})+(?!\d))/g,
-    GROUP_SEPARATOR
+    getLocaleGroupSeparator(locale)
   );
   const sign = negative ? "-" : "";
 
@@ -238,8 +257,8 @@ export const truncateDecimalString = (value: string, fractionDigits: number) => 
   return truncatedFraction ? `${integerPart}.${truncatedFraction}` : integerPart;
 };
 
-// Add spaces as thousands separators while preserving the decimal part.
-// The grouping separator stays a regular space, while the decimal separator follows the locale.
+// Format a canonical decimal string with locale grouping without losing precision.
+// Retain the historical export name for existing display consumers.
 export const formatNumberWithSpaces = (value: number | string, locale = "en") => {
   const { canonical, trailingDecimal } = canonicalizeNumberString(value, locale);
   return formatCanonicalNumberString(canonical, locale, trailingDecimal);
@@ -382,10 +401,18 @@ export const formatDecimalInputForCursor = (
   const prefix =
     selectionStart === undefined || selectionStart === null
       ? normalized
-      : normalizeDecimalInput(value.slice(0, selectionStart), locale);
+      : canonicalizeNumberString(value.slice(0, selectionStart), locale).canonical;
+
+  let remaining = prefix.length;
+  let caret = 0;
+  const group = getLocaleGroupSeparator(locale);
+  while (caret < normalized.length && remaining > 0) {
+    if (group && normalized.startsWith(group, caret)) caret += group.length;
+    else { caret += 1; remaining -= 1; }
+  }
 
   return {
     value: normalized,
-    selectionStart: Math.min(prefix.length, normalized.length),
+    selectionStart: caret,
   };
 };

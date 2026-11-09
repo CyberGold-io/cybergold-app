@@ -10,6 +10,17 @@ canonical_for: App Playwright and Synpress end-to-end test operation
 
 # App browser regression tests
 
+## Numeric input editing
+
+`e2e/number-input.spec.ts` covers the main amount and basket inputs. Grouping
+stays visible in the selected language, while cursor movement, deletion and
+copy/cut operate on editable number characters. Decimal punctuation remains
+editable; typing either a comma or a point enters the locale decimal separator.
+Paste interprets locale grouping (`1,234` in English means `1234`), and accepts
+unambiguous decimal/group combinations from another language. Copy retains the
+locale decimal separator and omits grouping. Tests check the submitted quote
+amount, fractional zeros, full integer precision, language switching and reload.
+
 ## Regular server regression profiles
 
 The regular `sandbox-execution`, `sandbox-independent-execution` and single

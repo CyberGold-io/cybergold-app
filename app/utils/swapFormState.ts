@@ -5,6 +5,7 @@ const SWAP_FORM_SESSION_STORAGE_KEY = "cg:swap-form-state:v1";
 export type PersistedSwapFormState = {
   showOnlyWalletTokens?: boolean;
   sellAmount?: string;
+  amountLocale?: string;
   sellTokenId?: string;
   buyTokenId?: string;
   driverToken?: Address;
@@ -28,6 +29,7 @@ export function normalizePersistedSwapFormState(
       : undefined;
 
   return {
+    ...(typeof record.amountLocale === "string" ? { amountLocale: record.amountLocale } : {}),
     showOnlyWalletTokens:
       typeof record.showOnlyWalletTokens === "boolean"
         ? record.showOnlyWalletTokens

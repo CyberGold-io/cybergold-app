@@ -448,7 +448,7 @@ test("cached recovery and liquidity figures survive reload with disabled redempt
   await expect(page.getByText("20 recovery shares", { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Redeem recovery shares" })).toBeEnabled();
   const total = page.getByTestId("liquidity-collapsed-value");
-  await expect(total).toContainText("4 725.29");
+  await expect(total).toContainText("4,725.29");
   const before = await total.innerText();
   await expect.poll(() => page.evaluate(({ chain, holder }) => {
     const prefix = `cybergold:wallet-display:v1:${chain}:${holder}:`;
@@ -747,8 +747,8 @@ test("liquidity loads with the wallet, aligns its collapsed total and reuses tok
   await openBalances(page);
   const trigger = page.getByRole("button", { name: /Liquidity Positions/ });
   await expect(trigger).toHaveAttribute("aria-expanded", "false");
-  await expect(page.getByTestId("liquidity-collapsed-value")).toContainText("4 725.29");
-  await expect(page.getByTestId("wallet-balance-value-paxg")).toContainText("3 725.29");
+  await expect(page.getByTestId("liquidity-collapsed-value")).toContainText("4,725.29");
+  await expect(page.getByTestId("wallet-balance-value-paxg")).toContainText("3,725.29");
   expect(reads).toBeGreaterThan(0);
   const initialReads = reads;
   const lpValue = await page.getByTestId("liquidity-collapsed-value").boundingBox();
@@ -757,18 +757,18 @@ test("liquidity loads with the wallet, aligns its collapsed total and reuses tok
   await page.getByTestId("wallet-balance-modal").screenshot({ path: "out/liquidity-positions-compact.png", animations: "disabled" });
   await trigger.click();
   await expect(page.getByTestId("liquidity-provider-panel")).toContainText("2 positions");
-  await expect(page.getByTestId("liquidity-fiat-value")).toContainText("4 725.29");
+  await expect(page.getByTestId("liquidity-fiat-value")).toContainText("4,725.29");
   await expect(page.getByTestId("liquidity-gold-value")).toContainText("47.25 g");
   const settings = await openNavbarSettings(page, "currency");
   await settings.getByRole("button", { name: "EUR", exact: true }).click();
-  await expect(page.getByTestId("liquidity-fiat-value")).toContainText("4 252.76");
+  await expect(page.getByTestId("liquidity-fiat-value")).toContainText("4,252.76");
   await openNavbarSettings(page, "goldUnit");
   await settings.getByRole("button", { name: "Imperial (ozt)", exact: true }).click();
   await expect(page.getByTestId("liquidity-gold-value")).toContainText("1.52 troy oz");
   await expect(page.getByTestId("liquidity-collapsed-value")).toContainText("1.52 troy oz");
   await expect(page.getByTestId("liquidity-provider-panel")).not.toContainText("gold reference");
   await expect(page.getByTestId("liquidity-provider-panel")).not.toContainText("excludes unclaimed fees");
-  await expect(page.getByTestId("liquidity-fiat-value")).toContainText("4 252.76");
+  await expect(page.getByTestId("liquidity-fiat-value")).toContainText("4,252.76");
   await expect(page.getByRole("link", { name: "See my positions" })).toHaveAttribute("href", "https://app.uniswap.org/positions");
   const addUrl = new URL((await page.getByRole("link", { name: "Add liquidity" }).getAttribute("href"))!);
   expect(addUrl.pathname).toBe("/positions/add/ethereum/0x33fd4629a4e190b9a98a8a3758afb7a2639eb740088a04bd4d3016e3ac9d55a4");
@@ -817,7 +817,7 @@ test("liquidity quantities switch to the new wallet without retaining the previo
   await page.goto("/en");
   await openBalances(page);
   await page.getByRole("button", { name: /Liquidity Positions/ }).click();
-  await expect(page.getByTestId("liquidity-fiat-value")).toContainText("4 725.29");
+  await expect(page.getByTestId("liquidity-fiat-value")).toContainText("4,725.29");
   await page.evaluate(account => {
     (window as unknown as { __switchRecoveryTestAccount: (value: string) => void }).__switchRecoveryTestAccount(account);
   }, BOB);
@@ -834,7 +834,7 @@ test("liquidity panel fits a mobile wallet and keeps both Uniswap actions reacha
   await page.goto("/en");
   await openBalances(page);
   await page.getByRole("button", { name: /Liquidity Positions/ }).click();
-  await expect(page.getByTestId("liquidity-fiat-value")).toContainText("4 725.29");
+  await expect(page.getByTestId("liquidity-fiat-value")).toContainText("4,725.29");
   await expect(page.getByRole("link", { name: "Add liquidity" })).toBeVisible();
   const panel = page.getByTestId("liquidity-provider-panel");
   expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
@@ -843,7 +843,7 @@ test("liquidity panel fits a mobile wallet and keeps both Uniswap actions reacha
   }
   await page.screenshot({ path: "out/liquidity-positions-mobile-expanded.png", fullPage: true });
   await page.getByRole("button", { name: /Liquidity Positions/ }).click();
-  await expect(page.getByTestId("liquidity-collapsed-value")).toContainText("4 725.29");
+  await expect(page.getByTestId("liquidity-collapsed-value")).toContainText("4,725.29");
   expect(await panel.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
   await page.screenshot({ path: "out/liquidity-positions-mobile-compact.png", fullPage: true, animations: "disabled" });
 });

@@ -37,7 +37,7 @@ test("deriveBasketComponentsAmountsFromSingleInput parses localized driver amoun
   const result = deriveBasketComponentsAmountsFromSingleInput(
     basketComponents,
     "0x45804880De22913dAFE09f4980848ECE6EcbAf78",
-    "12 345,67",
+    "12\u202f345,67",
     undefined,
     "fr"
   );
@@ -64,11 +64,11 @@ test("basketAmountsMapToStringMap formats localized decimal output", () => {
 
   assert.equal(
     result["0x45804880De22913dAFE09f4980848ECE6EcbAf78"],
-    "12 345,67"
+    "12\u202f345,67"
   );
   assert.equal(
     result["0x68749665FF8D2d112Fa859AA293F07A622782F38"],
-    "8 230,446666"
+    "8\u202f230,446666"
   );
 });
 
