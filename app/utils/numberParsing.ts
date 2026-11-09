@@ -1,5 +1,5 @@
 import { parseUnits } from "viem";
-import { canonicalizeNumberString } from "./formatting.ts";
+import { canonicalizeLocalizedNumberString } from "./formatting.ts";
 
 export function parseInputToBigInt(
   input: string,
@@ -7,7 +7,7 @@ export function parseInputToBigInt(
   locale = "en"
 ): bigint | undefined {
   if (decimals === undefined) return undefined;
-  const normalized = canonicalizeNumberString(input, locale).canonical.replace(/\.$/, "");
+  const normalized = canonicalizeLocalizedNumberString(input, locale).canonical.replace(/\.$/, "");
   if (!normalized.trim()) return undefined;
   try {
     return parseUnits(normalized, decimals);
@@ -17,7 +17,7 @@ export function parseInputToBigInt(
 }
 
 export function parseDisplayNumber(input: string, locale = "en"): number | undefined {
-  const normalized = canonicalizeNumberString(input, locale).canonical.replace(/\.$/, "");
+  const normalized = canonicalizeLocalizedNumberString(input, locale).canonical.replace(/\.$/, "");
   if (!normalized.trim()) return undefined;
   const parsed = Number(normalized);
   return Number.isFinite(parsed) ? parsed : undefined;

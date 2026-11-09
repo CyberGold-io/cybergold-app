@@ -1,4 +1,5 @@
 import type { BasketComponent } from "../types";
+import { formatNumberWithSpaces } from "./formatting.ts";
 import { parseDisplayNumber } from "./numberParsing.ts";
 
 export function computeBasketComponentsUsdTotal(params: {
@@ -60,7 +61,7 @@ export function computeBasketSideUsdTotal(params: {
 
       return isSideInputEnabled
         ? (isDriver ? driverAmountStr : derivedValue)
-        : (quotedComponents[index] ?? "");
+        : formatNumberWithSpaces(quotedComponents[index] ?? "", locale);
     },
   });
 }

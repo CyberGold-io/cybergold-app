@@ -16,9 +16,9 @@ export type UiWalletEvidence = { inputBefore: string[]; inputAfter: string[]; ou
 export type ActualUiAmount = { type: UiAmount["type"]; token: string; amount: bigint };
 
 const subscripts = "₀₁₂₃₄₅₆₇₈₉";
-/** The tests visit /en; whitespace is grouping and compact subscript zeros are displayed precision. */
+/** The tests visit /en; commas and whitespace are grouping and compact subscript zeros are displayed precision. */
 export function displayedAmount(text: string, decimals: number, quoted: boolean): Pick<UiAmount, "amount" | "roundingUnit" | "rounding"> {
-  let canonical = text.replace(/\s/g, "");
+  let canonical = text.replace(/[\s,]/g, "");
   const compact = canonical.match(/^0\.0([₀₁₂₃₄₅₆₇₈₉]+)(\d+)$/);
   if (compact) {
     const zeros = Number([...compact[1]].map(value => subscripts.indexOf(value)).join(""));

@@ -263,7 +263,7 @@ test("catalog pool identities price wallet assets without singleton balances and
   });
   await page.goto("/en");
   await page.getByRole("button", { name: "Open wallet menu" }).click();
-  await expect(page.getByTestId("wallet-balance-value-paxg")).toHaveText("~ $2 000.00");
+  await expect(page.getByTestId("wallet-balance-value-paxg")).toHaveText("~ $2,000.00");
   await expect.poll(() => [...new Set(acquired.map(request => request.poolId))].sort())
     .toEqual(entries.map(pool => pool.id).sort());
   for (const pool of entries) expect(acquired).toContainEqual(expect.objectContaining({ poolId: pool.id,

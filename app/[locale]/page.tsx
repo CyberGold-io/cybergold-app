@@ -77,7 +77,7 @@ import {
   Prefill,
 } from "../types";
 import { formatUnits, formatEther, isAddress, zeroAddress, type Address, type Hex } from "viem";
-import { formatMeaningfulDecimalString, normalizeDecimalInput, formatNumberWithSpaces, formatWalletBalanceAmount, formatAmount, formatPpmAsPercent, truncateDecimalString, formatDecimalInputForCursor, getLocaleDecimalSeparator } from "../utils/formatting";
+import { formatMeaningfulDecimalString, normalizeDecimalInput, formatNumberWithSpaces, formatWalletBalanceAmount, formatAmount, formatPpmAsPercent, truncateDecimalString, canonicalizeLocalizedNumberString, getLocaleDecimalSeparator } from "../utils/formatting";
 import { useHelperFeePpm } from "../hooks/cybergold-helpers/useHelperFeePpm";
 import { useIssuanceFeePpm } from "../hooks/cybergold/useIssuanceFeePpm";
 import { useProtocolFact, useProtocolFacts } from "../hooks/protocol/useProtocolFacts";
@@ -85,6 +85,7 @@ import { issuanceModelFromFacts } from "../utils/protocolFacts";
 import { GAS_POLICY, DEFAULT_SLIPPAGE_BPS } from "../utils/swapPolicy";
 import { deriveBasketComponentsAmountsFromSingleInput, proportionalBasketWalletMax } from "../utils/basketAmounts";
 import { basketAmountsMapToOrderedBigIntArray, basketAmountsMapToStringMap } from "../utils/basketAmounts";
+import { LocalizedNumberInput } from "../components/localizedNumberInput";
 import { parseDisplayNumber, parseInputToBigInt } from "../utils/numberParsing";
 import { buildBasketFromProtocolData } from "../utils/buildBasketFromProtocolData";
 import { getEtherscanBaseUrl } from "../utils/getEtherscanBaseUrl";
@@ -308,28 +309,6 @@ function TradingScreen() {
   const { data: walletClient } = useWalletClient();
   const walletAtomic = useWalletAtomicStatus(walletClient, isConnected ? address : undefined);
   const { openConnectModal } = useConnectModal();
-
-  const applyLocalizedInputValue = useCallback(
-    (
-      input: HTMLInputElement,
-      rawValue: string,
-      setter: (value: string) => void
-    ) => {
-      const { value, selectionStart } = formatDecimalInputForCursor(
-        rawValue,
-        locale,
-        input.selectionStart
-      );
-      setter(value);
-      // Restore the caret after React applies the localized input value.
-      requestAnimationFrame(() => {
-        if (document.activeElement === input) {
-          input.setSelectionRange(selectionStart, selectionStart);
-        }
-      });
-    },
-    [locale]
-  );
 
   const { importedTokens, importToken } = useImportedTokens();
   const allTokens = useMemo(() => [...tokens, ...importedTokens], [tokens, importedTokens]);
@@ -555,10 +534,10 @@ function TradingScreen() {
       if (driver) setDriverToken(driver);
       setBasketMaxAmounts(undefined);
       setDriverAmountRawOverride(undefined);
-      setDriverAmountStr(normalizeDecimalInput(value, locale));
+      setDriverAmountStr(normalizeDecimalInput(canonicalizeLocalizedNumberString(value, locale).canonical, locale));
     } else {
       setSellAmountRawOverride(undefined);
-      setSellAmount(normalizeDecimalInput(value, locale));
+      setSellAmount(normalizeDecimalInput(canonicalizeLocalizedNumberString(value, locale).canonical, locale));
     }
   }), [locale]);
 
@@ -590,11 +569,15 @@ function TradingScreen() {
       setSellTokenId(persistedSwapFormState.sellTokenId || defaultSellTokenId);
       setBuyTokenId(persistedSwapFormState.buyTokenId ?? cygldTokenId);
       setSellAmount(
-        normalizeDecimalInput(persistedSwapFormState.sellAmount ?? "", locale)
+        normalizeDecimalInput(persistedSwapFormState.amountLocale
+          ? canonicalizeLocalizedNumberString(persistedSwapFormState.sellAmount ?? "", persistedSwapFormState.amountLocale).canonical
+          : persistedSwapFormState.sellAmount ?? "", locale)
       );
       setDriverToken(persistedSwapFormState.driverToken);
       setDriverAmountStr(
-        normalizeDecimalInput(persistedSwapFormState.driverAmountStr ?? "", locale)
+        normalizeDecimalInput(persistedSwapFormState.amountLocale
+          ? canonicalizeLocalizedNumberString(persistedSwapFormState.driverAmountStr ?? "", persistedSwapFormState.amountLocale).canonical
+          : persistedSwapFormState.driverAmountStr ?? "", locale)
       );
     }
 
@@ -631,6 +614,7 @@ function TradingScreen() {
     const persistedDriver = basketComponents.find(component => component.token.address === driverToken);
     return {
       showOnlyWalletTokens,
+      amountLocale: locale,
       sellAmount: sellAmountRawOverride !== undefined && isNativeOrErc20Token(sellToken)
         ? formatUnits(sellAmountRawOverride, sellToken.decimals).replace(".", getLocaleDecimalSeparator(locale)) : sellAmount,
       sellTokenId,
@@ -1340,8 +1324,8 @@ const computedReceiveQuote = useMemo((): Prefill => {
     const amount = await getSpendableInputForMax();
     if (amount === undefined || request !== sellMaxRequestRef.current) return;
     setSellAmountRawOverride(amount);
-    setSellAmount(truncateDecimalString(formatUnits(amount, sellToken.decimals), 3));
-  }, [canUseSellMax, sellToken, getSpendableInputForMax]);
+    setSellAmount(normalizeDecimalInput(truncateDecimalString(formatUnits(amount, sellToken.decimals), 3), locale));
+  }, [canUseSellMax, sellToken, getSpendableInputForMax, locale]);
 
   const handleSetBasketSellMax = useCallback(async () => {
     if (!canUseBasketSellMax || !basketWalletMax) return;
@@ -1358,8 +1342,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
       setDriverToken(basketWalletMax.driverToken);
       setDriverAmountRawOverride(amount);
       setBasketMaxAmounts(maximum);
-      setDriverAmountStr(truncateDecimalString(formatUnits(amount, driver.token.decimals), 3)
-        .replace(".", getLocaleDecimalSeparator(locale)));
+      setDriverAmountStr(normalizeDecimalInput(truncateDecimalString(formatUnits(amount, driver.token.decimals), 3), locale));
     } catch (error) {
       if (controller.signal.aborted || request !== basketMaxRequestRef.current) return;
       toast.error(t("quoteFailed"), { description: quoteErrorMessage(error instanceof Error ? error : new Error(), t) });
@@ -2337,7 +2320,7 @@ const computedReceiveQuote = useMemo((): Prefill => {
                   </button>
 
                   <div data-trade-single="sell" hidden={showSellBasket}>
-                  <input
+                  <LocalizedNumberInput
                     ref={mainSellInputRef}
                     id="sell-amount"
                     data-trade-display="sellAmount"
@@ -2363,14 +2346,10 @@ const computedReceiveQuote = useMemo((): Prefill => {
                     min={0}
                     placeholder={sellAmountPlaceholderText}
                     onClick={() => { if (!sellTokenId) { setIsBuyModalOpen(false); setIsSellModalOpen(true); } }}
-                    onChange={(event) => {
+                    onValueChange={(value) => {
                       if (!sellTokenId) { setIsBuyModalOpen(false); setIsSellModalOpen(true); }
                       setSellAmountRawOverride(undefined);
-                      applyLocalizedInputValue(
-                        event.currentTarget,
-                        event.currentTarget.value,
-                        setSellAmount
-                      );
+                      setSellAmount(value);
                     }}
                   />
                   </div>
@@ -2510,10 +2489,10 @@ const computedReceiveQuote = useMemo((): Prefill => {
                 const input = event.currentTarget;
                 if (input.dataset.tradeHandoffFocus === undefined) requestAnimationFrame(() => { if (document.activeElement === input) input.select(); });
               }}
-              onChange={event => {
+              onValueChange={value => {
                 setBasketMaxAmounts(undefined); setDriverAmountRawOverride(undefined);
                 if (driverToken !== row.address) setDriverToken(row.address as Address);
-                applyLocalizedInputValue(event.currentTarget, event.currentTarget.value, setDriverAmountStr);
+                setDriverAmountStr(value);
               }} />)}
           </div>
         </div>
