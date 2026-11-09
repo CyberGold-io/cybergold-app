@@ -70,7 +70,7 @@ test("owned holder transfer uses the larger of manifest collateral and the exact
   assert.equal(ownedPaxgStartupFunding("0", { ...plan, requiredPaxgRaw: wide }).transferAmount, wide);
 });
 
-test("initial buffer preserves all24 frozen cases and order without subtracting prospective buy credits", () => {
+test("initial buffer preserves all30 frozen cases and order without subtracting prospective buy credits", () => {
   const frozen = activeMatrixTemplates().map((row, index) => ({ ...row,
     amountRaw: String(BigInt(index + 1) * unit), valuationId: valuation.id,
     ...(row.asset === "BASKET" ? { basketAssets: [tokenAddresses.USDC, tokenAddresses.PAXG],
@@ -78,7 +78,7 @@ test("initial buffer preserves all24 frozen cases and order without subtracting 
   })) as MatrixScenario[];
   const original = structuredClone(frozen);
   const { plan } = runnerFundingPlan(config, valuation, frozen, "sequential");
-  assert.equal(frozen.length, 24); assert.deepEqual(frozen, original);
+  assert.equal(frozen.length, 30); assert.deepEqual(frozen, original);
   assert.equal(plan.valuationId, valuation.id);
   const redemptions = frozen.filter(row => row.side === "sell");
   assert.deepEqual(plan.redemptionBudgets, redemptions.map(row => ({ scenarioId: row.id, amountRaw: row.amountRaw })));

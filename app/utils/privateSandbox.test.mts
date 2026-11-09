@@ -25,8 +25,8 @@ test('private phases keep the sequential matrix and select one independent scena
   assert.equal(privateSandboxPhase('prepare'), 'prepare');
   assert.throws(() => privateSandboxPhase('reset-shared-chain'), /private-sandbox-phase-invalid/);
   const frozen = structuredClone(matrix);
-  assert.equal(privateSandboxScenarios(matrix, undefined).length, 24);
-  assert.equal(privateSandboxScenarios(matrix, 'prepare').length, 24);
+  assert.equal(privateSandboxScenarios(matrix, undefined).length, 30);
+  assert.equal(privateSandboxScenarios(matrix, 'prepare').length, 30);
   assert.ok(matrix.every(scenario => scenario.inputMode === 'exact-in'));
   assert.deepEqual(privateSandboxScenarios(matrix, 'winner', `ui-${matrix[4].id}`), [matrix[4]]);
   assert.deepEqual(privateSandboxScenarios(matrix, 'alternate', matrix[4].id), [matrix[4]]);

@@ -1,5 +1,5 @@
 import { encodeAbiParameters, parseAbiParameters, zeroAddress, type Hex } from "viem";
-import { protocolAddresses, tokenAddresses } from "../../fixtures/protocol-configuration";
+import { fixtureChainId, protocolAddresses, tokenAddresses } from "../../fixtures/protocol-configuration";
 import type { UniversalExactInputQuote, UniversalExactInputRequest, WireRetainedInputCharge } from "../../../app/utils/universalExactInput";
 import type { TradeQuoteRequest } from "../../../app/utils/tradeQuote";
 
@@ -60,7 +60,7 @@ export function universalFixture(request: UniversalExactInputRequest, options: U
     inputs:request.inputs.map(row=>({...row})),...(request.intent===2?{}:{quotedInput:String(input),inputMaximum:String(input)}),quotedOutput:quoted,outputMinimum:scalarMinimum,
     estimatedRetainedInputCharges:(options.retainedInputs??[]).map(row=>({...row,branch:Number(row.branch),stage:Number(row.stage)})),estimatedRecipientOutputs:outputs,recoveryShares:recovery,fees,
     deployment:{helpers:protocolAddresses.helpers!,adapter:options.adapter??protocolAddresses.adapter!,encoding:"uniswap-routing-v1"},
-    context:options.context??{chainId:31337,blockNumber:"100",blockHash:`0x${"a".repeat(64)}`,observedAt:"2026-10-01T00:00:00Z"},
+    context:options.context??{chainId:fixtureChainId,blockNumber:"100",blockHash:`0x${"a".repeat(64)}`,observedAt:"2026-10-01T00:00:00Z"},
     planDescription:{},retentionDisclosure:{custodian:protocolAddresses.helpers!,beneficiary:"helpers-owner-at-settlement"},
     searchCoverage:{coreSharesPercent:[0,25,50,75,100],orders:["core-first","market-first"],maxCoreInvocations:1,maxAmmHops:3,scope:"selected-inventory"}};
 }

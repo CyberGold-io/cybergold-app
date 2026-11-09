@@ -627,7 +627,7 @@ for (const mode of ["nonaborted-abort-error", "qualified-eof"] as const)
     assert.doesNotMatch(JSON.stringify(result), /private transport detail/);
   });
 
-test("a quote runner startup failure retains all24 stable unavailable scenario rows", () => {
+test("a quote runner startup failure retains all30 stable unavailable scenario rows", () => {
   const output = mkdtempSync(join(tmpdir(), "cybergold-trade-regression-"));
   const env = { ...process.env }; delete env.APP_BASE_URL;
   try {
@@ -636,11 +636,11 @@ test("a quote runner startup failure retains all24 stable unavailable scenario r
     assert.equal(child.status, 1);
     const report = JSON.parse(readFileSync(join(output, "report.json"), "utf8"));
     assert.equal(report.runnerCode, "app-origin-unavailable");
-    assert.equal(report.scenarios.length, 24);
-    assert.equal(new Set(report.scenarios.map((row: { id: string }) => row.id)).size, 24);
+    assert.equal(report.scenarios.length, 30);
+    assert.equal(new Set(report.scenarios.map((row: { id: string }) => row.id)).size, 30);
     assert.equal(report.scenarios.filter((row: { layer: string }) => row.layer === "api").length, 0);
-    assert.equal(report.scenarios.filter((row: { layer: string }) => row.layer === "browser").length, 24);
-    assert.deepEqual(report.matrix, { scenarioCount: 24, providerAssessmentCount: 48, maximumTradeExecutions: 48 });
+    assert.equal(report.scenarios.filter((row: { layer: string }) => row.layer === "browser").length, 30);
+    assert.deepEqual(report.matrix, { scenarioCount: 30, providerAssessmentCount: 60, maximumTradeExecutions: 60 });
     assert.ok(report.scenarios.every((row: { inputMode: string }) => row.inputMode === "exact-in"));
     assert.ok(report.scenarios.every((row: { status: string; code: string }) => row.status === "unavailable" && row.code === "app-origin-unavailable"));
   } finally { rmSync(output, { recursive: true, force: true }); }
@@ -664,7 +664,7 @@ test("an explicitly named exact-out diagnostic keeps its own API row when startu
   } finally { rmSync(output, { recursive: true, force: true }); }
 });
 
-test("a served protocol-facts timeout fails required startup observations for all24 paths", () => {
+test("a served protocol-facts timeout fails required startup observations for all30 paths", () => {
   const output = mkdtempSync(join(tmpdir(), "cybergold-trade-regression-"));
   const requestId = "e9eb96b2-8ecf-429d-9e08-244f43257e8e";
   const correlationId = "eb3e6932-a2af-4303-a09e-35831f864a1d";
@@ -676,7 +676,7 @@ test("a served protocol-facts timeout fails required startup observations for al
     assert.equal(child.status, 1);
     const report = JSON.parse(readFileSync(join(output, "report.json"), "utf8"));
     assert.equal(report.runnerOutcome, "fail"); assert.equal(report.runnerCode, "rpc-timeout");
-    assert.equal(report.scenarios.length, 24);
+    assert.equal(report.scenarios.length, 30);
     assert.ok(report.scenarios.every((row: { status: string; code: string; refs: unknown }) => row.status === "fail" && row.code === "rpc-timeout"));
     assert.deepEqual(report.scenarios[0].refs, { requestId, correlationId });
     assert.doesNotMatch(JSON.stringify(report), /private-provider-token/);
@@ -739,10 +739,10 @@ test("removed public Sandbox execution cannot fetch, fund or launch a wallet chi
   } finally { rmSync(output, { recursive: true, force: true }); }
 });
 
-test("owned qualifier report retains all24 UI cases and its frozen valuation without public reads", () => {
+test("owned qualifier report retains all30 UI cases and its frozen valuation without public reads", () => {
   const ui = ownedSuiteReport(), { exitCode, report } = runOwnedRunnerFixture({ ui });
   assert.equal(exitCode, 0); assert.equal(report.runnerOutcome, "pass");
-  assert.equal(report.scenarios.length, 24); assert.deepEqual(report.valuation, ui.valuation);
+  assert.equal(report.scenarios.length, 30); assert.deepEqual(report.valuation, ui.valuation);
   assert.deepEqual(report.scenarios.map((row: { id: string }) => row.id), ui.scenarios.map(row => row.id));
 });
 
@@ -756,12 +756,12 @@ test("owned qualifier observations retain exact source revisions and prepared an
   assert.doesNotMatch(JSON.stringify(report), /private-rpc/);
 });
 
-test("missing owned execution reports keep all24 cases unattempted after child failure or signal", () => {
+test("missing owned execution reports keep all30 cases unattempted after child failure or signal", () => {
   for (const result of [{ exitCode: 1 }, { signal: "SIGTERM" }]) {
     const { exitCode, report } = runOwnedRunnerFixture(result);
     assert.equal(exitCode, 1); assert.equal(report.runnerCode, "ui-results-unavailable");
     assert.equal(report.runnerDiagnostics.stage, "ui-report");
-    assert.equal(report.scenarios.length, 24);
+    assert.equal(report.scenarios.length, 30);
     assert.ok(report.scenarios.every((row: { executionAttempted: boolean; transactionDisposition: string }) =>
       row.executionAttempted === false && row.transactionDisposition === "not-submitted"));
     assert.equal(report.runnerDiagnostics.signal, result.signal);
@@ -774,7 +774,7 @@ test("owned child failure preserves its confirmed receipt and remaining unstarte
   for (const row of ui.scenarios.slice(1)) Object.assign(row, { status: "unavailable", code: "not-exercised" });
   const { exitCode, report } = runOwnedRunnerFixture({ exitCode: 1, ui });
   assert.equal(exitCode, 1); assert.equal(report.runnerCode, "fork-qualification-failed");
-  assert.equal(report.scenarios.length, 24); assert.equal(report.scenarios[0].transactionHash, hash);
+  assert.equal(report.scenarios.length, 30); assert.equal(report.scenarios[0].transactionHash, hash);
   assert.deepEqual(report.scenarios[0].receipt, { transactionHash: hash, amountOut: "90" });
 });
 
@@ -790,7 +790,7 @@ test("owned native startup diagnostics retain only safe fields", () => {
 
 test("optional malformed diagnostics cannot reject owned native execution reports", () => {
   const { exitCode, report } = runOwnedRunnerFixture({ ui: ownedSuiteReport(), walletDiagnosticText: "invalid optional json" });
-  assert.equal(exitCode, 0); assert.equal(report.runnerOutcome, "pass"); assert.equal(report.scenarios.length, 24);
+  assert.equal(exitCode, 0); assert.equal(report.runnerOutcome, "pass"); assert.equal(report.scenarios.length, 30);
 });
 
 test("owned command spawn failure retains its safe system error without private prose", () => {

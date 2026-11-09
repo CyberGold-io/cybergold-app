@@ -73,7 +73,7 @@ export async function readValuation(config: ProtocolConfiguration, facts: Protoc
 
 /** Complete retained capability definitions, including deferred output intents. */
 export function matrixTemplates(): Scenario[] {
-  return (['PAXG', 'USDC', 'ETH', 'BASKET'] as const).flatMap(asset => (['buy', 'sell'] as const).flatMap(side =>
+  return (['PAXG', 'USDC', 'USDT', 'ETH', 'BASKET'] as const).flatMap(asset => (['buy', 'sell'] as const).flatMap(side =>
     (['exact-in', 'exact-out'] as const).flatMap(inputMode => Object.entries(tiers).map(([size]) => ({
       id: `core-${side === 'buy' ? 'issue' : 'redeem'}-${asset.toLowerCase()}-${inputMode}-${size}`,
       family: asset === 'BASKET' ? side === 'buy' ? 'issue-basket' as const : 'redeem-basket' as const : side === 'buy' ? 'issue-token' as const : 'redeem-token' as const,
