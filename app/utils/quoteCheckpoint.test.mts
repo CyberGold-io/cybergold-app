@@ -61,7 +61,7 @@ for (const target of ["sandbox", "mainnet"] as const) test(`${target} interrupte
     assert.equal(checkpoint.schema, "cybergold.trade-regression.v1");
     assert.equal(checkpoint.target, target); assert.equal(checkpoint.mode, "quotes");
     assert.deepEqual(checkpoint.scenarios, [completed]);
-    assert.equal(checkpoint.matrix.scenarioCount, 48); assert.equal(checkpoint.matrix.providerAssessmentCount, 96);
+    assert.equal(checkpoint.matrix.scenarioCount, 60); assert.equal(checkpoint.matrix.providerAssessmentCount, 120);
     assert.equal(checkpoint.runnerOutcome, "unavailable");
     assert.equal(checkpoint.finishedAt, undefined);
     assert.equal(checkpoint.runnerDiagnostics.stage, "ui-report");
@@ -70,14 +70,14 @@ for (const target of ["sandbox", "mainnet"] as const) test(`${target} interrupte
   } finally { rmSync(output, { recursive: true, force: true }); }
 });
 
-test("normal quote completion keeps the final48-case report separate from its incomplete checkpoint", () => {
+test("normal quote completion keeps the final60-capability-case report separate from its incomplete checkpoint", () => {
   const { output, child } = quoteRunner("sandbox", false);
   try {
     assert.equal(child.status, 0, child.stderr); assert.equal(child.signal, null);
     const final = JSON.parse(readFileSync(join(output, "report.json"), "utf8"));
     const checkpoint = JSON.parse(readFileSync(join(output, "regression-ui.json"), "utf8"));
     assert.equal(final.runnerOutcome, "pass"); assert.equal(final.runnerDiagnostics.stage, "complete");
-    assert.ok(final.finishedAt); assert.equal(final.scenarios.length, 48);
+    assert.ok(final.finishedAt); assert.equal(final.scenarios.length, 60);
     assert.deepEqual(final.scenarios, checkpoint.scenarios);
     assert.equal(checkpoint.runnerOutcome, "unavailable"); assert.equal(checkpoint.finishedAt, undefined);
   } finally { rmSync(output, { recursive: true, force: true }); }
