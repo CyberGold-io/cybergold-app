@@ -1,14 +1,14 @@
 {
   "repository": "CyberGold-io/cybergold-backend",
   "version": "0.1.0",
-  "commit": "67f4f0e6f6af5d70d8d14d13475cb5a30633fc5d",
+  "commit": "388b6da6e616dc603ea359cce890c1af2da6f23d",
   "files": {
     "http.d.ts": {
-      "sha256": "4a877e26f4da0246e609e72b609d9b8f67a1c7f6543e513834796288544d53fa"
+      "sha256": "4e71cf256e45f7bec0bed4c388cfd5ccc22a9bdde46519bf2acb5679ae36fc4f"
     },
     "openapi.json": {
-      "sha256": "3babbf54c7fa811b37f4d48f7a4b7064ede1e067d8494ee5d45288fb50d0acef"
+      "sha256": "54d7c0c52a4892623f47d7d1cb719a3d7fe8002d2631c2e5d2715effb71dd475"
     }
   },
-  "published": true
+  "published": false
 }
